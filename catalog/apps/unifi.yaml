@@ -1,0 +1,58 @@
+key: unifi
+display_name: Unifi Network Application
+description: Ubiquiti UniFi network controller — manage UniFi access points, switches, and gateways
+category: tools
+tier: 2
+
+image: lscr.io/linuxserver/unifi-network-application
+image_tag: latest
+linuxserver: true
+start_grace_s: 120
+
+ports:
+  web: 8443
+
+volumes:
+  config: /config
+
+companions:
+  - key: unifi-db
+    image: mongo:7
+    container_name: unifi-db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: unifi
+      MONGO_INITDB_ROOT_PASSWORD: unifi
+      MONGO_DBNAME: unifi
+    volumes:
+      - host: /var/lib/slop/unifi/mongodb
+        container: /data/db
+
+traefik:
+  enabled: true
+  subdomain: unifi
+
+health:
+  checks:
+    - name: api_reachable
+      type: http
+      path: /manage/account/login
+      port: 8443
+      expect_status: 200
+      interval: 30
+  self_heal:
+    - condition: api_reachable
+      action: restart
+      max_attempts: 3
+      cooldown: 60
+
+post_deploy:
+  - type: wait_healthy
+    timeout: 120
+  - type: api_ready
+    path: /manage/account/login
+    timeout: 180
+
+tags: [networking, ubiquiti, unifi, controller]
+links:
+  docs: https://help.ui.com/hc/en-us/categories/200320654
+  github: https://github.com/linuxserver/docker-unifi-network-application

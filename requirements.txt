@@ -1,0 +1,37 @@
+# SLOP — production dependencies
+# Policy: floor-only >= pins; upper caps only with a documented breakage reason.
+# Reproducibility comes from uv.lock (committed). Full rationale: installer/DEPENDENCIES.md
+# Install: pip install -r requirements.txt
+# Dev/testing deps: requirements-dev.txt
+
+# Web framework
+fastapi>=0.136.1
+uvicorn[standard]>=0.32.1
+python-multipart>=0.0.20
+
+# HTTP client (health checks, GGUF downloads)
+httpx>=0.28.1
+
+# Docker SDK
+docker>=7.1.0
+
+# Config / data
+pyyaml>=6.0.2
+
+# Pydantic — cap at <3: v3 removes v1-compat shims used by manifest validators.
+pydantic>=2.10.4,<3
+# bcrypt — floor only: v5 reviewed; hashpw+gensalt(rounds=10) API unchanged.
+# v5 change: passwords >72 bytes now raise ValueError (was silent truncation). Existing
+# exception handlers in wizard.py and api/platform.py cover this. No SLOP breakage.
+bcrypt>=4.0.0
+
+# Structured logging
+structlog>=24
+
+# Rate limiting
+slowapi>=0.1.9
+
+# Prometheus metrics — /metrics endpoint
+# v8.0.0 dropped the <1.0.0 Starlette pin → unblocks Starlette 1.0.x (native CVE-2026-48710 fix).
+prometheus-fastapi-instrumentator>=8.0.0
+prometheus-client>=0.25
