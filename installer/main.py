@@ -212,27 +212,35 @@ def run_install_pipeline(
         return False
 
     try:
+        print("[1/8] Installing system dependencies...", flush=True)
         deps_install(distro_info.distro)
         if _smoke_check("deps_install"):
             return 0
+        print("[2/8] Installing Docker...", flush=True)
         docker_install(consent_mode)
         if _smoke_check("docker_install"):
             return 0
+        print("[3/8] Creating install user...", flush=True)
         user_install()
         if _smoke_check("user_install"):
             return 0
+        print("[4/8] Setting up data directory...", flush=True)
         data_dir_install(data_dir_path)
         if _smoke_check("data_dir_install"):
             return 0
+        print("[5/8] Downloading SLOP...", flush=True)
         resolved_version = fetch_repo(install_dir_path, version_ref=version_ref)
         if _smoke_check("fetch_repo"):
             return 0
+        print("[6/8] Installing Python dependencies (this may take a minute)...", flush=True)
         backend_setup(install_dir_path)
         if _smoke_check("backend_setup"):
             return 0
+        print("[7/8] Building frontend...", flush=True)
         frontend_build(install_dir_path)
         if _smoke_check("frontend_build"):
             return 0
+        print("[8/8] Installing and starting service...", flush=True)
         service_install(install_dir_path, data_dir_path)
     except Exception as exc:
         print(
