@@ -61,8 +61,7 @@ re-evaluated the support matrix against current dependency requirements at any
 tier close. The assumption survived from project memory; no re-check happened
 until Step 3.3 forced one.
 
-This is the failure mode memory #22 (reality-check principle, 2026-05-16) exists
-to prevent: **every decision depending on assumptions about reality MUST be
+The rule of thumb here: **every decision depending on assumptions about reality MUST be
 verified against current evidence before work commits**. The Ubuntu 22.04 entry
 depended on assumptions about SQLite version availability and Python install
 paths; neither was verified against current upstream state at the start of v5.0.
@@ -160,8 +159,7 @@ Imposing a uniform "wait N days post-release" rule would either over-wait on
 Debian (where the signal is the release itself) or under-wait on Ubuntu (where
 the release is still settling). Following each family's own readiness signal
 respects each family's own model — and avoids importing churn that the upstream
-project itself has not yet de-risked. This is memory #22 applied to a recurring
-artifact: don't assume both families' release events mean the same thing; check
+project itself has not yet de-risked. The same principle applies: don't assume both families' release events mean the same thing; check
 each against its own evidence.
 
 ### 4.3 Why not Fedora, RHEL, Arch, or other non-apt-based distros at v5.0
@@ -416,8 +414,7 @@ processes the exit ahead of schedule.
 
 ### 6.3 Audit cadence
 
-Per memory #23 (scheduled-review at tier close, 2026-05-16): this ADR is
-reviewed at every release close. The review checks:
+This ADR is reviewed at every release close. The review checks:
 
 - Accuracy: the policy is still consistent with current Canonical/Debian
   release schedules.
@@ -425,8 +422,7 @@ reviewed at every release close. The review checks:
   ADR revision.
 - Trigger: no entry trigger has fired without the corresponding ADR revision
   and downstream artifact updates.
-- Consolidation: per memory #25 (tools/knowledge), this ADR is a candidate for
-  migration into the SQLite-backed knowledge store post-v5.0.
+- Consolidation: this ADR is a candidate for migration into the SQLite-backed knowledge store post-v5.0.
 
 The first scheduled review of ADR 0016 itself happens at v5.0.1 close, when
 the Ubuntu 26.04 row is added to the supported set.
@@ -449,21 +445,6 @@ The trigger for considering a policy amendment is a real operational signal:
 
 ## 7. References
 
-### 7.1 Project memory
-
-- **Memory #18** (holistic by default; past + current + future; scope bounds
-  named explicitly; senior-engineer baseline) — governs this ADR's shape:
-  Decision (current), Context (past), Lifecycle (future); explicit scope bounds
-  in §4.3 (Fedora/RHEL/Arch out of scope) and §4.4 (ARM64 out of scope).
-- **Memory #22** (reality-check principle, 2026-05-16) — the triggering
-  principle for this ADR. Inherited assumptions must be verified against
-  current evidence before work commits.
-- **Memory #23** (scheduled-review at tier close, 2026-05-16) — governs the
-  Lifecycle §6.3 audit cadence.
-- **Memory #25** (tools/knowledge, 2026-05-16) — this ADR is a candidate for
-  post-v5.0 migration into the SQLite-backed knowledge store.
-- **Memory #20** (claude.ai session has no filesystem/network access to
-  user's WSL/server) — governs the session structure that produced this ADR.
 
 ### 7.2 Mediastack artifacts
 

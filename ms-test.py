@@ -35,10 +35,10 @@ from typing import Any
 def _detect_base_url() -> str:
     if url := os.environ.get("MS_BASE_URL"):
         return url.rstrip("/")
-    # Try to read port from .env file in repo root or /srv/mediastack
+    # Try to read port from .env file in repo root or /opt/mediastack
     for env_path in [
         pathlib.Path(__file__).parent / ".env",
-        pathlib.Path("/srv/mediastack/.env"),
+        pathlib.Path("/opt/mediastack/.env"),
     ]:
         try:
             for line in env_path.read_text().splitlines():
@@ -283,7 +283,7 @@ def _db() -> sqlite3.Connection | None:
     """Return a connection to state.db if it exists."""
     candidates = [
         DB_PATH,
-        pathlib.Path("/srv/mediastack/data/state.db"),
+        pathlib.Path("/opt/mediastack/data/state.db"),
     ]
     for p in candidates:
         if p.exists():

@@ -2,7 +2,7 @@
 
 - **Date:** 2026-05-18
 - **Status:** Accepted
-- **Deciders:** Rafael (operator), Claude Opus 4.7 (v5 Tier 4.1 design session)
+- **Deciders:** operator, Claude Opus 4.7 (v5 Tier 4.1 design session)
 
 ## Context
 

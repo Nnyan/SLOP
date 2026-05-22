@@ -5,7 +5,7 @@
 
 ## Purpose
 
-This glossary exists to prevent terminology drift across long-running planning, architecture, and process documents. The motivating incident: "Docker migration" was used in two distinct senses in v4.x docs and was not caught until the v4.1.0 audit-gate review. The same pattern recurs for `tier` (three in-use senses), `audit` (multiple), `step` (two), and others — each a case where a future contributor or future-Rafael could mis-read a doc and act on the wrong meaning. The glossary is the canonical disambiguation surface and the authoritative source for terms no other doc owns.
+This glossary exists to prevent terminology drift across long-running planning, architecture, and process documents. The motivating incident: "Docker migration" was used in two distinct senses in v4.x docs and was not caught until the v4.1.0 audit-gate review. The same pattern recurs for `tier` (three in-use senses), `audit` (multiple), `step` (two), and others — each a case where a future contributor or future operator could mis-read a doc and act on the wrong meaning. The glossary is the canonical disambiguation surface and the authoritative source for terms no other doc owns.
 
 ## How to use this glossary
 

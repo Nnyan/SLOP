@@ -92,18 +92,17 @@ distro_evidence:
   # ── ubuntu_24_04 ─────────────────────────────────────────────────────────
   # UNCHANGED from feature/step-3-3-vm-matrix HEAD. Baseline distro; no
   # additional captures beyond core_predicates. Existing evidence at
-  # /srv/tmp/step_3_3_evidence/ubuntu_24_04/ is reusable for revalidation
+  # <evidence-archive> is reusable for revalidation
   # against the current (post-Corrections-A/B) manifest schema.
   ubuntu_24_04:
     captures: []
 
   # ── debian_13 ────────────────────────────────────────────────────────────
   # NEW row at v5.0.0 per ADR 0016. Evidence is net-new; provision VM per
-  # Step 3.3.0 pattern (durable key at /srv/mediastack/secrets/test-vm/
-  # vm-matrix-key) and capture per tools/capture-step33-evidence.py (after
+  # Step 3.3.0 pattern (see INSTALL.md for VM provisioning and evidence capture
   # updating DISTRO_MAP per ADR 0016 §5.5).
   #
-  # Per memory #22, the python3_resolution regex is constrained against
+  # the python3_resolution regex is constrained against
   # verified evidence: Debian 13 trixie defaults to python3 → python3.13.
   # The 3\.(11|12|13) range allows for backport scenarios; tighten to
   # 3\.13 only if a future evidence capture confirms 3.13 is the only
@@ -143,7 +142,7 @@ distro_evidence:
 
   # ── debian_12 ────────────────────────────────────────────────────────────
   # UNCHANGED from feature/step-3-3-vm-matrix HEAD. Existing evidence at
-  # /srv/tmp/step_3_3_evidence/debian_12/ is reusable per the Step 3.3
+  # <evidence-archive> is reusable per the Step 3.3
   # design refresh §4 revalidation procedure.
   debian_12:
     captures:
@@ -173,7 +172,7 @@ distro_evidence:
 # Distros removed from the supported set keep their captures here for
 # operator-side reference. Archival is visible-in-manifest (not silent removal)
 # so future operators can trace the deprecation rationale. Evidence directories
-# are preserved in place at /srv/tmp/step_3_3_evidence/<distro>/ rather than
+# are preserved in place at <evidence-archive><distro>/ rather than
 # deleted; the archive is a record of the deprecation, not a current target.
 
 archived_distros:
@@ -189,7 +188,7 @@ archived_distros:
   # Post-Invoke-Success hook because apt_pkg is compiled for python3.10 only
   # on Ubuntu 22.04. Fix removes the update-alternatives call.
   #
-  # Evidence preserved at /srv/tmp/step_3_3_evidence/ubuntu_22_04/ as archival
+  # Evidence preserved at <evidence-archive> as archival
   # reference. Captures preserved below for operator-side traceability;
   # they are NOT exercised by tools/check-readiness.py for the v5.0.0 audit
   # gate.
@@ -203,7 +202,7 @@ archived_distros:
       2e59460 works but the underlying environment mismatch does not).
       See ADR 0016 §2.2 for full failure-mode detail.
     adr_reference: "docs/adr/0016-supported-distro-set.md"
-    evidence_archive: "/srv/tmp/step_3_3_evidence/ubuntu_22_04/"
+    evidence_archive: "<evidence-archive>"
     captures:
       - id: distro_version_check
         evidence_path: distro.os-release
@@ -313,7 +312,7 @@ predicted_classes:
 # Ubuntu 26.04 LTS Resolute Raccoon (released April 23, 2026) enters the
 # supported set at 26.04.1 (scheduled August 6, 2026) per ADR 0016 §3 (Shape
 # B). The five Class D sub-predictions below are named explicitly here per
-# memory #18 (named scope bounds, forward-looking visibility) so the v5.0.1
+# so the v5.0.1
 # work inherits them rather than re-deriving.
 #
 # When v5.0.1 work begins (post-26.04.1 release), Sonnet:
@@ -329,7 +328,7 @@ predicted_classes:
 predicted_classes_v501_deferred:
   # Each entry is a forward-looking Class D sub-prediction for Ubuntu 26.04.
   # All expected_to_fire=false today (assumption pending empirical verification
-  # on a provisioned 26.04 VM). Per memory #22, these are NOT verified facts
+  # on a provisioned 26.04 VM). these are NOT verified facts
   # — they are predictions with named evidence basis that the v5.0.1 matrix
   # execution will confirm or refute.
 
