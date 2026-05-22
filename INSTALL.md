@@ -180,3 +180,19 @@ The installer exits immediately with an error if the host distribution is not in
 set. See [Supported distros](#supported-distros) and
 [`installer/SUPPORTED_DISTROS.md`](installer/SUPPORTED_DISTROS.md) for the full list and the
 policy for requesting additional distribution support.
+
+### curl: Failed to connect to raw.githubusercontent.com
+
+```
+curl: (7) Failed to connect to raw.githubusercontent.com port 443 after 9 ms: Couldn't connect to server
+```
+
+The server has IPv6 configured but no working IPv6 route. curl prefers IPv6 and fails
+immediately. Force IPv4 with the `-4` flag:
+
+```bash
+curl -4 -fsSL https://raw.githubusercontent.com/Nnyan/SLOP/main/install.sh | sudo bash -s -- --install-docker=yes
+```
+
+To check whether this is the cause: `curl -4 -I https://raw.githubusercontent.com` should
+return HTTP 200/301 if IPv4 is working normally.
