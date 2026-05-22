@@ -1783,42 +1783,18 @@ def llm_providers() -> dict[str, Any]:
     """Return all available LLM providers with metadata for the Settings UI."""
     from backend.core.cloud_llm import PROVIDERS
 
-    # Curated model lists per provider
+    # Model IDs are not hardcoded — providers release new models frequently.
+    # Future: fetch live from each provider's /v1/models endpoint (tracked in
+    # GitHub issues). For now, all providers use a free-text entry.
     MODELS: dict[str, list[dict[str, Any]]] = {
-        "groq": [
-            {"id": "llama-3.3-70b-versatile", "label": "Llama 3.3 70B (best quality)", "recommended": True},
-            {"id": "llama-3.1-8b-instant", "label": "Llama 3.1 8B (fastest)", "recommended": False},
-        ],
-        "cerebras": [
-            {"id": "llama-3.3-70b", "label": "Llama 3.3 70B (best quality)", "recommended": True},
-            {"id": "qwen-3-32b", "label": "Qwen 3 32B (alternative)", "recommended": False},
-        ],
-        "openrouter": [
-            {"id": "meta-llama/llama-3.3-70b-instruct:free", "label": "Llama 3.3 70B (free)", "recommended": True},
-            {"id": "mistralai/mistral-small:free", "label": "Mistral Small (free)", "recommended": False},
-            {"id": "google/gemini-flash-1.5:free", "label": "Gemini Flash 1.5 (free)", "recommended": False},
-            {"id": "anthropic/claude-3.5-haiku", "label": "Claude 3.5 Haiku (paid, best quality)", "recommended": False},
-        ],
-        "mistral": [
-            {"id": "mistral-small-latest", "label": "Mistral Small (fast, cheap)", "recommended": True},
-            {"id": "mistral-nemo", "label": "Mistral Nemo (fastest)", "recommended": False},
-            {"id": "mistral-large-latest", "label": "Mistral Large (best quality)", "recommended": False},
-        ],
-        "cohere": [
-            {"id": "command-r7b-12-2024", "label": "Command R7B (fast, cheap)", "recommended": True},
-            {"id": "command-r-plus-08-2024", "label": "Command R+ (best quality)", "recommended": False},
-        ],
-        "google": [
-            {"id": "gemini-2.0-flash", "label": "Gemini 2.0 Flash (best free)", "recommended": True},
-            {"id": "gemini-1.5-flash-8b", "label": "Gemini 1.5 Flash 8B (fastest)", "recommended": False},
-        ],
-        "anthropic": [
-            {"id": "", "label": "Enter model ID (e.g. claude-haiku-4-5) — see console.anthropic.com/docs", "recommended": True},
-        ],
-        "openai": [
-            {"id": "gpt-4o-mini", "label": "GPT-4o Mini (cost-effective)", "recommended": True},
-            {"id": "gpt-4o", "label": "GPT-4o (best quality)", "recommended": False},
-        ],
+        "groq":       [{"id": "", "label": "Enter model ID — see console.groq.com/docs/models", "recommended": True}],
+        "cerebras":   [{"id": "", "label": "Enter model ID — see inference-docs.cerebras.ai", "recommended": True}],
+        "openrouter": [{"id": "", "label": "Enter model ID — see openrouter.ai/models", "recommended": True}],
+        "mistral":    [{"id": "", "label": "Enter model ID — see docs.mistral.ai/getting-started/models", "recommended": True}],
+        "cohere":     [{"id": "", "label": "Enter model ID — see docs.cohere.com/docs/models", "recommended": True}],
+        "google":     [{"id": "", "label": "Enter model ID — see ai.google.dev/gemini-api/docs/models", "recommended": True}],
+        "anthropic":  [{"id": "", "label": "Enter model ID — see console.anthropic.com/docs", "recommended": True}],
+        "openai":     [{"id": "", "label": "Enter model ID — see platform.openai.com/docs/models", "recommended": True}],
     }
 
     result = {}
