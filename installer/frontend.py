@@ -38,7 +38,18 @@ def _package_json_exists(frontend_dir: Path) -> bool:
 
 
 def _build_exists(static_dir: Path) -> bool:
-    return (static_dir / "index.html").exists()
+    index = static_dir / "index.html"
+    if not index.exists():
+        return False
+    # Verify the JS bundle referenced in index.html actually exists.
+    # A committed-but-stale index.html referencing a different build's hashed
+    # asset would otherwise fool this check and produce a blank page.
+    import re as _re
+    html = index.read_text(errors="replace")
+    m = _re.search(r'src="/assets/(index-[^"]+\.js)"', html)
+    if not m:
+        return False
+    return (static_dir / "assets" / m.group(1)).exists()
 
 
 def _run_npm_ci(frontend_dir: Path) -> None:
