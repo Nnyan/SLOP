@@ -890,7 +890,6 @@ const QUICK_STACKS_CONFIG = [
   { id: 'debrid', label: 'Debrid Stack', apps: ['Decypharr', 'Zilean', 'DUMB'], ram_note: '~1GB RAM · Real-Debrid / TorBox / AllDebrid' },
   { id: 'media_server', label: 'Jellyfin Media Server', apps: ['Jellyfin', 'Jellyseerr'], ram_note: '~4GB RAM' },
   { id: 'immich', label: 'Photo Management (Immich)', apps: ['Immich', 'PostgreSQL', 'Redis'], ram_note: '~8GB RAM' },
-  { id: 'ai_local', label: 'Local AI (Ollama)', apps: ['Ollama'], ram_note: '~4GB RAM · GPU recommended' },
   { id: 'monitoring', label: 'Monitoring Stack', apps: ['Dozzle', 'Beszel', 'Scrutiny'], ram_note: '~1GB RAM' },
   { id: 'productivity', label: 'Productivity', apps: ['Vaultwarden', 'Paperless-ngx', 'Mealie'], ram_note: '~2GB RAM' },
 ]
