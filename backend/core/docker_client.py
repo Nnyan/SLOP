@@ -1,0 +1,263 @@
+"""backend/core/docker_client.py
+
+Thin, typed wrapper around the Docker SDK.
+
+Design rules:
+  - Never expose raw docker.errors to callers — translate to DockerError
+  - All methods are synchronous (FastAPI runs them in a thread pool)
+  - One client instance per process, reconnects on socket error
+  - Plain-language errors only — no raw Docker daemon messages
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, cast
+
+import docker
+import docker.errors
+
+from backend.core.config import config
+from backend.core.logging import get_logger
+
+log = get_logger(__name__)
+
+
+class DockerError(Exception):
+    """Plain-language error from a Docker operation."""
+
+
+# ---------------------------------------------------------------------------
+# Dataclasses
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ContainerInfo:
+    id: str
+    name: str
+    image: str
+    status: str     # running | exited | paused | restarting | dead
+    state: str      # docker state enum
+    health: str     # healthy | unhealthy | starting | none
+    created: int    # unix timestamp
+
+
+@dataclass
+class NetworkInfo:
+    id: str
+    name: str
+    driver: str
+    containers: list[str]   # container names attached
+
+
+# ---------------------------------------------------------------------------
+# Client singleton
+# ---------------------------------------------------------------------------
+
+
+_client: docker.DockerClient | None = None
+
+
+def client() -> docker.DockerClient:
+    """Return the Docker client, reconnecting if the socket was lost."""
+    global _client
+    if _client is None:
+        _client = _connect()
+    else:
+        try:
+            _client.ping()
+        except Exception:
+            log.warning("Docker socket lost — reconnecting")
+            try:
+                _client.close()
+            except Exception:
+                pass
+            _client = _connect()
+    return _client
+
+
+def _connect() -> docker.DockerClient:
+    try:
+        c = docker.DockerClient(base_url=config.docker_socket, timeout=10)
+        c.ping()
+        log.info("Connected to Docker at %s", config.docker_socket)
+        return c
+    except docker.errors.DockerException as e:
+        raise DockerError(
+            f"Cannot connect to Docker at {config.docker_socket}. "
+            f"Make sure Docker is running and the socket is accessible. "
+            f"Detail: {e}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Containers
+# ---------------------------------------------------------------------------
+
+
+def list_containers(include_stopped: bool = False) -> list[ContainerInfo]:
+    try:
+        containers = client().containers.list(all=include_stopped)
+        return [_container_info(c) for c in containers]
+    except docker.errors.DockerException as e:
+        raise DockerError(f"Could not list containers: {e}")
+
+
+def get_container(name: str) -> ContainerInfo | None:
+    try:
+        c = client().containers.get(name)
+        return _container_info(c)
+    except docker.errors.NotFound:
+        return None
+    except docker.errors.DockerException as e:
+        raise DockerError(f"Could not get container '{name}': {e}")
+
+
+def container_logs(name: str, tail: int = 100) -> str:
+    try:
+        c = client().containers.get(name)
+        return cast(str, c.logs(tail=tail, timestamps=False).decode("utf-8", errors="replace"))
+    except docker.errors.NotFound:
+        raise DockerError(f"Container '{name}' not found.")
+    except docker.errors.DockerException as e:
+        raise DockerError(f"Could not get logs for '{name}': {e}")
+
+
+def _container_info(c: Any) -> ContainerInfo:
+    attrs = c.attrs or {}
+    state = attrs.get("State", {}) or {}
+    health = (state.get("Health") or {}).get("Status", "none")
+    created_str = attrs.get("Created", "")
+    import datetime
+    try:
+        created = int(datetime.datetime.fromisoformat(
+            created_str.replace("Z", "+00:00")
+        ).timestamp())
+    except (ValueError, TypeError, AttributeError):
+        created = 0
+    return ContainerInfo(
+        id=c.id[:12],
+        name=c.name,
+        image=c.image.tags[0] if c.image.tags else c.image.short_id,
+        status=c.status,
+        state=state.get("Status", c.status),
+        health=health,
+        created=created,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+
+
+def network_exists(name: str) -> bool:
+    try:
+        client().networks.get(name)
+        return True
+    except docker.errors.NotFound:
+        return False
+    except docker.errors.DockerException as e:
+        raise DockerError(f"Could not check network '{name}': {e}")
+
+
+def create_network(name: str, driver: str = "bridge") -> NetworkInfo:
+    try:
+        if network_exists(name):
+            net = client().networks.get(name)
+        else:
+            net = client().networks.create(name, driver=driver, check_duplicate=True)
+            log.info("Created Docker network: %s", name)
+        return _network_info(net)
+    except docker.errors.DockerException as e:
+        raise DockerError(
+            f"Could not create network '{name}'. "
+            f"Check that no other network uses the same name. Detail: {e}"
+        )
+
+
+def get_network(name: str) -> NetworkInfo | None:
+    try:
+        net = client().networks.get(name)
+        return _network_info(net)
+    except docker.errors.NotFound:
+        return None
+    except docker.errors.DockerException as e:
+        raise DockerError(f"Could not get network '{name}': {e}")
+
+
+def _network_info(net: Any) -> NetworkInfo:
+    containers = list((net.attrs.get("Containers") or {}).keys())
+    return NetworkInfo(
+        id=net.id[:12],
+        name=net.name,
+        driver=net.attrs.get("Driver", "bridge"),
+        containers=containers,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Port availability
+# ---------------------------------------------------------------------------
+
+
+def ports_in_use() -> dict[int, str]:
+    """Return a map of host_port → container_name for all running containers."""
+    result: dict[int, str] = {}
+    seen: set[tuple[Any, ...]] = set()
+    try:
+        for c in client().containers.list():
+            bindings = (c.attrs.get("NetworkSettings") or {}).get("Ports") or {}
+            for port_key, hosts in (bindings or {}).items():
+                if not hosts:
+                    continue
+                for h in hosts:
+                    try:
+                        hp = int(h.get("HostPort") or 0)
+                        if hp:
+                            key = (hp, c.name)
+                            if key not in seen:
+                                seen.add(key)
+                                result[hp] = c.name
+                    except (TypeError, ValueError):
+                        pass
+    except docker.errors.DockerException as e:
+        raise DockerError(f"Could not check port usage: {e}")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Docker info
+# ---------------------------------------------------------------------------
+
+
+def daemon_info() -> dict[str, Any]:
+    try:
+        info = client().info()
+        return {
+            "version": client().version().get("Version", "unknown"),
+            "containers": info.get("Containers", 0),
+            "containers_running": info.get("ContainersRunning", 0),
+            "images": info.get("Images", 0),
+            "os": info.get("OperatingSystem", "unknown"),
+            "architecture": info.get("Architecture", "unknown"),
+        }
+    except DockerError:
+        raise
+    except docker.errors.DockerException as e:
+        raise DockerError(f"Could not get Docker info: {e}")
+
+
+def gpu_available() -> dict[str, bool]:
+    """Detect available GPU runtimes."""
+    result = {"nvidia": False, "amd": False}
+    try:
+        info = client().info()
+        runtimes = info.get("Runtimes", {})
+        result["nvidia"] = "nvidia" in runtimes
+        # AMD ROCm doesn't register a named runtime — check for /dev/dri
+        import os
+        result["amd"] = os.path.exists("/dev/dri")
+    except Exception:
+        pass
+    return result

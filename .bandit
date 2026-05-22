@@ -1,0 +1,10 @@
+[bandit]
+# Bandit — Python security SAST
+# Core Rule 3.8: security patterns caught before they reach production
+# Findings written to data/bandit_findings.json for LLM ingestion
+
+skips = B101,B603,B607
+# B101: assert — intentional in tests
+# B603/B607: subprocess — Docker calls are intentional, checked elsewhere
+
+exclude_dirs = [tests, .venv, node_modules]

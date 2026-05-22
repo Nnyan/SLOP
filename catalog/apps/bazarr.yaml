@@ -1,0 +1,64 @@
+key: bazarr
+display_name: Bazarr
+description: Automated subtitle manager — downloads and syncs subtitles for Sonarr and Radarr libraries
+category: arr
+tier: 2
+icon: 💬
+version: "1.0"
+
+image: lscr.io/linuxserver/bazarr
+start_grace_s: 60
+image_tag: latest
+linuxserver: true
+
+ports:
+  web: 6767
+
+volumes:
+  config: /config
+  media: /data
+
+traefik:
+  enabled: true
+  subdomain: bazarr
+
+wiring:
+  connects_to:
+    - type: subtitle_sync
+      to: sonarr
+      optional: false
+      description: Bazarr fetches episode metadata from Sonarr
+    - type: subtitle_sync
+      to: radarr
+      optional: false
+      description: Bazarr fetches movie metadata from Radarr
+
+post_deploy:
+  - type: wait_healthy
+    timeout: 60
+  - type: api_ready
+    path: /api/system/status
+    timeout: 90
+
+health:
+  checks:
+    - name: api_reachable
+      type: http
+      path: /api/system/status
+      expect_status: 200
+      interval: 30
+  self_heal:
+    - condition: api_reachable
+      action: restart
+      max_attempts: 3
+      cooldown: 60
+
+tags: [arr, subtitles, sonarr, radarr, media]
+links:
+  docs: https://wiki.bazarr.media
+  github: https://github.com/morpheus65535/bazarr
+
+requires:
+  - sonarr
+recommends:
+  - radarr

@@ -1,0 +1,49 @@
+# Development dependencies (testing, linting)
+-r requirements.txt
+
+pytest==8.3.4
+pytest-asyncio>=1.0,<2  # pytest 9.x compatible (was 0.25.0 — incompatible with pytest 9)
+pytest-randomly==4.1.0   # Step 1.5 (2026-05-08) — order-independence verifier
+pytest-timeout==2.4.0    # Step 1.5 (2026-05-08) — surface hanging tests (e.g. long sleeps)
+syrupy==5.1.0            # Step 2.1 (2026-05-08) — snapshot tests for stable outputs
+anyio==4.8.0
+httpx==0.28.1    # also used for TestClient
+
+# Static type checking — Step 1.2 (2026-05-05)
+mypy>=1.10
+types-PyYAML
+
+# Dead-code detection — Step 3.1 (2026-05-08)
+# Heuristic; used as warning-only via ms-enforce check_dead_code.
+# Configured in pyproject.toml [tool.vulture] with decorator + name
+# whitelists for FastAPI / wizard / pytest dispatch patterns.
+vulture>=2.16
+
+# Mutation testing
+mutmut>=3.5.0
+
+# API fuzzing from OpenAPI spec
+schemathesis>=4.17.0
+
+# Browser E2E — tests Vue frontend in real Chromium
+playwright>=1.40.0
+pytest-playwright>=0.4.0
+
+# Traffic recording — generates regression tests from real sessions
+keploy>=2.0.0a
+
+# Python linter
+ruff>=0.4.0
+
+# Python security SAST
+bandit>=1.7.0
+
+# Python dependency CVE scanning
+pip-audit>=2.7.0
+
+# Property-based testing
+hypothesis>=6.100.0
+
+# Semgrep + tomli (pins resolver conflict: semgrep requires ~=2.0.1)
+semgrep>=1.70.0
+tomli==2.0.1

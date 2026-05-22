@@ -1,0 +1,1460 @@
+#!/usr/bin/env python3
+# ms-audit — runs with system python3; venv is used for pytest subprocess
+# Install: sudo ln -sf /srv/mediastack/ms-audit /usr/local/bin/ms-audit
+"""
+ms-audit — Mediastack Full Contract Audit
+==========================================
+
+A self-improving end-to-end contract test runner covering every layer.
+
+Usage:
+    ms-audit                  Run the full audit
+    ms-audit --static         Static analysis only
+    ms-audit --improve        AI gap analysis + test generation
+    ms-audit --improve --apply  Auto-apply generated tests
+    ms-audit --report         Save markdown report
+    ms-audit --summary        Show history summary
+
+Provider options for --improve (auto-detected, first available wins):
+    Ollama  — local, free, already on this server (no account needed)
+    Groq    — free tier: export GROQ_API_KEY=gsk_...
+    AWAN    — free tier: export AWAN_API_KEY=...
+    Claude  — paid: export ANTHROPIC_API_KEY=sk-ant-...
+    OpenAI  — paid: export OPENAI_API_KEY=sk-...
+    Force:  MS_AUDIT_PROVIDER=groq ms-audit --improve
+"""
+
+import ast
+import datetime
+import json
+import os
+import pathlib
+import re
+import subprocess
+import os
+import sys
+import time
+from typing import Any
+
+# ── Paths ──────────────────────────────────────────────────────────────────
+
+# Find the repo root by searching known paths and looking for a marker file.
+# This works regardless of whether ms-audit is run directly, via symlink,
+# as 'python3 ms-audit', or as '/usr/local/bin/ms-audit'.
+def _find_repo() -> pathlib.Path:
+    # 1. Try resolving __file__ via os.readlink (most reliable for symlinks)
+    try:
+        _f = pathlib.Path(__file__)
+        if _f.is_symlink():
+            _target = pathlib.Path(os.readlink(str(_f)))
+            if not _target.is_absolute():
+                _target = _f.parent / _target
+            return _target.resolve().parent
+    except Exception:
+        pass
+    # 2. Try os.path.realpath
+    try:
+        _rp = pathlib.Path(os.path.realpath(__file__)).parent
+        if (_rp / "backend" / "core" / "schema.sql").exists():
+            return _rp
+    except Exception:
+        pass
+    # 3. Search known install paths
+    for _candidate in [
+        pathlib.Path("/srv/mediastack"),
+        pathlib.Path.home() / "mediastack",
+        pathlib.Path(__file__).parent,
+    ]:
+        if (_candidate / "backend" / "core" / "schema.sql").exists():
+            return _candidate
+    # 4. Search parent directories of __file__
+    for _parent in pathlib.Path(__file__).resolve().parents:
+        if (_parent / "backend" / "core" / "schema.sql").exists():
+            return _parent
+    raise RuntimeError(
+        "Cannot find Mediastack repo. Set MS_REPO env var or run from the repo directory."
+    )
+
+REPO = pathlib.Path(os.environ.get("MS_REPO", "")) if os.environ.get("MS_REPO") else _find_repo()
+AUDIT_TEST = REPO / "tests" / "test_comprehensive_contracts.py"
+HIST_FILE  = REPO / ".ms-audit-history.json"
+SNAP_FILE  = REPO / ".ms-audit-snapshot.json"
+REPORT_DIR = REPO / "data"
+
+# Ensure backend imports work regardless of working directory
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
+# Set PYTHONPATH env so pytest subprocess also finds backend modules
+import os as _os
+_os.environ.setdefault("PYTHONPATH", str(REPO))
+BASE_URL   = os.environ.get("MS_BASE_URL", "http://localhost:8080")
+
+# ── Terminal colours ────────────────────────────────────────────────────────
+
+_TTY = sys.stdout.isatty()
+def _c(code: str, text: str) -> str:
+    return f"\033[{code}m{text}\033[0m" if _TTY else text
+
+RED    = lambda t: _c("0;31", t)
+GREEN  = lambda t: _c("0;32", t)
+YELLOW = lambda t: _c("1;33", t)
+CYAN   = lambda t: _c("0;36", t)
+BOLD   = lambda t: _c("1",    t)
+DIM    = lambda t: _c("2",    t)
+
+PREFIXES = {
+    'platform': '/api/platform', 'registry': '/api/registry',
+    'catalog':  '/api/catalog',  'models':   '/api/models',
+    'health':   '/api/health',   'settings': '/api/settings',
+    'routing':  '/api/routing',  'storage':  '/api/storage/sources',
+    'apps':     '/api/apps',     'infra':    '/api/infra',
+    'quickstart': '/api/quickstart',
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CODEBASE FINGERPRINT
+# ═══════════════════════════════════════════════════════════════════════════
+
+def fingerprint() -> dict[str, Any]:
+    """
+    Snapshot the entire codebase structure. Run before and after changes
+    to identify what's new and needs test coverage.
+    """
+    snap: dict[str, Any] = {
+        "ts": time.time(),
+        "routes": [],
+        "vue_calls": [],
+        "manifests": [],
+        "db_tables": [],
+        "wizard_steps": [],
+        "action_types": [],
+        "context_sources": [],
+        "infra_providers": {},
+        "settings_keys": [],
+    }
+
+    # API routes
+    for mod, pfx in PREFIXES.items():
+        f = REPO / f"backend/api/{mod}.py"
+        if not f.exists():
+            continue
+        for m in re.finditer(
+            r'@router\.(get|post|put|delete|patch)\(\s*["\']([^"\']+)["\']',
+            f.read_text()
+        ):
+            snap["routes"].append(f"{m.group(1).upper()} {pfx}{m.group(2)}")
+
+    # Vue API calls
+    for f in (REPO / "frontend" / "src").rglob("*.vue"):
+        src = f.read_text()
+        for m in re.finditer(r"fetch\([`'\"](/api/[^`'\"?\s{]+)", src):
+            path = re.sub(r"\$\{[^}]+\}", "{id}", m.group(1))
+            snap["vue_calls"].append(f"{path} [{f.name}]")
+
+    # Catalog manifests
+    for f in (REPO / "catalog" / "apps").glob("*.yaml"):
+        snap["manifests"].append(f.stem)
+
+    # DB tables
+    schema = (REPO / "backend" / "core" / "schema.sql").read_text()
+    snap["db_tables"] = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", schema)
+
+    # Wizard steps
+    wizard_src = (REPO / "backend" / "platform" / "wizard.py").read_text()
+    m = re.search(r"STEPS = \[(.*?)\]", wizard_src, re.DOTALL)
+    if m:
+        snap["wizard_steps"] = [
+            re.search(r'"(\w+)"', line).group(1)
+            for line in m.group(1).splitlines()
+            if re.search(r'"(\w+)"', line)
+        ]
+
+    # LLM action types
+    checker_src = (REPO / "backend" / "health" / "checker.py").read_text()
+    map_m = re.search(r"_action_map = \{(.*?)\}", checker_src, re.DOTALL)
+    if map_m:
+        snap["action_types"] = list(set(
+            re.findall(r'"(\w+)":\s*"(\w+)"', map_m.group(1))
+        ))
+
+    # Context assembler sources
+    asm_src = (REPO / "backend" / "health" / "context_assembler.py").read_text()
+    snap["context_sources"] = re.findall(r"# ── (\d+)\.", asm_src)
+
+    # Infra providers
+    for f in (REPO / "backend" / "infra" / "providers").glob("*.py"):
+        src = f.read_text()
+        slot_m = re.search(r'\bslot\s*=\s*["\'](\w+)["\']', src)
+        if slot_m:
+            keys = re.findall(r'\bkey\s*=\s*["\'](\w+)["\']', src)
+            slot = slot_m.group(1)
+            snap["infra_providers"].setdefault(slot, []).extend(keys)
+
+    # Settings keys written by wizard
+    snap["settings_keys"] = re.findall(
+        r'set_setting\(["\'](\w+)["\']',
+        (REPO / "backend" / "platform" / "wizard.py").read_text()
+    )
+
+    return snap
+
+
+def diff_snapshots(old: dict, new: dict) -> dict[str, list[str]]:
+    """Return what's new in `new` compared to `old`."""
+    changes: dict[str, list[str]] = {}
+
+    for key in ("routes", "vue_calls", "manifests", "db_tables",
+                "wizard_steps", "settings_keys", "context_sources"):
+        added = [x for x in new.get(key, []) if x not in old.get(key, [])]
+        removed = [x for x in old.get(key, []) if x not in new.get(key, [])]
+        if added:
+            changes[f"{key}_added"] = added
+        if removed:
+            changes[f"{key}_removed"] = removed
+
+    # Infra providers
+    for slot, keys in new.get("infra_providers", {}).items():
+        old_keys = old.get("infra_providers", {}).get(slot, [])
+        new_keys = [k for k in keys if k not in old_keys]
+        if new_keys:
+            changes.setdefault("providers_added", []).extend(
+                [f"{slot}/{k}" for k in new_keys]
+            )
+
+    return changes
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TEST RUNNER
+# ═══════════════════════════════════════════════════════════════════════════
+
+def run_pytest(markers: list[str] | None = None,
+               test_file: str | None = None) -> dict[str, Any]:
+    """Run pytest and return structured results."""
+    target = test_file or str(AUDIT_TEST.resolve())
+    # Use venv python if available (has all test dependencies)
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else sys.executable
+    cmd = [py, "-m", "pytest", target,
+           "-v", "--tb=short", "--no-header",
+           f"--rootdir={REPO}"]
+    if markers:
+        cmd.extend(["-k", " or ".join(markers)])
+
+    t0 = time.time()
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(REPO)
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO, env=env)
+    elapsed = time.time() - t0
+
+    passed = failed = errors = 0
+    failures: list[dict] = []
+
+    # Parse the summary line (reliable across pytest versions and color settings)
+    # e.g. "72 passed, 1 warning in 6.73s" or "5 failed, 67 passed in 4.8s"
+    for line in result.stdout.splitlines():
+        m_pass = re.search(r"(\d+) passed", line)
+        m_fail = re.search(r"(\d+) failed", line)
+        m_err  = re.search(r"(\d+) error", line)
+        if m_pass: passed = int(m_pass.group(1))
+        if m_fail: failed = int(m_fail.group(1))
+        if m_err:  errors = int(m_err.group(1))
+        # Collect failure names from individual FAILED lines as secondary source
+        if " FAILED" in line and "::" in line:
+            name = line.split("::")[1].split(" ")[0]
+            if name not in [f["name"] for f in failures]:
+                failures.append({"name": name, "output": ""})
+
+    # Show pytest output when 0 tests (collection failed)
+    if passed == 0 and failed == 0:
+        combined = (result.stdout + result.stderr).strip()
+        if combined:
+            print(f"\n  {YELLOW('⚠ pytest collected 0 tests — output:')} (returncode={result.returncode})")
+            for line in combined.splitlines()[-15:]:
+                print(f"    {DIM(line)}")
+
+    # If 0 tests collected, pytest likely had a collection error — surface it
+    if passed == 0 and failed == 0 and not args.quiet if "args" in dir() else True:
+        combined = (result.stdout + result.stderr)[-3000:]
+        if "no tests ran" in combined or "collected 0" in combined or result.returncode == 5:
+            print(f"\n  {YELLOW('⚠ pytest collected 0 tests — showing output:')}")
+            for line in combined.splitlines()[-20:]:
+                print(f"    {DIM(line)}")
+
+    return {
+        "passed": passed,
+        "failed": failed,
+        "errors": errors,
+        "elapsed": round(elapsed, 1),
+        "failures": failures,
+        "stdout": result.stdout[-8000:],
+        "returncode": result.returncode,
+        "stderr": result.stderr[-2000:],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# GAP ANALYSIS
+# ═══════════════════════════════════════════════════════════════════════════
+
+def find_gaps(snap: dict, changes: dict) -> list[dict[str, str]]:
+    """
+    Identify things in the codebase with no corresponding test coverage
+    in test_comprehensive_contracts.py.
+    """
+    audit_src = AUDIT_TEST.read_text()
+    gaps: list[dict[str, str]] = []
+
+    # New routes not mentioned in audit
+    for route in changes.get("routes_added", []):
+        path = route.split(" ", 1)[-1] if " " in route else route
+        segments = [s for s in path.split("/") if s and not s.startswith("{")]
+        search_terms = []
+        if segments:
+            search_terms.append(segments[-1])
+            if len(segments) >= 2:
+                search_terms.append(segments[-2] + "_" + segments[-1])
+            if "-" in segments[-1]:
+                search_terms.extend(segments[-1].split("-"))
+        covered = any(term in audit_src for term in search_terms if len(term) > 4)
+        if not covered:
+            gaps.append({
+                "type": "new_route",
+                "item": route,
+                "suggestion": f"Add test verifying {route} returns correct shape and errors gracefully",
+            })
+
+    # New manifests not in manifest integrity tests
+    for mfst in changes.get("manifests_added", []):
+        if mfst not in audit_src:
+            gaps.append({
+                "type": "new_manifest",
+                "item": mfst,
+                "suggestion": f"Verify {mfst}.yaml loads, has valid ports, health checks work",
+            })
+
+    # New wizard steps not tested
+    for step in changes.get("wizard_steps_added", []):
+        if step not in audit_src:
+            gaps.append({
+                "type": "new_wizard_step",
+                "item": step,
+                "suggestion": f"Verify step_{step} is in STEPS list and dependencies are satisfied",
+            })
+
+    # New infra providers not in contracts
+    for prov in changes.get("providers_added", []):
+        slot, key = prov.split("/")
+        if key not in audit_src:
+            gaps.append({
+                "type": "new_infra_provider",
+                "item": prov,
+                "suggestion": (
+                    f"Verify {slot}/{key} provider: deploys correctly, "
+                    f"calls upsert_app(tier=0), appears in health cycle"
+                ),
+            })
+
+    # New DB tables not in schema tests
+    for tbl in changes.get("db_tables_added", []):
+        if tbl not in audit_src:
+            gaps.append({
+                "type": "new_db_table",
+                "item": tbl,
+                "suggestion": f"Add {tbl} to required tables list and verify it's created on init",
+            })
+
+    # Context sources — verify count is up to date
+    # The test uses re.findall(r"# ── (\d+)\.", src) to find all source numbers
+    src_count = len(snap.get("context_sources", []))
+    # The test now dynamically finds max_source, so this gap only fires if
+    # test_all_sources_0_through_20_present itself is missing
+    # Check both comprehensive and LLM contract test files
+    all_test_src = audit_src
+    llm_test = REPO / "tests" / "test_llm_agent_contracts.py"
+    if llm_test.exists():
+        all_test_src += llm_test.read_text()
+    if "test_all_sources_0_through_20_present" not in all_test_src:
+        gaps.append({
+            "type": "context_sources_unchecked",
+            "item": f"Context source completeness test missing",
+            "suggestion": "Add test_all_sources_0_through_20_present to TestContextCompleteness",
+        })
+
+    # Static analysis: endpoints without try/except
+    for mod in PREFIXES:
+        f = REPO / f"backend/api/{mod}.py"
+        if not f.exists():
+            continue
+        src = f.read_text()
+        for fn_m in re.finditer(
+            r'@router\.(post|put|delete|patch).*?\nasync def (\w+)\(.*?(?=\n@router|\nclass |\Z)',
+            src, re.DOTALL
+        ):
+            fn_body = fn_m.group(0)
+            fn_name = fn_m.group(2)
+            if "except" not in fn_body and len(fn_body) > 200:
+                test_name = f"test_{mod}_{fn_name}_error_handling"
+                if test_name not in audit_src:
+                    gaps.append({
+                        "type": "missing_error_handling",
+                        "item": f"{mod}.{fn_name}",
+                        "suggestion": (
+                            f"POST/PUT/DELETE endpoint {fn_name} in {mod}.py has no "
+                            f"exception handling — add test verifying it returns 4xx not 500 on bad input"
+                        ),
+                    })
+
+    return gaps
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AI SELF-IMPROVEMENT
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _assemble_improve_context(
+    explicit_file: str = "",
+    include_core_rules: bool = True,
+    max_age_hours: int = 24,
+) -> str:
+    """Assemble full context for the LLM from all available sources.
+
+    Sources (auto-ingested if recent):
+      1. Core Rules — architectural invariants the LLM must respect
+      2. ms-mutmut survivors — mutants the tests didn't kill
+      3. ms-schemathesis failures — API inputs that returned 500
+      4. ms-keploy replay failures — recorded sessions that broke
+      5. --context explicit file (from CLI)
+
+    This is the single assembly point so every LLM call gets the same
+    authoritative context regardless of which tool triggered it.
+    """
+    parts: list[str] = []
+    cutoff = time.time() - (max_age_hours * 3600)
+
+    # ── 1. Core Rules ─────────────────────────────────────────────────────
+    if include_core_rules:
+        core_rules_path = REPO / "docs" / "CORE_RULES.md"
+        if core_rules_path.exists():
+            rules_text = core_rules_path.read_text()
+            # Extract just the verifiable rules (Sections 1-5), skip appendix
+            # Keep it under 3000 chars to not dominate the prompt
+            rules_summary = []
+            for line in rules_text.splitlines():
+                if line.startswith("## Section") or line.startswith("### "):
+                    rules_summary.append(line)
+                elif line.startswith("**") and "**" in line[2:]:
+                    rules_summary.append(line)
+                if len("\n".join(rules_summary)) > 2500:
+                    break
+            parts.append(
+                "## Mediastack Core Development Rules (MUST follow)\n"
+                + "\n".join(rules_summary[:60])
+                + "\n\nKey rules for test generation:\n"
+                + "- Rule 2.2: Test correctness not presence (execute real code, assert outcomes)\n"
+                + "- Rule 2.5: Every bug fix needs a regression test\n"
+                + "- Rule 3.7: Zero-data state must not return 500\n"
+                + "- Rule 3.8: Security — sanitize all user-supplied identifiers\n"
+                + "- Rule 4.4: Multi-table writes must be atomic (single StateDB context)\n"
+            )
+
+    # ── 2. mutmut survivors ───────────────────────────────────────────────
+    survivors_file = REPO / "data" / "mutmut_survivors.json"
+    if survivors_file.exists() and survivors_file.stat().st_mtime > cutoff:
+        try:
+            data = json.loads(survivors_file.read_text())
+            survivors = data.get("survivors", [])
+            if survivors:
+                lines = ["## Mutation Testing — Surviving Mutants",
+                         "These code mutations were NOT caught by existing tests.",
+                         "Generate tests that kill each mutant (assert on the specific value).", ""]
+                for s in survivors[:5]:
+                    lines.append(f"Module: {s['module']} — kill rate {s['kill_rate']}%")
+                    for sv in s.get("survivors", [])[:3]:
+                        lines.append(f"  Survivor: {sv[:120]}")
+                parts.append("\n".join(lines))
+        except Exception:
+            pass
+
+    # ── 3. Schemathesis failures ──────────────────────────────────────────
+    schema_file = REPO / "data" / "schemathesis_report.json"
+    if schema_file.exists() and schema_file.stat().st_mtime > cutoff:
+        try:
+            data = json.loads(schema_file.read_text())
+            server_errors = data.get("server_errors", [])
+            if server_errors:
+                lines = ["## API Fuzzing — Endpoints Returning 500",
+                         "Rule 3.7: These endpoints returned 500 on edge-case inputs.",
+                         "Generate tests that reproduce each failure.", ""]
+                for err in server_errors[:8]:
+                    lines.append(f"  {err.get('method','?')} {err.get('path','?')}: {err.get('detail','?')[:100]}")
+                parts.append("\n".join(lines))
+        except Exception:
+            pass
+
+    # ── 4. Keploy replay failures ─────────────────────────────────────────────
+    keploy_report = REPO / "data" / "keploy_replay_report.json"
+    if keploy_report.exists() and keploy_report.stat().st_mtime > cutoff:
+        try:
+            data = json.loads(keploy_report.read_text())
+            findings = data.get("findings", [])
+            if findings:
+                lines = ["## Keploy — Replayed Sessions That Failed",
+                         "These real user flows now produce different responses.",
+                         "Generate regression tests that pin the correct status.", ""]
+                for f in findings[:8]:
+                    lines.append(f"  {f.get('method','?')} {f.get('path','?')}: "
+                                 f"expected {f.get('expected_status','?')} "
+                                 f"got {f.get('actual_status','error')}")
+                parts.append("\n".join(lines))
+        except Exception:
+            pass
+
+    # ── 5. Semgrep architectural violations ─────────────────────────────
+    semgrep_file = REPO / "data" / "semgrep_findings.json"
+    if semgrep_file.exists() and semgrep_file.stat().st_mtime > cutoff:
+        try:
+            data = json.loads(semgrep_file.read_text())
+            errors = [f for f in data.get("findings", []) if f.get("severity") == "ERROR"]
+            if errors:
+                lines = ["## Semgrep — Architectural Rule Violations (MUST FIX)",
+                         "These violations break Core Rules. Generate tests that detect them.", ""]
+                for e in errors[:8]:
+                    lines.append(f"  [{e['severity']}] {e['file']}:{e['line']}"
+                                 f" Rule {e.get('core_rule','?')}: {e['message'][:100]}")
+                parts.append("\n".join(lines))
+        except Exception:
+            pass
+
+    # ── 6. Bandit security findings ───────────────────────────────────────
+    bandit_file = REPO / "data" / "bandit_findings.json"
+    if bandit_file.exists() and bandit_file.stat().st_mtime > cutoff:
+        try:
+            data = json.loads(bandit_file.read_text())
+            high = [f for f in data.get("findings", []) if f.get("severity") in ("HIGH", "CRITICAL")]
+            if high:
+                lines = ["## Bandit — Python Security Issues",
+                         "Core Rule 3.8: Generate security regression tests.", ""]
+                for h in high[:6]:
+                    lines.append(f"  {h.get('file','')}:{h.get('line_number','')} "
+                                 f"[{h.get('test_id','')}] {h.get('issue_text','')[:100]}")
+                parts.append("\n".join(lines))
+        except Exception:
+            pass
+
+    # ── 7. Trivy CVE findings ─────────────────────────────────────────────
+    trivy_file = REPO / "data" / "trivy_findings.json"
+    if trivy_file.exists() and trivy_file.stat().st_mtime > cutoff:
+        try:
+            data = json.loads(trivy_file.read_text())
+            crits = [f for f in data.get("findings", []) if f.get("severity") == "CRITICAL"]
+            if crits:
+                lines = ["## Trivy — Critical CVEs in Dependencies",
+                         "Generate tests verifying vulnerable code paths are not reachable.", ""]
+                for c in crits[:5]:
+                    lines.append(f"  {c.get('package','')} {c.get('cve','')}: {c.get('title','')[:80]}")
+                parts.append("\n".join(lines))
+        except Exception:
+            pass
+
+    # ── 8. Ruff findings ──────────────────────────────────────────────────
+    ruff_file = REPO / "data" / "ruff_findings.json"
+    if ruff_file.exists() and ruff_file.stat().st_mtime > cutoff:
+        try:
+            data = json.loads(ruff_file.read_text())
+            errors = data.get("findings", [])
+            if errors:
+                lines = ["## Ruff — Python Static Analysis (real bugs, not style)",
+                         "Focus: F-prefix (undefined names), B-prefix (bugbear), S-prefix (security).", ""]
+                for e in errors[:8]:
+                    lines.append(f"  {e.get('filename','')}:{e.get('location',{}).get('row','')} "
+                                 f"[{e.get('code','')}] {e.get('message','')[:100]}")
+                parts.append("\n".join(lines))
+        except Exception:
+            pass
+
+    # ── 9. ESLint Vue findings ────────────────────────────────────────────
+    eslint_file = REPO / "data" / "eslint_findings.json"
+    if eslint_file.exists() and eslint_file.stat().st_mtime > cutoff:
+        try:
+            data = json.loads(eslint_file.read_text())
+            errors = [f for f in data.get("findings", []) if f.get("severity") == 2]
+            if errors:
+                lines = ["## ESLint — Vue Frontend Errors",
+                         "Generate Playwright tests that verify these Vue behaviors are correct.", ""]
+                for e in errors[:6]:
+                    lines.append(f"  {e.get('file','')}:{e.get('line','')} "
+                                 f"[{e.get('ruleId','')}] {e.get('message','')[:100]}")
+                parts.append("\n".join(lines))
+        except Exception:
+            pass
+
+    # ── 10. Hypothesis failures ────────────────────────────────────────────
+    hypo_file = REPO / "data" / "hypothesis_failures.json"
+    if hypo_file.exists() and hypo_file.stat().st_mtime > cutoff:
+        try:
+            data = json.loads(hypo_file.read_text())
+            failures = data.get("findings", [])
+            if failures:
+                lines = ["## Hypothesis — Property Violations",
+                         "These inputs violated property-based test invariants.", ""]
+                for f in failures[:5]:
+                    lines.append(f"  {f.get('test','')} failed on: {f.get('input','')[:100]}")
+                parts.append("\n".join(lines))
+        except Exception:
+            pass
+
+    # ── 11. Explicit --context file ───────────────────────────────────────
+    if explicit_file and pathlib.Path(explicit_file).exists():
+        try:
+            content = pathlib.Path(explicit_file).read_text()
+            parts.append(f"## Explicit Context\n{content[:3000]}")
+        except Exception:
+            pass
+
+    if not parts:
+        return ""
+
+    return "\n\n" + "\n\n---\n\n".join(parts)
+
+def improve_with_ai(gaps: list[dict], changes: dict,
+                    model: str = "sonnet", apply: bool = False,
+                    extra_context: str = "") -> None:
+    """
+    Generate new tests using any available AI provider.
+
+    Provider selection order (first available wins):
+      1. Ollama (local, free, already deployed on this server)
+      2. Groq   (free tier, needs GROQ_API_KEY)
+      3. AWAN   (free tier, needs AWAN_API_KEY)
+      4. Claude (needs ANTHROPIC_API_KEY)
+      5. OpenAI (needs OPENAI_API_KEY)
+
+    Use --provider=X to force a specific provider.
+    """
+    import urllib.request as _ur, json as _jj
+
+    # ── Detect available provider ────────────────────────────────────────
+    provider = os.environ.get("MS_AUDIT_PROVIDER", "auto")
+
+    def _try_ollama():
+        """Use local Ollama if running."""
+        try:
+            with _ur.urlopen("http://localhost:11434/api/tags", timeout=2) as r:
+                tags = _jj.loads(r.read()).get("models", [])
+                if not tags:
+                    return None, None
+                # Pick the best available model
+                preferred = ["phi4-mini", "llama3.1:8b", "llama3.2:3b",
+                             "qwen2.5:3b", "smollm2:1.7b"]
+                names = [t["name"].split(":")[0] for t in tags]
+                model_name = next(
+                    (p for p in preferred if any(p in n for n in names)),
+                    tags[0]["name"]
+                )
+                return "ollama", model_name
+        except Exception:
+            return None, None
+
+    def _call(url, headers, payload):
+        req = _ur.Request(url,
+                          data=_jj.dumps(payload).encode(),
+                          headers={"Content-Type": "application/json", **headers},
+                          method="POST")
+        with _ur.urlopen(req, timeout=120) as r:
+            return _jj.loads(r.read())
+
+    # Determine provider + call function
+    chosen_provider = provider
+    call_fn = None
+    call_label = ""
+
+    if provider in ("auto", "ollama"):
+        _p, _m = _try_ollama()
+        if _p:
+            chosen_provider = "ollama"
+            _ollama_model = _m
+            call_label = f"Ollama ({_ollama_model}) — local, free"
+            def call_fn(prompt):
+                data = _call(
+                    "http://localhost:11434/api/chat",
+                    {},
+                    {"model": _ollama_model, "stream": False,
+                     "messages": [{"role": "user", "content": prompt}]}
+                )
+                return data["message"]["content"]
+        elif provider == "ollama":
+            print(RED("✗ Ollama not running — start it or choose another provider"))
+            return
+
+    if call_fn is None and provider in ("auto", "groq"):
+        key = os.environ.get("GROQ_API_KEY")
+        if key:
+            chosen_provider = "groq"
+            groq_model = "llama-3.3-70b-versatile"
+            call_label = f"Groq ({groq_model}) — free tier"
+            def call_fn(prompt):
+                data = _call(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    {"Authorization": f"Bearer {key}"},
+                    {"model": groq_model, "max_tokens": 4096,
+                     "messages": [{"role": "user", "content": prompt}]}
+                )
+                return data["choices"][0]["message"]["content"]
+
+    if call_fn is None and provider in ("auto", "awan"):
+        key = os.environ.get("AWAN_API_KEY")
+        if key:
+            chosen_provider = "awan"
+            awan_model = "Meta-Llama-3.1-8B-Instruct"
+            call_label = f"AWAN LLM ({awan_model}) — free tier"
+            def call_fn(prompt):
+                data = _call(
+                    "https://api.awanllm.com/v1/chat/completions",
+                    {"Authorization": f"Bearer {key}"},
+                    {"model": awan_model, "max_tokens": 4096,
+                     "messages": [{"role": "user", "content": prompt}]}
+                )
+                return data["choices"][0]["message"]["content"]
+
+    if call_fn is None and provider in ("auto", "claude", "anthropic"):
+        key = os.environ.get("ANTHROPIC_API_KEY")
+        if key:
+            chosen_provider = "claude"
+            model_ids = {
+                "opus": "claude-opus-4-6", "sonnet": "claude-sonnet-4-6",
+                "haiku": "claude-haiku-4-5-20251001",
+            }
+            model_id = model_ids.get(model, model_ids["sonnet"])
+            call_label = f"Claude ({model_id})"
+            def call_fn(prompt):
+                data = _call(
+                    "https://api.anthropic.com/v1/messages",
+                    {"x-api-key": key, "anthropic-version": "2023-06-01"},
+                    {"model": model_id, "max_tokens": 4096,
+                     "messages": [{"role": "user", "content": prompt}]}
+                )
+                return data["content"][0]["text"]
+
+    if call_fn is None and provider in ("auto", "openai"):
+        key = os.environ.get("OPENAI_API_KEY")
+        if key:
+            chosen_provider = "openai"
+            call_label = "OpenAI (gpt-4o-mini)"
+            def call_fn(prompt):
+                data = _call(
+                    "https://api.openai.com/v1/chat/completions",
+                    {"Authorization": f"Bearer {key}"},
+                    {"model": "gpt-4o-mini", "max_tokens": 4096,
+                     "messages": [{"role": "user", "content": prompt}]}
+                )
+                return data["choices"][0]["message"]["content"]
+
+    if call_fn is None:
+        print(f"""
+  {YELLOW('No AI provider available.')} Options (any one of these works):
+
+  Free — no account needed:
+    {CYAN('Ollama')}  Start Ollama with a model already on this server:
+              docker exec ollama ollama pull phi4-mini
+
+  Free — account required:
+    {CYAN('Groq')}    export GROQ_API_KEY=gsk_...   (free at console.groq.com)
+    {CYAN('AWAN')}    export AWAN_API_KEY=...        (free at awanllm.com)
+
+  Paid:
+    {CYAN('Claude')}  export ANTHROPIC_API_KEY=sk-ant-...
+    {CYAN('OpenAI')}  export OPENAI_API_KEY=sk-...
+
+  Force a provider: MS_AUDIT_PROVIDER=groq ms-audit --improve
+""")
+        return
+
+    # ── Build prompt ─────────────────────────────────────────────────────
+    audit_src = AUDIT_TEST.read_text()
+    if len(audit_src) > 30_000:
+        audit_src = audit_src[:15_000] + "\n\n... [truncated] ...\n\n" + audit_src[-5_000:]
+
+    history = _load_history()
+    recent = history.get("runs", [])[-3:]
+    hist_summary = "\n".join(
+        f"  {r['timestamp'][:10]}: {r['passed']}P {r['failed']}F gaps={r.get('gaps_found',0)}"
+        for r in recent
+    ) or "No previous runs."
+
+    gaps_text = "\n".join(
+        f"  [{i+1}] {g['type']}: {g['item']}\n      → {g['suggestion']}"
+        for i, g in enumerate(gaps[:20])
+    ) or "  (none identified)"
+
+    changes_text = "\n".join(
+        f"  {k}: {v}" for k, v in list(changes.items())[:10]
+    ) or "  (no changes since last audit)"
+
+    prompt = f"""You are improving the Mediastack full contract audit test suite (15 categories A-O).
+
+Current test file (abbreviated):
+```python
+{audit_src}
+```
+
+Recent audit history:
+{hist_summary}
+
+Codebase changes since last audit:
+{changes_text}
+
+Identified gaps requiring new tests:
+{gaps_text}
+
+Generate NEW pytest test methods. Rules:
+1. Each test in the correct class (A-O category) with comment: # CLASS: TestXxx
+2. Tests must catch REAL bugs, not just verify code runs (Core Rule 2.2)
+3. NO mocks unless testing error injection
+4. Use tmp_path for DB isolation
+5. Maximum 10 new tests total
+6. Tests for missing_error_handling: verify the endpoint returns 4xx not 500 on bad input
+7. For mutation survivors: assert on the EXACT value that was mutated (not just that no error occurred)
+8. For schemathesis failures: reproduce the exact input that caused the 500
+{("Additional context from tools:" + extra_context) if extra_context else ""}
+Output ONLY valid Python code, no prose, no markdown fences.
+Start with: # AUTO-GENERATED by ms-audit --improve on {datetime.date.today()} via {chosen_provider}
+"""
+
+    print(f"\n  {CYAN('→')} Using {call_label}…")
+
+    try:
+        generated = call_fn(prompt).strip()
+    except Exception as e:
+        print(f"  {RED('✗')} Error: {e}")
+        return
+
+    # Validate
+    try:
+        ast.parse(generated)
+    except SyntaxError as e:
+        print(f"  {RED('✗')} Generated code has syntax error: {e}")
+        (REPO / "data" / "audit_generated_draft.py").write_text(generated)
+        print(f"  Saved draft for inspection: data/audit_generated_draft.py")
+        return
+
+    new_count = generated.count("def test_")
+    print(f"  {GREEN('✓')} Generated {new_count} new tests via {chosen_provider}")
+
+    if apply:
+        current = AUDIT_TEST.read_text()
+        updated = current.rstrip() + "\n\n\n" + generated + "\n"
+        try:
+            ast.parse(updated)
+            AUDIT_TEST.write_text(updated)
+            print(f"  {GREEN('✓')} Applied to {AUDIT_TEST.name}")
+        except SyntaxError as e:
+            print(f"  {RED('✗')} Combined file has syntax error — not applied: {e}")
+            (REPO / "data" / "audit_generated_draft.py").write_text(generated)
+    else:
+        (REPO / "data" / "audit_generated_draft.py").write_text(generated)
+        print(f"  Saved: data/audit_generated_draft.py")
+        print(f"  Apply: ms-audit --improve --apply")
+
+
+def fingerprint() -> dict[str, Any]:
+    """
+    Snapshot the entire codebase structure. Run before and after changes
+    to identify what's new and needs test coverage.
+    """
+    snap: dict[str, Any] = {
+        "ts": time.time(),
+        "routes": [],
+        "vue_calls": [],
+        "manifests": [],
+        "db_tables": [],
+        "wizard_steps": [],
+        "action_types": [],
+        "context_sources": [],
+        "infra_providers": {},
+        "settings_keys": [],
+    }
+
+    # API routes
+    for mod, pfx in PREFIXES.items():
+        f = REPO / f"backend/api/{mod}.py"
+        if not f.exists():
+            continue
+        for m in re.finditer(
+            r'@router\.(get|post|put|delete|patch)\(\s*["\']([^"\']+)["\']',
+            f.read_text()
+        ):
+            snap["routes"].append(f"{m.group(1).upper()} {pfx}{m.group(2)}")
+
+    # Vue API calls
+    for f in (REPO / "frontend" / "src").rglob("*.vue"):
+        src = f.read_text()
+        for m in re.finditer(r"fetch\([`'\"](/api/[^`'\"?\s{]+)", src):
+            path = re.sub(r"\$\{[^}]+\}", "{id}", m.group(1))
+            snap["vue_calls"].append(f"{path} [{f.name}]")
+
+    # Catalog manifests
+    for f in (REPO / "catalog" / "apps").glob("*.yaml"):
+        snap["manifests"].append(f.stem)
+
+    # DB tables
+    schema = (REPO / "backend" / "core" / "schema.sql").read_text()
+    snap["db_tables"] = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", schema)
+
+    # Wizard steps
+    wizard_src = (REPO / "backend" / "platform" / "wizard.py").read_text()
+    m = re.search(r"STEPS = \[(.*?)\]", wizard_src, re.DOTALL)
+    if m:
+        snap["wizard_steps"] = [
+            re.search(r'"(\w+)"', line).group(1)
+            for line in m.group(1).splitlines()
+            if re.search(r'"(\w+)"', line)
+        ]
+
+    # LLM action types
+    checker_src = (REPO / "backend" / "health" / "checker.py").read_text()
+    map_m = re.search(r"_action_map = \{(.*?)\}", checker_src, re.DOTALL)
+    if map_m:
+        snap["action_types"] = list(set(
+            re.findall(r'"(\w+)":\s*"(\w+)"', map_m.group(1))
+        ))
+
+    # Context assembler sources
+    asm_src = (REPO / "backend" / "health" / "context_assembler.py").read_text()
+    snap["context_sources"] = re.findall(r"# ── (\d+)\.", asm_src)
+
+    # Infra providers
+    for f in (REPO / "backend" / "infra" / "providers").glob("*.py"):
+        src = f.read_text()
+        slot_m = re.search(r'\bslot\s*=\s*["\'](\w+)["\']', src)
+        if slot_m:
+            keys = re.findall(r'\bkey\s*=\s*["\'](\w+)["\']', src)
+            slot = slot_m.group(1)
+            snap["infra_providers"].setdefault(slot, []).extend(keys)
+
+    # Settings keys written by wizard
+    snap["settings_keys"] = re.findall(
+        r'set_setting\(["\'](\w+)["\']',
+        (REPO / "backend" / "platform" / "wizard.py").read_text()
+    )
+
+    return snap
+
+
+def diff_snapshots(old: dict, new: dict) -> dict[str, list[str]]:
+    """Return what's new in `new` compared to `old`."""
+    changes: dict[str, list[str]] = {}
+
+    for key in ("routes", "vue_calls", "manifests", "db_tables",
+                "wizard_steps", "settings_keys", "context_sources"):
+        added = [x for x in new.get(key, []) if x not in old.get(key, [])]
+        removed = [x for x in old.get(key, []) if x not in new.get(key, [])]
+        if added:
+            changes[f"{key}_added"] = added
+        if removed:
+            changes[f"{key}_removed"] = removed
+
+    # Infra providers
+    for slot, keys in new.get("infra_providers", {}).items():
+        old_keys = old.get("infra_providers", {}).get(slot, [])
+        new_keys = [k for k in keys if k not in old_keys]
+        if new_keys:
+            changes.setdefault("providers_added", []).extend(
+                [f"{slot}/{k}" for k in new_keys]
+            )
+
+    return changes
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TEST RUNNER
+# ═══════════════════════════════════════════════════════════════════════════
+
+def run_pytest(markers: list[str] | None = None,
+               test_file: str | None = None) -> dict[str, Any]:
+    """Run pytest and return structured results."""
+    target = test_file or str(AUDIT_TEST.resolve())
+    # Use venv python if available (has all test dependencies)
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else sys.executable
+    cmd = [py, "-m", "pytest", target,
+           "-v", "--tb=short", "--no-header",
+           f"--rootdir={REPO}"]
+    if markers:
+        cmd.extend(["-k", " or ".join(markers)])
+
+    t0 = time.time()
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(REPO)
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO, env=env)
+    elapsed = time.time() - t0
+
+    passed = failed = errors = 0
+    failures: list[dict] = []
+
+    # Parse the summary line (reliable across pytest versions and color settings)
+    # e.g. "72 passed, 1 warning in 6.73s" or "5 failed, 67 passed in 4.8s"
+    for line in result.stdout.splitlines():
+        m_pass = re.search(r"(\d+) passed", line)
+        m_fail = re.search(r"(\d+) failed", line)
+        m_err  = re.search(r"(\d+) error", line)
+        if m_pass: passed = int(m_pass.group(1))
+        if m_fail: failed = int(m_fail.group(1))
+        if m_err:  errors = int(m_err.group(1))
+        # Collect failure names from individual FAILED lines as secondary source
+        if " FAILED" in line and "::" in line:
+            name = line.split("::")[1].split(" ")[0]
+            if name not in [f["name"] for f in failures]:
+                failures.append({"name": name, "output": ""})
+
+    # Show pytest output when 0 tests (collection failed)
+    if passed == 0 and failed == 0:
+        combined = (result.stdout + result.stderr).strip()
+        if combined:
+            print(f"\n  {YELLOW('⚠ pytest collected 0 tests — output:')} (returncode={result.returncode})")
+            for line in combined.splitlines()[-15:]:
+                print(f"    {DIM(line)}")
+
+    # If 0 tests collected, pytest likely had a collection error — surface it
+    if passed == 0 and failed == 0 and not args.quiet if "args" in dir() else True:
+        combined = (result.stdout + result.stderr)[-3000:]
+        if "no tests ran" in combined or "collected 0" in combined or result.returncode == 5:
+            print(f"\n  {YELLOW('⚠ pytest collected 0 tests — showing output:')}")
+            for line in combined.splitlines()[-20:]:
+                print(f"    {DIM(line)}")
+
+    return {
+        "passed": passed,
+        "failed": failed,
+        "errors": errors,
+        "elapsed": round(elapsed, 1),
+        "failures": failures,
+        "stdout": result.stdout[-8000:],
+        "returncode": result.returncode,
+        "stderr": result.stderr[-2000:],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# GAP ANALYSIS
+# ═══════════════════════════════════════════════════════════════════════════
+
+def find_gaps(snap: dict, changes: dict) -> list[dict[str, str]]:
+    """
+    Identify things in the codebase with no corresponding test coverage
+    in test_comprehensive_contracts.py.
+    """
+    audit_src = AUDIT_TEST.read_text()
+    gaps: list[dict[str, str]] = []
+
+    # New routes not mentioned in audit
+    for route in changes.get("routes_added", []):
+        path = route.split(" ", 1)[-1] if " " in route else route
+        segments = [s for s in path.split("/") if s and not s.startswith("{")]
+        search_terms = []
+        if segments:
+            search_terms.append(segments[-1])
+            if len(segments) >= 2:
+                search_terms.append(segments[-2] + "_" + segments[-1])
+            if "-" in segments[-1]:
+                search_terms.extend(segments[-1].split("-"))
+        covered = any(term in audit_src for term in search_terms if len(term) > 4)
+        if not covered:
+            gaps.append({
+                "type": "new_route",
+                "item": route,
+                "suggestion": f"Add test verifying {route} returns correct shape and errors gracefully",
+            })
+
+    # New manifests not in manifest integrity tests
+    for mfst in changes.get("manifests_added", []):
+        if mfst not in audit_src:
+            gaps.append({
+                "type": "new_manifest",
+                "item": mfst,
+                "suggestion": f"Verify {mfst}.yaml loads, has valid ports, health checks work",
+            })
+
+    # New wizard steps not tested
+    for step in changes.get("wizard_steps_added", []):
+        if step not in audit_src:
+            gaps.append({
+                "type": "new_wizard_step",
+                "item": step,
+                "suggestion": f"Verify step_{step} is in STEPS list and dependencies are satisfied",
+            })
+
+    # New infra providers not in contracts
+    for prov in changes.get("providers_added", []):
+        slot, key = prov.split("/")
+        if key not in audit_src:
+            gaps.append({
+                "type": "new_infra_provider",
+                "item": prov,
+                "suggestion": (
+                    f"Verify {slot}/{key} provider: deploys correctly, "
+                    f"calls upsert_app(tier=0), appears in health cycle"
+                ),
+            })
+
+    # New DB tables not in schema tests
+    for tbl in changes.get("db_tables_added", []):
+        if tbl not in audit_src:
+            gaps.append({
+                "type": "new_db_table",
+                "item": tbl,
+                "suggestion": f"Add {tbl} to required tables list and verify it's created on init",
+            })
+
+    # Context sources — verify count is up to date
+    # The test uses re.findall(r"# ── (\d+)\.", src) to find all source numbers
+    src_count = len(snap.get("context_sources", []))
+    # The test now dynamically finds max_source, so this gap only fires if
+    # test_all_sources_0_through_20_present itself is missing
+    # Check both comprehensive and LLM contract test files
+    all_test_src = audit_src
+    llm_test = REPO / "tests" / "test_llm_agent_contracts.py"
+    if llm_test.exists():
+        all_test_src += llm_test.read_text()
+    if "test_all_sources_0_through_20_present" not in all_test_src:
+        gaps.append({
+            "type": "context_sources_unchecked",
+            "item": f"Context source completeness test missing",
+            "suggestion": "Add test_all_sources_0_through_20_present to TestContextCompleteness",
+        })
+
+    # Static analysis: endpoints without try/except
+    for mod in PREFIXES:
+        f = REPO / f"backend/api/{mod}.py"
+        if not f.exists():
+            continue
+        src = f.read_text()
+        for fn_m in re.finditer(
+            r'@router\.(post|put|delete|patch).*?\nasync def (\w+)\(.*?(?=\n@router|\nclass |\Z)',
+            src, re.DOTALL
+        ):
+            fn_body = fn_m.group(0)
+            fn_name = fn_m.group(2)
+            if "except" not in fn_body and len(fn_body) > 200:
+                test_name = f"test_{mod}_{fn_name}_error_handling"
+                if test_name not in audit_src:
+                    gaps.append({
+                        "type": "missing_error_handling",
+                        "item": f"{mod}.{fn_name}",
+                        "suggestion": (
+                            f"POST/PUT/DELETE endpoint {fn_name} in {mod}.py has no "
+                            f"exception handling — add test verifying it returns 4xx not 500 on bad input"
+                        ),
+                    })
+
+    return gaps
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AI SELF-IMPROVEMENT
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _load_history() -> dict:
+    try:
+        return json.loads(HIST_FILE.read_text())
+    except Exception:
+        return {"runs": []}
+
+
+def _save_history(record: dict) -> None:
+    h = _load_history()
+    h["runs"].append(record)
+    # Keep last 50 audit runs
+    h["runs"] = h["runs"][-50:]
+    HIST_FILE.write_text(json.dumps(h, indent=2))
+
+
+def show_summary() -> None:
+    h = _load_history()
+    runs = h.get("runs", [])
+    if not runs:
+        print("No audit history yet.")
+        return
+
+    print(f"\n{BOLD('Audit History')} ({len(runs)} runs)\n")
+    print(f"  {'Date':12} {'Pass':>5} {'Fail':>5} {'Gaps':>5} {'Time':>6}  {'Status'}")
+    print(f"  {'-'*60}")
+    for r in runs[-20:]:
+        ts = r.get("timestamp", "")[:10]
+        p  = r.get("passed", 0)
+        f  = r.get("failed", 0)
+        g  = r.get("gaps_found", 0)
+        el = r.get("elapsed", 0)
+        ok = GREEN("✓ PASS") if f == 0 else RED(f"✗ {f} FAIL")
+        print(f"  {ts:12} {p:5} {f:5} {g:5} {el:5.1f}s  {ok}")
+
+    last = runs[-1]
+    if last.get("gaps"):
+        print(f"\n{BOLD('Last run gaps:')}")
+        for g in last["gaps"][:5]:
+            print(f"  • [{g['type']}] {g['item'][:70]}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# REPORT
+# ═══════════════════════════════════════════════════════════════════════════
+
+def save_report(results: dict, gaps: list, changes: dict, snap: dict) -> pathlib.Path:
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = REPORT_DIR / f"audit_report_{ts}.md"
+    REPORT_DIR.mkdir(exist_ok=True)
+
+    lines = [
+        f"# Mediastack Full Contract Audit",
+        f"",
+        f"**Date:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}  ",
+        ("**Result:** ✓ PASSED  " if results["failed"] == 0
+         else f"**Result:** ✗ {results['failed']} FAILED  "),
+        f"**Tests:** {results['passed']} passed, {results['failed']} failed  ",
+        f"**Duration:** {results['elapsed']}s  ",
+        f"",
+        f"## Codebase Snapshot",
+        f"",
+        f"| Metric | Count |",
+        f"|---|---|",
+        f"| API Routes | {len(snap['routes'])} |",
+        f"| Vue API Calls | {len(snap['vue_calls'])} |",
+        f"| Catalog Apps | {len(snap['manifests'])} |",
+        f"| DB Tables | {len(snap['db_tables'])} |",
+        f"| Wizard Steps | {len(snap['wizard_steps'])} |",
+        f"| Infra Providers | {sum(len(v) for v in snap['infra_providers'].values())} |",
+        f"",
+    ]
+
+    if changes:
+        lines += [f"## Changes Since Last Audit", f""]
+        for k, v in changes.items():
+            lines += [f"**{k}:** {', '.join(str(x) for x in v[:5])}", f""]
+
+    if gaps:
+        lines += [f"## Gaps Found ({len(gaps)})", f""]
+        by_type: dict[str, list] = {}
+        for g in gaps:
+            by_type.setdefault(g["type"], []).append(g)
+        for gtype, items in by_type.items():
+            lines += [f"### {gtype.replace('_', ' ').title()} ({len(items)})", f""]
+            for item in items[:10]:
+                lines += [f"- **{item['item']}**", f"  - {item['suggestion']}", f""]
+
+    if results.get("failures"):
+        lines += [f"## Failed Tests", f""]
+        for f in results["failures"]:
+            lines += [f"- `{f['name']}`", f""]
+
+    lines += [f"## Test Output", f"", f"```", results.get("stdout", "")[-3000:], f"```"]
+
+    out.write_text("\n".join(lines))
+    return out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════════════════
+
+def main() -> int:
+    import argparse
+
+    p = argparse.ArgumentParser(
+        description="Mediastack Full Contract Audit — self-improving end-to-end test suite",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__.split("Usage:")[1].split("\n\nSelf")[0],
+    )
+    p.add_argument("--static",  action="store_true", help="Static analysis only")
+    p.add_argument("--live",    action="store_true", help="Live API tests only")
+    p.add_argument("--improve", action="store_true", help="AI gap analysis + test generation")
+    p.add_argument("--apply",   action="store_true", help="Apply AI-generated tests immediately")
+    p.add_argument("--report",  action="store_true", help="Save markdown report")
+    p.add_argument("--summary", action="store_true", help="Show history summary")
+    p.add_argument("--diff",    action="store_true", help="Only test changed areas")
+    p.add_argument("--watch",   action="store_true", help="Re-run on file changes")
+    p.add_argument("--model",    default="sonnet",
+                   choices=["opus", "sonnet", "haiku"],
+                   help="Claude model for --improve (default: sonnet)")
+    p.add_argument("--provider", default="auto",
+                   choices=["auto", "ollama", "groq", "awan", "claude", "openai"],
+                   help="AI provider for --improve (default: auto-detect)")
+    p.add_argument("--quiet",   action="store_true", help="Minimal output")
+    p.add_argument("--context", default="",
+                   help="Path to context file from ms-mutmut or ms-schemathesis for targeted LLM test generation")
+    args = p.parse_args()
+
+    if args.summary:
+        show_summary()
+        return 0
+
+    # ── Fingerprint codebase ────────────────────────────────────────────────
+    print(f"\n{BOLD('Mediastack Full Contract Audit')}")
+    print(f"{DIM('─' * 60)}")
+
+    print(f"\n  {CYAN('→')} Scanning codebase…", end=" ", flush=True)
+    snap = fingerprint()
+    n_routes = len(snap["routes"])
+    n_apps   = len(snap["manifests"])
+    n_tables = len(snap["db_tables"])
+    _parts = []
+    if SNAP_FILE.exists():
+        try:
+            _old = json.loads(SNAP_FILE.read_text())
+            _or = len(_old.get("routes",    []))
+            _oa = len(_old.get("manifests", []))
+            _parts.append(f"{_or} \u2192 {n_routes} routes" if _or != n_routes else f"{n_routes} routes")
+            _parts.append(f"{_oa} \u2192 {n_apps} apps"    if _oa != n_apps   else f"{n_apps} apps")
+        except Exception:
+            _parts = [f"{n_routes} routes", f"{n_apps} apps"]
+    else:
+        _parts = [f"{n_routes} routes", f"{n_apps} apps"]
+    _parts.append(f"{n_tables} tables")
+    print(f"done  {DIM(' \u00b7 '.join(_parts))}")
+
+    # Load previous snapshot and compute diff
+    changes: dict[str, list[str]] = {}
+    if SNAP_FILE.exists():
+        try:
+            old_snap = json.loads(SNAP_FILE.read_text())
+            changes = diff_snapshots(old_snap, snap)
+            if changes and not args.quiet:
+                total_changes = sum(len(v) for v in changes.values())
+                print(f"  {CYAN('→')} {total_changes} change(s) since last audit: "
+                      f"{DIM(', '.join(f'{k}({len(v)})' for k,v in list(changes.items())[:4]))}")
+        except Exception:
+            pass
+
+    # ── Gap analysis ────────────────────────────────────────────────────────
+    print(f"  {CYAN('→')} Analyzing gaps…", end=" ", flush=True)
+    gaps = find_gaps(snap, changes)
+    if gaps:
+        print(f"{YELLOW(f'{len(gaps)} gap(s) found')}")
+        if not args.quiet:
+            for g in gaps[:5]:
+                print(f"    {DIM('•')} [{g['type']}] {g['item'][:65]}")
+            if len(gaps) > 5:
+                print(f"    {DIM(f'... and {len(gaps)-5} more')}")
+    else:
+        print(f"{GREEN('none')}")
+
+    # ── Select test markers based on mode ──────────────────────────────────
+    markers = None
+    if args.diff and changes:
+        # Only run test classes related to changed areas
+        marker_map = {
+            "routes_added":     ["TestAPIContracts", "TestFrontendBackendContracts"],
+            "manifests_added":  ["TestManifestIntegrity"],
+            "db_tables_added":  ["TestDataLayer"],
+            "wizard_steps_added": ["TestConfiguration", "TestWorkflowStateMachines"],
+            "providers_added":  ["TestLLMIntegration", "TestDataSharingContracts"],
+            "vue_calls_added":  ["TestFrontendBackendContracts", "TestResponseSchema"],
+        }
+        active = set()
+        for change_key in changes:
+            active.update(marker_map.get(change_key, []))
+        if active:
+            markers = list(active)
+            print(f"  {CYAN('→')} Running targeted tests: {', '.join(markers)}")
+
+    # ── Run tests ───────────────────────────────────────────────────────────
+    print(f"\n  {CYAN('→')} Running audit tests…")
+    t0 = time.time()
+    results = run_pytest(markers=markers)
+    elapsed = time.time() - t0
+
+    # Print results
+    print()
+    status_line = (
+        f"  {GREEN('✓ PASSED')} — {results['passed']} tests in {elapsed:.1f}s"
+        if results["failed"] == 0
+        else f"  {RED(f'✗ FAILED')} — {results['passed']} passed, {results['failed']} failed in {elapsed:.1f}s"
+    )
+    print(status_line)
+
+    if results["failures"] and not args.quiet:
+        print()
+        for f in results["failures"][:5]:
+            print(f"    {RED('✗')} {f['name']}")
+
+    # Print test output on failure
+    if results["failed"] > 0:
+        print(f"\n{DIM('─' * 60)}")
+        # Show just the FAILED sections from stdout
+        in_fail = False
+        for line in results["stdout"].splitlines():
+            if "FAILED" in line or "short test summary" in line:
+                in_fail = True
+            if in_fail:
+                print(f"  {line}")
+        print(f"{DIM('─' * 60)}")
+
+    # ── AI improvement ──────────────────────────────────────────────────────
+    if args.improve:
+        # Auto-assemble context from: explicit --context flag + recent tool outputs + Core Rules
+        _extra_context = _assemble_improve_context(
+            explicit_file=args.context,
+            include_core_rules=True,
+        )
+        improve_with_ai(gaps, changes, model=args.model, apply=args.apply,
+                        extra_context=_extra_context)
+        # Provider can also be set via MS_AUDIT_PROVIDER env var
+
+    # ── Save snapshot — only update baseline when gaps are closed ──────────
+    # Preserving the old snapshot when gaps exist means next run re-reports
+    # them until tests are written, rather than silently forgetting them.
+    if not gaps:
+        SNAP_FILE.write_text(json.dumps(snap, indent=2))
+    elif args.improve:
+        SNAP_FILE.write_text(json.dumps(snap, indent=2))
+    else:
+        if not args.quiet:
+            print(f"  {YELLOW('!')} Snapshot not updated — {len(gaps)} gap(s) remain open")
+            print(f"    Run {DIM('ms-audit --improve')} to generate tests, or add manually then re-run")
+
+    # ── Save report ─────────────────────────────────────────────────────────
+    if args.report:
+        report_path = save_report(results, gaps, changes, snap)
+        print(f"\n  {GREEN('✓')} Report: {report_path}")
+
+    # ── Save history ─────────────────────────────────────────────────────────
+    _save_history({
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "passed":    results["passed"],
+        "failed":    results["failed"],
+        "elapsed":   round(elapsed, 1),
+        "gaps_found": len(gaps),
+        "gaps":      gaps[:10],
+        "changes":   {k: v[:5] for k, v in changes.items()},
+        "snapshot":  {k: len(v) if isinstance(v, list)
+                      else sum(len(x) for x in v.values()) if isinstance(v, dict)
+                      else v
+                      for k, v in snap.items() if k != "ts"},
+    })
+
+    # ── Recommendations ─────────────────────────────────────────────────────
+    if gaps and not args.improve and not args.quiet:
+        print(f"\n  {DIM('Tip:')} run {CYAN('ms-audit --improve')} to generate tests for {len(gaps)} gaps")
+        # Check what providers are available
+        _has_ollama = False
+        try:
+            import urllib.request as _u
+            _u.urlopen("http://localhost:11434/api/tags", timeout=1)
+            _has_ollama = True
+        except Exception:
+            pass
+        if _has_ollama:
+            print(f"       {GREEN('Ollama is running')} — ms-audit will use it automatically (free, no account needed)")
+        elif any(os.environ.get(k) for k in ["GROQ_API_KEY","AWAN_API_KEY","ANTHROPIC_API_KEY","OPENAI_API_KEY"]):
+            print(f"       API key detected — run ms-audit --improve to generate tests")
+        else:
+            print(f"       Free options: start Ollama, or export GROQ_API_KEY (free at console.groq.com)")
+
+    print()
+    return 0 if results["failed"] == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

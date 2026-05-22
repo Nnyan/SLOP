@@ -1,0 +1,1799 @@
+#!/usr/bin/env python3
+"""ms-coverage — Mediastack Topology & Coverage Scanner
+
+Scans the ENTIRE codebase and produces a structured coverage map:
+  - Every API route (method + path + handler + file)
+  - Every DB table and its columns
+  - Every infra provider and its deploy/remove methods
+  - Every app manifest (catalog)
+  - Every frontend view and its API calls
+  - Every wizard step function
+  - Which of the above has test coverage (and what kind)
+
+Output: data/coverage_map.json  (consumed by the topology dashboard)
+        data/coverage_report.txt (human-readable summary)
+
+Usage:
+  ms-coverage             # scan + report
+  ms-coverage --json      # JSON only (for dashboard consumption)
+  ms-coverage --gaps      # show only uncovered items
+  ms-coverage --section X # filter by section (routes/tables/providers/manifests/views/steps)
+
+Install: sudo ln -sf /srv/mediastack/ms-coverage /usr/local/bin/ms-coverage
+"""
+from __future__ import annotations
+
+import ast
+import json
+import re
+import sys
+import time
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Optional
+
+REPO = Path(__file__).resolve().parent  # resolve() follows symlinks (sudo ln -sf)
+DATA = REPO / "data"
+OUT  = DATA / "coverage_map.json"
+
+# ANSI
+_RESET = "\033[0m"; _BOLD = "\033[1m"; _DIM = "\033[2m"
+_GREEN = "\033[32m"; _RED = "\033[31m"; _YELLOW = "\033[33m"
+_CYAN = "\033[36m"; _BLUE = "\033[34m"; _MAGENTA = "\033[35m"
+
+def GREEN(s): return f"{_GREEN}{s}{_RESET}"
+def RED(s):   return f"{_RED}{s}{_RESET}"
+def YELLOW(s):return f"{_YELLOW}{s}{_RESET}"
+def CYAN(s):  return f"{_CYAN}{s}{_RESET}"
+def DIM(s):   return f"{_DIM}{s}{_RESET}"
+def BOLD(s):  return f"{_BOLD}{s}{_RESET}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Data structures
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class CoverageNode:
+    id: str            # unique identifier
+    kind: str          # route | table | provider | manifest | view | step | tool
+    label: str         # human-readable name
+    detail: str        # path, method, file location
+    file: str          # source file (relative to repo)
+    line: int          # line number
+    covered: bool      # has any test
+    test_count: int    # number of tests touching this node
+    test_kinds: list   # static | runtime | e2e | contract
+    test_files: list   # which test files cover it
+    risk: str          # low | medium | high | critical
+    depends_on: list   # IDs this node depends on
+    notes: str = ""    # any notable flags (deprecated, new, etc.)
+
+
+@dataclass
+class CoverageMap:
+    generated_at: int
+    commit: str
+    nodes: list
+    summary: dict
+    gaps: list         # uncovered high-risk nodes
+    recent_bugs: list  # bugs that were found by testing
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scanners
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _rel(p: Path) -> str:
+    try: return str(p.relative_to(REPO))
+    except ValueError: return str(p)
+
+
+def scan_routes() -> list[CoverageNode]:
+    """Scan all FastAPI routers for route definitions."""
+    nodes = []
+    pattern = re.compile(
+        r'@router\.(get|post|put|patch|delete|head|options)\("([^"]+)"',
+        re.IGNORECASE
+    )
+    fn_pattern = re.compile(r'(?:async )?def (\w+)\(')
+
+    for fpath in sorted((REPO / "backend/api").glob("*.py")):
+        if fpath.name.startswith("_"):
+            continue
+        src = fpath.read_text()
+        lines = src.splitlines()
+        for i, line in enumerate(lines, 1):
+            m = pattern.search(line)
+            if not m:
+                continue
+            method = m.group(1).upper()
+            path = m.group(2)
+            # Find the function name on the next non-decorator line
+            handler = "unknown"
+            for j in range(i, min(i + 5, len(lines))):
+                fm = fn_pattern.search(lines[j])
+                if fm:
+                    handler = fm.group(1)
+                    break
+
+            # Determine prefix from router include
+            prefix = _infer_prefix(fpath.name)
+            full_path = f"/api{prefix}{path}".replace("//", "/")
+
+            # Risk heuristic
+            risk = "low"
+            if method in ("POST", "PUT", "DELETE", "PATCH"):
+                risk = "medium"
+            if any(w in path for w in ("reset", "approve", "install", "deploy", "wizard")):
+                risk = "high"
+            if any(w in path for w in ("reset/full", "approve", "execute")):
+                risk = "critical"
+
+            node_id = f"route:{method}:{full_path}"
+            nodes.append(CoverageNode(
+                id=node_id, kind="route",
+                label=f"{method} {full_path}",
+                detail=f"handler={handler}",
+                file=_rel(fpath), line=i,
+                covered=False, test_count=0,
+                test_kinds=[], test_files=[],
+                risk=risk, depends_on=[],
+            ))
+    return nodes
+
+
+def _infer_prefix(filename: str) -> str:
+    prefixes = {
+        "health.py": "/health", "platform.py": "/platform",
+        "apps.py": "/apps", "settings.py": "/settings",
+        "catalog.py": "/catalog", "infra.py": "/infra",
+        "routing.py": "/routing", "storage.py": "/storage",
+        "models.py": "/models",
+    }
+    return prefixes.get(filename, "")
+
+
+def scan_db_tables() -> list[CoverageNode]:
+    """Scan schema.sql for all table definitions."""
+    nodes = []
+    schema = REPO / "backend/core/schema.sql"
+    if not schema.exists():
+        return nodes
+    src = schema.read_text()
+    lines = src.splitlines()
+    tbl_pat = re.compile(r'CREATE TABLE IF NOT EXISTS (\w+)', re.IGNORECASE)
+    col_pat = re.compile(r'^\s+(\w+)\s+(TEXT|INTEGER|REAL|BLOB|NUMERIC)', re.IGNORECASE)
+
+    current_table = None
+    current_cols: list[str] = []
+    current_line = 0
+
+    for i, line in enumerate(lines, 1):
+        m = tbl_pat.search(line)
+        if m:
+            if current_table:
+                _emit_table(nodes, current_table, current_cols, current_line, schema)
+            current_table = m.group(1)
+            current_cols = []
+            current_line = i
+        elif current_table:
+            cm = col_pat.match(line)
+            if cm and cm.group(1).lower() not in ("primary", "unique", "check", "foreign"):
+                current_cols.append(cm.group(1))
+            if line.strip().startswith(");"):
+                _emit_table(nodes, current_table, current_cols, current_line, schema)
+                current_table = None
+                current_cols = []
+
+    # Also scan for inline CREATE TABLE IF NOT EXISTS in Python
+    for fpath in REPO.rglob("*.py"):
+        if "test" in fpath.parts or ".venv" in fpath.parts:
+            continue
+        text = fpath.read_text()
+        for m in tbl_pat.finditer(text):
+            name = m.group(1)
+            if not any(n.id == f"table:{name}" for n in nodes):
+                line_no = text[:m.start()].count("\n") + 1
+                nodes.append(CoverageNode(
+                    id=f"table:{name}", kind="table",
+                    label=name, detail="inline CREATE TABLE",
+                    file=_rel(fpath), line=line_no,
+                    covered=False, test_count=0,
+                    test_kinds=[], test_files=[],
+                    risk="medium", depends_on=[],
+                    notes="created inline, not in schema.sql",
+                ))
+    return nodes
+
+
+def _emit_table(nodes, name, cols, line_no, schema):
+    risk = "low"
+    if name in ("platform", "pending_fixes", "fix_history"):
+        risk = "high"
+    if name in ("apps", "health_checks", "operations"):
+        risk = "critical"
+    nodes.append(CoverageNode(
+        id=f"table:{name}", kind="table",
+        label=name, detail=f"cols: {', '.join(cols[:6])}{'…' if len(cols)>6 else ''}",
+        file=_rel(schema), line=line_no,
+        covered=False, test_count=0,
+        test_kinds=[], test_files=[],
+        risk=risk, depends_on=[],
+    ))
+
+
+def scan_providers() -> list[CoverageNode]:
+    """Scan infra providers for class + deploy/remove/status methods."""
+    nodes = []
+    cls_pat = re.compile(r'class (\w+Provider)\(')
+    for fpath in sorted((REPO / "backend/infra/providers").glob("*.py")):
+        if fpath.name.startswith("_"):
+            continue
+        src = fpath.read_text()
+        lines = src.splitlines()
+        for i, line in enumerate(lines, 1):
+            m = cls_pat.search(line)
+            if not m:
+                continue
+            cls_name = m.group(1)
+            # Determine slot from filename
+            slot = fpath.stem.split("_")[0]
+            risk = "high"  # all providers are high-risk (deploy/remove Docker)
+            nodes.append(CoverageNode(
+                id=f"provider:{cls_name}", kind="provider",
+                label=cls_name, detail=f"slot={slot}",
+                file=_rel(fpath), line=i,
+                covered=False, test_count=0,
+                test_kinds=[], test_files=[],
+                risk=risk, depends_on=[f"route:POST:/api/platform/wizard/run"],
+                notes=f"file={fpath.name}",
+            ))
+    return nodes
+
+
+def scan_manifests() -> list[CoverageNode]:
+    """Scan catalog YAML manifests."""
+    nodes = []
+    catalog_dir = REPO / "catalog/apps"
+    if not catalog_dir.exists():
+        return nodes
+    try:
+        import yaml
+    except ImportError:
+        yaml = None
+    for fpath in sorted(catalog_dir.glob("*.yaml")):
+        key = fpath.stem
+        label = key
+        if yaml:
+            try:
+                data = yaml.safe_load(fpath.read_text())
+                label = data.get("display_name", key)
+            except Exception:
+                pass
+        nodes.append(CoverageNode(
+            id=f"manifest:{key}", kind="manifest",
+            label=label, detail=f"catalog/{fpath.name}",
+            file=_rel(fpath), line=1,
+            covered=False, test_count=0,
+            test_kinds=[], test_files=[],
+            risk="medium",
+            depends_on=["route:POST:/api/apps/install"],
+        ))
+    return nodes
+
+
+def scan_wizard_steps() -> list[CoverageNode]:
+    """Scan wizard.py for step functions."""
+    nodes = []
+    wizard = REPO / "backend/platform/wizard.py"
+    if not wizard.exists():
+        return nodes
+    src = wizard.read_text()
+    lines = src.splitlines()
+    step_pat = re.compile(r'^def (step_\w+)\(inp')
+    for i, line in enumerate(lines, 1):
+        m = step_pat.match(line)
+        if not m:
+            continue
+        fn = m.group(1)
+        risk = "medium"
+        if fn in ("step_traefik_deploy", "step_deploy_infra", "step_complete"):
+            risk = "critical"
+        if fn in ("step_network", "step_config_dirs", "step_write_env"):
+            risk = "high"
+        nodes.append(CoverageNode(
+            id=f"step:{fn}", kind="step",
+            label=fn.replace("step_", "").replace("_", " ").title(),
+            detail=fn,
+            file=_rel(wizard), line=i,
+            covered=False, test_count=0,
+            test_kinds=[], test_files=[],
+            risk=risk,
+            depends_on=["route:POST:/api/platform/wizard/run"],
+        ))
+    return nodes
+
+
+def scan_frontend_views() -> list[CoverageNode]:
+    """Scan Vue view files for components and their API calls."""
+    nodes = []
+    views_dir = REPO / "frontend/src/views"
+    if not views_dir.exists():
+        return nodes
+    api_pat = re.compile(r'fetch\([\'"]([^\'"]+)[\'"]|[\'"]([^\'"]*api[^\'"]*)[\'"]', re.IGNORECASE)
+    for fpath in sorted(views_dir.glob("*.vue")):
+        src = fpath.read_text()
+        api_calls = set()
+        for m in api_pat.finditer(src):
+            url = m.group(1) or m.group(2)
+            if url and ("/api/" in url or url.startswith("/api")):
+                api_calls.add(url.split("?")[0])
+
+        risk = "medium"
+        if "Setup" in fpath.stem or "Dashboard" in fpath.stem:
+            risk = "high"
+
+        nodes.append(CoverageNode(
+            id=f"view:{fpath.stem}", kind="view",
+            label=fpath.stem.replace("View", ""),
+            detail=f"{len(api_calls)} API calls",
+            file=_rel(fpath), line=1,
+            covered=False, test_count=0,
+            test_kinds=[], test_files=[],
+            risk=risk,
+            depends_on=list(api_calls)[:10],
+            notes=", ".join(sorted(api_calls)[:5]),
+        ))
+    return nodes
+
+
+def scan_tools() -> list[CoverageNode]:
+    """Scan shell/python tools (ms-check, ms-update, ms-audit, ms-coverage)."""
+    nodes = []
+    for name in ("ms-check", "ms-update", "ms-audit", "ms-coverage", "ms-test.py"):
+        fpath = REPO / name
+        if not fpath.exists():
+            continue
+        risk = "high" if name in ("ms-update", "ms-audit") else "medium"
+        nodes.append(CoverageNode(
+            id=f"tool:{name}", kind="tool",
+            label=name, detail="operational tool",
+            file=_rel(fpath), line=1,
+            covered=False, test_count=0,
+            test_kinds=[], test_files=[],
+            risk=risk, depends_on=[],
+        ))
+    return nodes
+
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Architectural Rules — codified semantic invariants
+#
+# Each rule is a machine-checkable architectural constraint. Rules appear
+# as coverage nodes of kind="rule". A rule with no associated test is a
+# high-risk gap — it means the invariant is trusted but never verified.
+#
+# When adding a rule:
+#   1. Give it a unique id (slug form)
+#   2. Write the test_fn name that proves it (even if test doesn't exist yet)
+#   3. Run ms-testgen — it will generate a stub for any untested rule
+# ─────────────────────────────────────────────────────────────────────────────
+
+RULES: list[dict] = [
+    # ── Catalog / Manifest ────────────────────────────────────────────────────
+    {
+        "id": "catalog-web-port-requires-traefik",
+        "label": "catalog: web_port → traefik block required",
+        "rationale": (
+            "Every app with a web_port is only reachable via Traefik. "
+            "Missing traefik: block means the app installs but is unreachable via HTTPS. "
+            "Found: localai had raw label strings instead of the traefik: block."
+        ),
+        "risk": "critical",
+        "file": "catalog/apps/",
+        "test_fn": "test_all_apps_with_web_port_have_traefik_config",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    {
+        "id": "catalog-web-port-requires-health",
+        "label": "catalog: web_port → health checks required",
+        "rationale": (
+            "Apps without health checks are invisible to the health scheduler. "
+            "No health status, no self-heal, no alerts. "
+            "Found: seerr and sabnzbd had web_port but no health.checks block."
+        ),
+        "risk": "high",
+        "file": "catalog/apps/",
+        "test_fn": "test_all_apps_with_web_port_have_health_checks",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    {
+        "id": "catalog-valid-category",
+        "label": "catalog: category must be in VALID_CATEGORIES",
+        "rationale": (
+            "loader.py enforces VALID_CATEGORIES at parse time. An invalid category "
+            "causes load_manifest() to raise ManifestError — app appears to not exist. "
+            "Found: sabnzbd had category='downloader' in wrong format block."
+        ),
+        "risk": "high",
+        "file": "catalog/apps/",
+        "test_fn": "test_all_apps_have_valid_category",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    {
+        "id": "catalog-required-fields",
+        "label": "catalog: key + display_name + category + image required",
+        "rationale": "Missing any required field causes install_app() to fail with KeyError.",
+        "risk": "critical",
+        "file": "catalog/apps/",
+        "test_fn": "test_all_apps_have_required_fields",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    # ── Install Paths ─────────────────────────────────────────────────────────
+    {
+        "id": "install-custom-complete-manifest",
+        "label": "install-custom: saved manifest must include traefik + health + linuxserver",
+        "rationale": (
+            "install-custom previously saved a 7-field skeleton. Apps installed without "
+            "HTTPS routing, health monitoring, or PUID/PGID/TZ env vars. "
+            "All three fields must be present in the saved community manifest."
+        ),
+        "risk": "critical",
+        "file": "backend/api/apps.py",
+        "test_fn": "test_saved_manifest_includes_traefik_config",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    {
+        "id": "install-github-key-sanitization",
+        "label": "install-from-github: manifest key must be sanitized before use as filename",
+        "rationale": (
+            "key is used directly as a filename in catalog/community/. "
+            "key='../../etc/passwd' would write to /etc/passwd. "
+            "Must apply re.sub(r'[^a-z0-9_]', '_', key) before any filesystem use."
+        ),
+        "risk": "critical",
+        "file": "backend/api/apps.py",
+        "test_fn": "test_key_sanitization_removes_dangerous_chars",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    {
+        "id": "install-github-size-limit",
+        "label": "install-from-github: fetched YAML must have a size limit (64 KB)",
+        "rationale": "No size limit allows an attacker to serve a huge file and OOM the server.",
+        "risk": "high",
+        "file": "backend/api/apps.py",
+        "test_fn": "test_rejects_manifest_over_64kb",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    {
+        "id": "install-instance-port-conflict",
+        "label": "install_instance: host_port_override must be checked for conflicts",
+        "rationale": (
+            "install_instance accepted any host_port_override without checking "
+            "ports_in_use(). Two apps silently binding the same port causes one to fail."
+        ),
+        "risk": "high",
+        "file": "backend/manifests/executor.py",
+        "test_fn": "test_port_conflict_blocked",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    # ── Executor / State Machine ──────────────────────────────────────────────
+    {
+        "id": "compose-failure-sets-result-failed",
+        "label": "executor: compose failure must set result.ok=False",
+        "rationale": (
+            "result.add('deploy', 'error') sets result.error but NOT result.ok=False. "
+            "Only result.fail() sets ok=False. Compose failure was silently reported as success."
+        ),
+        "risk": "critical",
+        "file": "backend/manifests/executor.py",
+        "test_fn": "test_compose_failure_sets_result_ok_false",
+        "test_file": "test_e2e_flows.py",
+    },
+    {
+        "id": "install-lock-released",
+        "label": "executor: install lock must always be released after install_app()",
+        "rationale": (
+            "A lock held after install_app() returns would block all future installs "
+            "of that app forever — no error message, just a permanent hang."
+        ),
+        "risk": "critical",
+        "file": "backend/manifests/executor.py",
+        "test_fn": "test_i6_install_lock_released_after_install",
+        "test_file": "test_fsm_app_install.py",
+    },
+    {
+        "id": "no-stuck-installing-status",
+        "label": "executor: status must never be 'installing' after install_app() returns",
+        "rationale": "Stuck 'installing' status prevents any retry or removal of the app.",
+        "risk": "critical",
+        "file": "backend/manifests/executor.py",
+        "test_fn": "test_no_stuck_installing_state",
+        "test_file": "test_fsm_app_install.py",
+    },
+    {
+        "id": "failed-install-no-fragment-deletes-record",
+        "label": "executor: install fail before deploy → DB record deleted for clean retry",
+        "rationale": (
+            "An orphaned DB record prevents retry — install_app() returns "
+            "'already installed' for an app that never deployed."
+        ),
+        "risk": "high",
+        "file": "backend/manifests/executor.py",
+        "test_fn": "test_early_failure_no_fragment_deletes_db_record",
+        "test_file": "test_fsm_app_install.py",
+    },
+    # ── Platform ──────────────────────────────────────────────────────────────
+    {
+        "id": "platform-singleton",
+        "label": "platform: exactly one row in platform table at all times",
+        "rationale": "Multiple platform rows would cause ambiguous status reads across all APIs.",
+        "risk": "critical",
+        "file": "backend/core/state.py",
+        "test_fn": "test_i1_singleton_always_holds",
+        "test_file": "test_fsm_platform.py",
+    },
+    {
+        "id": "platform-ready-implies-domain",
+        "label": "platform: status='ready' implies domain is non-null",
+        "rationale": "A ready platform without a domain means TLS and hostname routing fail silently.",
+        "risk": "critical",
+        "file": "backend/core/state.py",
+        "test_fn": "test_i2_ready_implies_domain_set",
+        "test_file": "test_fsm_platform.py",
+    },
+    {
+        "id": "self-heal-never-promotes",
+        "label": "platform: self-heal can demote ready→pending, never promote pending→ready",
+        "rationale": (
+            "If self-heal promoted pending→ready, a misconfigured platform would "
+            "appear healthy. Only the completed wizard flow may set status='ready'."
+        ),
+        "risk": "high",
+        "file": "backend/api/platform.py",
+        "test_fn": "test_i4_self_heal_never_promotes",
+        "test_file": "test_fsm_platform.py",
+    },
+    # ── Provider / Docker ─────────────────────────────────────────────────────
+    {
+        "id": "provider-failure-returns-result",
+        "label": "providers: compose failure must return ProviderResult, not raise",
+        "rationale": (
+            "4 providers used result.stderr on (rc, str) tuple → NameError. "
+            "Every provider.deploy() failure must return ProviderResult(ok=False)."
+        ),
+        "risk": "critical",
+        "file": "backend/infra/providers/",
+        "test_fn": "test_glance_failure_no_name_error",
+        "test_file": "test_e2e_flows.py",
+    },
+    {
+        "id": "traefik-socket-readonly",
+        "label": "traefik: docker socket mount must be :ro",
+        "rationale": "Writable Docker socket allows container escape to full host root access.",
+        "risk": "critical",
+        "file": "backend/core/compose.py",
+        "test_fn": "test_traefik_docker_socket_is_readonly",
+        "test_file": "test_recommendations.py",
+    },
+    # ── DB / Schema ───────────────────────────────────────────────────────────
+    {
+        "id": "pending-fixes-in-schema",
+        "label": "schema: pending_fixes table must be in schema.sql, not inline",
+        "rationale": (
+            "approve_fix() called SELECT on pending_fixes before any health cycle "
+            "ran → OperationalError (table doesn't exist) → 500. "
+            "All tables must exist after init_db()."
+        ),
+        "risk": "high",
+        "file": "backend/core/schema.sql",
+        "test_fn": "test_table_table_pending_fixes_round_trip",
+        "test_file": "test_generated_behavioral.py",
+    },
+    {
+        "id": "no-bare-db-commit",
+        "label": "statedb: db._c.commit() must never be called directly",
+        "rationale": (
+            "StateDB auto-commits on __exit__. Calling db._c.commit() bypasses "
+            "the context manager and breaks atomicity guarantees. "
+            "Found in: install_instance (db._c.commit after app_instances INSERT)."
+        ),
+        "risk": "high",
+        "file": "backend/",
+        "test_fn": "test_state_db_no_plain_commit_calls_in_backend",
+        "test_file": "test_failure_paths.py",
+    },
+
+    # ── Tier 1+2 Testing Tools ─────────────────────────────────────────────────
+    {
+        "id": "playwright-all-views-covered",
+        "label": "browser: every named Vue view has a Playwright test",
+        "rationale": (
+            "All frontend bugs were found by looking at the UI — stale sidebar after reset, "
+            "wrong status color, wizard blank on error. Zero other tests can catch these. "
+            "tests/browser/ must have a test for every view in frontend/src/views/"
+        ),
+        "risk": "critical",
+        "file": "tests/browser/test_playwright_views.py",
+        "test_fn": "test_view_renders_without_js_error",
+        "test_file": "test_playwright_views.py",
+    },
+    {
+        "id": "schemathesis-zero-500s",
+        "label": "fuzzing: zero 500 responses on adversarial inputs (Schemathesis)",
+        "rationale": (
+            "Schemathesis would have caught: fresh-DB 500 on system/profile, "
+            "path traversal in app key, missing pending_fixes table on approve_fix. "
+            "Run ms-schemathesis --quick on every deploy against the live server."
+        ),
+        "risk": "critical",
+        "file": "ms-schemathesis",
+        "test_fn": "test_approve_nonexistent_fix_returns_404",
+        "test_file": "test_e2e_flows.py",
+    },
+    {
+        "id": "mutmut-kill-rate-critical-modules",
+        "label": "mutation: critical modules must have ≥80% mutation kill rate",
+        "rationale": (
+            "result.add() vs result.fail() bug: tests passed while ok was True on failure. "
+            "else-block status bug: tests passed while status was 'failed' after success. "
+            "Both required a test asserting on the specific value that mutmut would change."
+        ),
+        "risk": "critical",
+        "file": "backend/manifests/executor.py",
+        "test_fn": "test_compose_failure_sets_result_ok_false",
+        "test_file": "test_e2e_flows.py",
+    },
+    {
+        "id": "keploy-session-regression",
+        "label": "regression: real session recordings replay without status changes",
+        "rationale": (
+            "Wizard multi-step flows, install→status sequences, health cycle chains "
+            "are impossible to synthesize correctly but easy to record from real use. "
+            "ms-keploy record during active use, ms-test-all --keploy to replay."
+        ),
+        "risk": "high",
+        "file": "ms-keploy",
+        "test_fn": "test_platform_status_updates_without_reload",
+        "test_file": "test_playwright_views.py",
+    },
+    {
+        "id": "llm-context-aware-test-generation",
+        "label": "ai: ms-audit --improve reads mutation survivors + schemathesis findings",
+        "rationale": (
+            "LLM generates targeted tests when given specific gaps from tool output. "
+            "Without context, LLM generates generic tests that may not kill specific mutants. "
+            "data/mutmut_survivors.json + data/schemathesis_report.json auto-loaded if < 24h old."
+        ),
+        "risk": "high",
+        "file": "ms-audit",
+        "test_fn": "test_install_deadline_enforced_in_polling_loop",
+        "test_file": "test_recommendations.py",
+    },
+    # ── Health ────────────────────────────────────────────────────────────────
+    {
+        "id": "health-skips-non-running",
+        "label": "health: cycle only checks apps with status='running'",
+        "rationale": "Checking disabled/installing apps produces false errors and masks real state.",
+        "risk": "high",
+        "file": "backend/health/checker.py",
+        "test_fn": "test_g1_disabled_apps_not_checked",
+        "test_file": "test_fsm_health_check.py",
+    },
+    {
+        "id": "health-error-has-summary",
+        "label": "health: every error check result must have a non-empty summary",
+        "rationale": "An error with no summary gives the user nothing to act on.",
+        "risk": "medium",
+        "file": "backend/health/checker.py",
+        "test_fn": "test_i1_error_has_summary",
+        "test_file": "test_fsm_health_check.py",
+    },
+    # ── Security ──────────────────────────────────────────────────────────────
+    {
+        "id": "user-input-sanitization",
+        "label": "security: user-supplied strings sanitized before filesystem/DB use",
+        "rationale": (
+            "key='../../etc/passwd' used directly as filename — path traversal. "
+            "All user-supplied strings used as filenames, DB keys, or URLs must be "
+            "sanitized: re.sub(r'[^a-z0-9_]', '_', value.lower())[:64]."
+        ),
+        "risk": "critical",
+        "file": "backend/api/apps.py",
+        "test_fn": "test_key_sanitization_removes_dangerous_chars",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    {
+        "id": "external-content-size-limit",
+        "label": "security: externally-fetched content must have a size limit (64 KB)",
+        "rationale": (
+            "No size limit on fetched YAML allows malicious server to OOM the process. "
+            "All content fetched from external URLs is capped at 64 KB."
+        ),
+        "risk": "high",
+        "file": "backend/api/apps.py",
+        "test_fn": "test_rejects_manifest_over_64kb",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    # ── Failure Semantics ─────────────────────────────────────────────────────
+    {
+        "id": "zero-data-state-no-500",
+        "label": "endpoints: zero-data / fresh-install state must not return 500",
+        "rationale": (
+            "GET /api/apps/system/profile, POST /api/infra/{slot}/verify, approve_fix "
+            "all returned 500 on fresh DB. Known conditions must return 4xx, not 500."
+        ),
+        "risk": "critical",
+        "file": "backend/api/",
+        "test_fn": "test_approve_nonexistent_fix_returns_404",
+        "test_file": "test_e2e_flows.py",
+    },
+    {
+        "id": "idempotent-get-no-side-effects",
+        "label": "idempotency: GET requests must never promote state",
+        "rationale": (
+            "Self-heal GET /platform/status demotes ready->pending — intentional. "
+            "Inverse must hold: GETs must never promote state or create records."
+        ),
+        "risk": "high",
+        "file": "backend/api/platform.py",
+        "test_fn": "test_multiple_gets_do_not_change_state",
+        "test_file": "test_fsm_platform.py",
+    },
+    # ── Resource Management ───────────────────────────────────────────────────
+    {
+        "id": "resource-conflict-checked-before-alloc",
+        "label": "resources: port/key conflicts validated before allocation attempt",
+        "rationale": (
+            "install_instance accepted any host_port_override without checking conflicts. "
+            "Two apps binding the same port: one fails silently."
+        ),
+        "risk": "critical",
+        "file": "backend/manifests/executor.py",
+        "test_fn": "test_port_conflict_blocked",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    # ── Transaction Integrity ─────────────────────────────────────────────────
+    {
+        "id": "atomic-multi-table-writes",
+        "label": "db: multi-table writes that must succeed together use one StateDB context",
+        "rationale": (
+            "install_instance wrote to app_instances then upsert_app in separate contexts. "
+            "A crash between them left inconsistent state. Atomic writes share one context."
+        ),
+        "risk": "high",
+        "file": "backend/manifests/executor.py",
+        "test_fn": "test_instance_uses_instance_key_not_manifest_key",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    # ── Code Generation ───────────────────────────────────────────────────────
+    {
+        "id": "code-generator-output-is-valid",
+        "label": "generators: ms-testgen output must be syntactically valid Python",
+        "rationale": (
+            "label_esc undefined in template -> 145 route tests became generation_error skips. "
+            "Generated code must be ast.parse() verified before being written to disk."
+        ),
+        "risk": "critical",
+        "file": "ms-testgen",
+        "test_fn": "test_snapshot_file_is_json_parseable",
+        "test_file": "test_tool_logic.py",
+    },
+    {
+        "id": "symlink-safe-repo-path",
+        "label": "generators: REPO must use Path(__file__).resolve().parent for symlink safety",
+        "rationale": (
+            "sudo ms-coverage scanned /usr/local/bin instead of /srv/mediastack. "
+            "All symlinked tools must use .resolve() to follow the symlink to the real file."
+        ),
+        "risk": "high",
+        "file": "ms-coverage",
+        "test_fn": "test_ms_check_uses_readlink",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    # ── Fixture Isolation ─────────────────────────────────────────────────────
+    {
+        "id": "test-fixture-self-contained",
+        "label": "tests: fixtures are self-contained and always clean up state_mod",
+        "rationale": (
+            "app_client(test_db) left state_mod.configure pointing at deleted tmp dir. "
+            "Intermittent failures only visible in full suite. "
+            "Fixtures must create their own DB and always call state_mod.configure(None)."
+        ),
+        "risk": "high",
+        "file": "tests/conftest.py",
+        "test_fn": "test_all_states_reachable",
+        "test_file": "test_fsm_platform.py",
+    },
+    # ── Tier 1+2 Tool Coverage ────────────────────────────────────────────────
+    {
+        "id": "mutation-kill-rate-executor",
+        "label": "mutmut: executor.py must have >=80% mutation kill rate",
+        "rationale": (
+            "executor.py has the highest historical bug density. "
+            "A test passing while code is wrong is not a test. "
+            "Mutation score proves tests catch real behavioral changes, not just that they run."
+        ),
+        "risk": "critical",
+        "file": "backend/manifests/executor.py",
+        "test_fn": "test_compose_failure_sets_result_ok_false",
+        "test_file": "test_e2e_flows.py",
+    },
+    {
+        "id": "mutation-kill-rate-state",
+        "label": "mutmut: state.py must have >=80% mutation kill rate",
+        "rationale": (
+            "All data flows through StateDB. Undetected mutations in state "
+            "transitions are silent — no error raised, wrong DB state silently persisted."
+        ),
+        "risk": "critical",
+        "file": "backend/core/state.py",
+        "test_fn": "test_all_states_reachable",
+        "test_file": "test_fsm_platform.py",
+    },
+    {
+        "id": "playwright-vue-coverage",
+        "label": "playwright: every named Vue view has a browser smoke test",
+        "rationale": (
+            "Every UI bug found to date was found by looking at the screen. "
+            "Stale sidebar, wrong label color, autofill breaking wizard: "
+            "all invisible to pytest/TestClient. Playwright is the only test that runs real browsers."
+        ),
+        "risk": "high",
+        "file": "frontend/src/views/",
+        "test_fn": "test_view_renders_without_js_error",
+        "test_file": "test_playwright_views.py",
+    },
+    {
+        "id": "keploy-session-capture",
+        "label": "keploy: key user flows have recorded session regression tests",
+        "rationale": (
+            "Real usage reveals edge cases synthetic tests miss. "
+            "Wizard completion, app install, health cycle must have recorded sessions."
+        ),
+        "risk": "high",
+        "file": "data/keploy/",
+        "test_fn": "test_route_POST__api_platform_wizard_run_responds",
+        "test_file": "test_generated_behavioral.py",
+    },
+    {
+        "id": "llm-context-assembled-automatically",
+        "label": "ms-audit: Core Rules + tool outputs auto-ingested before every LLM call",
+        "rationale": (
+            "_extra_context was undefined — LLM never received Core Rules or tool findings. "
+            "Fixed: _assemble_improve_context() injects rules + mutmut + schemathesis + keploy "
+            "automatically before every ms-audit --improve call."
+        ),
+        "risk": "high",
+        "file": "ms-audit",
+        "test_fn": "test_snapshot_file_is_json_parseable",
+        "test_file": "test_tool_logic.py",
+    },
+    # ── Continuation gaps closed ───────────────────────────────────────────────
+    {
+        "id": "playwright-data-contracts",
+        "label": "playwright: UI values verified against API responses (TestUIMatchesAPIData)",
+        "rationale": (
+            "Stale sidebar, wrong version label, coverage % mismatch all pass smoke tests. "
+            "TestUIMatchesAPIData verifies UI renders what the API actually returns."
+        ),
+        "risk": "critical",
+        "file": "tests/browser/",
+        "test_fn": "test_coverage_percentage_matches_api",
+        "test_file": "test_playwright_views.py",
+    },
+    {
+        "id": "semgrep-rules-verified-instances",
+        "label": "semgrep: every rule verified against known instance before activation",
+        "rationale": (
+            "Core Rule 3.6. bare-db-commit found 7 live violations (all fixed). "
+            "subprocess-shell-true replaced with none-check (actual codebase pattern)."
+        ),
+        "risk": "high",
+        "file": ".semgrep/rules/",
+        "test_fn": "test_state_db_no_plain_commit_calls_in_backend",
+        "test_file": "test_failure_paths.py",
+    },
+    {
+        "id": "hypothesis-database-tracked",
+        "label": "hypothesis: failure database tracked in git for cross-run accumulation",
+        "rationale": (
+            "hypothesis.toml points to hypothesis_db/ (tracked in git). "
+            "Failing inputs persist across CI runs — not lost on every clone."
+        ),
+        "risk": "medium",
+        "file": "hypothesis.toml",
+        "test_fn": "test_sanitize_key_never_path_traversal",
+        "test_file": "test_fsm_app_install.py",
+    },
+    {
+        "id": "pip-audit-in-ms-check",
+        "label": "pip-audit: Python CVEs checked on every ms-check (not just weekly trivy)",
+        "rationale": "pip-audit scans requirements.txt in <5s. New CVEs found immediately.",
+        "risk": "high",
+        "file": "ms-check",
+        "test_fn": "test_all_manifests_load_without_exception",
+        "test_file": "test_non_catalog_installs.py",
+    },
+    {
+        "id": "test-path-alignment",
+        "label": "tests: paths checked in tests match paths written by production code",
+        "rationale": (
+            "ms-test.py Q3 checked REPO/data/compose for 62 runs while infra providers "
+            "wrote to config.data_dir/compose. Always passed. Zero real coverage. "
+            "Tests must derive paths from config, not hardcode REPO/data/..."
+        ),
+        "risk": "critical",
+        "file": "ms-test.py",
+        "test_fn": "test_ms_test_uses_config_derived_paths",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "no-absolute-paths-in-tests",
+        "label": "tests: no hardcoded absolute /srv/mediastack paths in test files",
+        "rationale": (
+            "Hardcoded absolute paths break on different installations and environments. "
+            "Semgrep rule test-path-not-from-config enforces this at pre-commit time."
+        ),
+        "risk": "high",
+        "file": "tests/",
+        "test_fn": "test_no_absolute_data_paths_in_tests",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "write-read-cycle-compose-fragments",
+        "label": "test: compose fragment write->read cycle (Core Rule 2.8)",
+        "rationale": (
+            "Q3 false positive: test checked REPO/data/compose, "
+            "providers wrote to config.data_dir/compose. "
+            "TestComposeFragmentWriteReadCycle exercises both sides."
+        ),
+        "risk": "critical",
+        "file": "tests/test_comprehensive_contracts.py",
+        "test_fn": "test_write_fragment_readable_at_config_compose_dir",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "write-read-cycle-table-names",
+        "label": "test: table name constants — no literal strings in tests (Core Rule 2.8)",
+        "rationale": (
+            "Q3 bug: 'tunnel_providers' vs 'infra_tunnel_providers'. "
+            "TABLE_* constants imported from state.py prevent this class of bug. "
+            "TestTableNameConstants verifies constants match actual schema."
+        ),
+        "risk": "critical",
+        "file": "backend/core/state.py",
+        "test_fn": "test_table_constants_match_schema",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "write-read-cycle-tool-findings",
+        "label": "test: tool findings schema matches what LLM context assembler reads",
+        "rationale": (
+            "If Bandit writes 'severity' but reader looks for 'issue_severity', "
+            "LLM gets no Bandit context. TestToolFindingsSchema verifies schema alignment."
+        ),
+        "risk": "high",
+        "file": "tests/test_comprehensive_contracts.py",
+        "test_fn": "test_bandit_findings_schema_readable_by_context_assembler",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "rule-2-8-write-read-cycle",
+        "label": "Core Rule 2.8: tests checking existence must exercise the write side",
+        "rationale": (
+            "A test that checks a path/table/file without exercising the write side "
+            "gives false confidence and will silently pass when broken. "
+            "ms-enforce Tier 1 runs all write-read cycle tests on every commit."
+        ),
+        "risk": "critical",
+        "file": "docs/CORE_RULES.md",
+        "test_fn": "test_write_fragment_readable_at_config_compose_dir",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "rule-2-9-precondition-guard",
+        "label": "Core Rule 2.9: every state-dependent test declares preconditions via section_requires()",
+        "rationale": (
+            "Q3 ran in pending state for 66 runs, checking fragments that only exist "
+            "after wizard completes. section_requires('platform_status', 'ready') makes "
+            "the precondition explicit. _populate_context() populates all context once at startup."
+        ),
+        "risk": "critical",
+        "file": "ms-test.py",
+        "test_fn": "test_q3_skips_when_platform_pending",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "ms-enforce-precondition-check",
+        "label": "ms-enforce: Tier 1 checks precondition system is installed and working",
+        "rationale": (
+            "check_precondition_declarations() verifies _populate_context() exists, "
+            "is called in main(), and Q3 uses section_requires() not bare if/else. "
+            "This makes the precondition guard itself machine-checkable."
+        ),
+        "risk": "high",
+        "file": "ms-enforce",
+        "test_fn": "test_q3_only_fails_in_ready_state_with_missing_fragment",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "shellcheck-shell-scripts",
+        "label": "shellcheck: structural shell script bugs caught before runtime",
+        "rationale": (
+            "ShellCheck catches: bad substitutions (${#ARRAY[@]:-30}), unbound variables "
+            "(DIM: unbound), quoting bugs, A&&B||C anti-pattern. "
+            "Would have caught ms-check and ms-update bugs we fixed manually."
+        ),
+        "risk": "high",
+        "file": "ms-check",
+        "test_fn": "test_ms_update_calls_script_not_heredoc",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "data-pipeline-schema-coverage",
+        "label": "all data/*.json files have write→read schema tests",
+        "rationale": (
+            "last_test_run.json had no schema test — ms-update could not show which "
+            "test failed. TestAllDataPipelineSchemas covers all 9 data/*.json files."
+        ),
+        "risk": "critical",
+        "file": "tests/test_comprehensive_contracts.py",
+        "test_fn": "test_coverage_map_schema",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "ms-postmortem-bug-to-enforcement",
+        "label": "ms-postmortem: unified bug→enforcement pipeline for new issues",
+        "rationale": (
+            "Without a unified workflow, each new bug required manual: "
+            "diagnose gap, add test, add rule, add constant, update Core Rules. "
+            "ms-postmortem codifies the gap taxonomy and generates enforcement additions."
+        ),
+        "risk": "high",
+        "file": "ms-postmortem",
+        "test_fn": "test_ms_update_calls_script_not_heredoc",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "ms-enforce-core-rules-gate",
+        "label": "ms-enforce: single command that proves all Core Rules are satisfied",
+        "rationale": (
+            "Without a unified enforcer, rules are checked by different tools at "
+            "different times — gaps appear between them. ms-enforce is the oracle: "
+            "it runs Semgrep + coverage gaps + path contracts + catalog + Ruff + Bandit "
+            "+ FSM tests in one command. Pre-commit runs --fast; CI runs full."
+        ),
+        "risk": "critical",
+        "file": "ms-enforce",
+        "test_fn": "test_ms_test_uses_config_derived_paths",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "ms-setup-tools-automates-install",
+        "label": "ms-setup-tools: single command installs entire testing stack",
+        "rationale": (
+            "Install instructions were in commit messages. ms-setup-tools automates "
+            "gitleaks, trivy, eslint, ruff, bandit, playwright, semgrep + all symlinks."
+        ),
+        "risk": "medium",
+        "file": "ms-setup-tools",
+        "test_fn": "test_ms_check_uses_readlink",
+        "test_file": "test_comprehensive_contracts.py",
+    },
+    {
+        "id": "bare-db-commit-fixed-live",
+        "label": "bare db._c.commit() removed from health.py, registry.py, routing.py",
+        "rationale": (
+            "Semgrep bare-db-commit rule found 7 live violations post-fix. All removed. "
+            "StateDB auto-commits. Rule now enforced at pre-commit for all future commits."
+        ),
+        "risk": "high",
+        "file": "backend/api/",
+        "test_fn": "test_state_db_no_plain_commit_calls_in_backend",
+        "test_file": "test_failure_paths.py",
+    },
+    # ── Type discipline (Core Rule 5.20, step 1.2.i) ──────────────────────────
+    {
+        "id": "type-discipline",
+        "label": "backend/ passes mypy --strict with project config",
+        "rationale": (
+            "Caught log/IMAGE/CONTAINER_NAME undefined names, missing "
+            "_register_app_hostname(platform=...) arg, lowercase 'any' used as type "
+            "(apps.py, settings.py), cloud_llm.cascade_completion / wizard.reset_platform / "
+            "ExecutionResult.message references that did not exist, App|None.id and "
+            "Connection|None.commit unguarded access, undefined `files` causing "
+            "GET /api/registry to 500. All shipped to main and were never caught until "
+            "mypy --strict surfaced them in 1.2.c-1.2.f. Strict pass is enforced via "
+            "ms-enforce Tier 1 (1.2.g) and pytest (1.2.h)."
+        ),
+        "risk": "high",
+        "file": "backend/",
+        "test_fn": "test_mypy_strict_clean",
+        "test_file": "tests/test_mypy_clean.py",
+    },
+    # ── Commit discipline (Core Rule 7.1, step 1.3.g) ────────────────────────
+    {
+        "id": "commit-discipline",
+        "label": "post-cutoff commits follow Conventional Commits 1.0",
+        "rationale": (
+            "Commit subjects had drifted toward CC format informally but were not "
+            "enforced. The commit-msg hook installed in 1.3.c (cutoff 4e4c9cb) "
+            "rejects malformed subjects at commit time; the test below catches "
+            "any commits that bypassed via --no-verify or manual rebase. "
+            "Together the hook + test + ms-changelog --check give three layers "
+            "of defense for the CHANGELOG-quality contract."
+        ),
+        "risk": "medium",
+        "file": "tools/commit_msg_hook.py",
+        "test_fn": "test_commit_subjects_post_cutoff_match_convention",
+        "test_file": "tests/test_commit_format.py",
+    },
+    # ── Complexity discipline (Core Rule 8.1, step 1.4.g) ────────────────────
+    {
+        "id": "complexity-discipline",
+        "label": "backend/ stays within ruff.toml mccabe max-complexity (15 phase-1)",
+        "rationale": (
+            "Codebase had 40 functions over ruff's default complexity threshold "
+            "of 10; 22 over the configured 15. Threshold + per-file-ignores keep "
+            "new code in check while the 1.4.d refactor backlog (5 functions ≥ 25) "
+            "is worked down. The pytest test catches drift from --no-verify "
+            "bypass, manual rebase, and edits to ignored files that introduce "
+            "new functions over threshold (the ignore is per-file, not per-function)."
+        ),
+        "risk": "medium",
+        "file": "ruff.toml",
+        "test_fn": "test_no_new_c901_violations",
+        "test_file": "tests/test_complexity_thresholds.py",
+    },
+    # ── Snapshot discipline (Core Rule 4.11, step 2.1.g) ─────────────────────
+    {
+        "id": "snapshot-discipline",
+        "label": "stable outputs (CLI banners, JSON shapes) covered by syrupy snapshots",
+        "rationale": (
+            "Outputs that downstream tools or operators depend on visually or "
+            "programmatically can drift silently if not pinned. CLI banners, "
+            "machine-readable JSON, and stable API response shapes get syrupy "
+            "snapshot tests in tests/test_snapshots.py that assert on SHAPE "
+            "(sorted keys, structural invariants), not transient values. "
+            "ms-enforce Tier 2 surfaces mismatches as a warning so the developer "
+            "regenerates intentionally rather than gets blocked from committing."
+        ),
+        "risk": "medium",
+        "file": "tests/test_snapshots.py",
+        "test_fn": "test_health_summary_shape",
+        "test_file": "tests/test_snapshots.py",
+    },
+    # ── Test independence discipline (Core Rule 4.16, step 1.5.g) ────────────
+    {
+        "id": "test-independence-discipline",
+        "label": "tests in the order-stable subset pass under arbitrary order",
+        "rationale": (
+            "Pre-1.5 audit found 18 tests classified as order-dependent. "
+            "Phase 1 + 1b investigation revealed ALL of them were actually "
+            "stale-API or missing-fixture-coverage bugs masquerading as "
+            "ordering issues. After fixing the underlying contracts, ZERO "
+            "remained truly order-dependent. The CI workflow runs the "
+            "ordering-clean subset under 3 distinct random seeds — any new "
+            "ordering bug in those files blocks merge. The full suite runs "
+            "as a separate informational job (continue-on-error: true) "
+            "tripwiring NEW ordering bugs outside the subset (treat the "
+            "delta, not the absolute count)."
+        ),
+        "risk": "medium",
+        "file": ".github/workflows/test-randomly.yml",
+        "test_fn": "test_g1_platform_not_ready_blocks_install",
+        "test_file": "tests/test_fsm_app_install.py",
+    },
+    # ── ADR discipline (Core Rule 4.15, step 2.5.d) ──────────────────────────
+    {
+        "id": "adr-discipline",
+        "label": "architectural decisions live as ADRs in docs/adr/",
+        "rationale": (
+            "Pre-2.5 architectural decisions lived in commit messages, "
+            "Slack threads, and inferred from code. The template at "
+            "docs/adr/template.md gives Context / Decision / Consequences "
+            "/ Status. Numbered sequentially; immutable once accepted; "
+            "superseded ones stay for archaeology with a link to the "
+            "replacement. Strategy docs describe HOW; ADRs describe WHY "
+            "— complementary, not duplicative."
+        ),
+        "risk": "medium",
+        "file": "docs/adr/template.md",
+        "test_fn": "test_adr_template_exists",
+        "test_file": "tests/test_adr_discipline.py",
+    },
+    # ── Rate limiting discipline (Core Rule 4.14, step 2.4.e) ────────────────
+    {
+        "id": "rate-limiting-discipline",
+        "label": "mutating endpoints carry @limiter.limit per tier table",
+        "rationale": (
+            "Pre-2.4 the API surface had zero rate limiting. A misconfigured "
+            "frontend retry loop or buggy ms-test could overwhelm the "
+            "single-process backend in seconds. slowapi adds per-tier limits "
+            "(5/min heavy mutation, 10/min heavy read, 30/min light, 60/min "
+            "default). Localhost is bypassed via key_func returning None so "
+            "the in-process scheduler and CLI tools aren't throttled. "
+            "Test surface verifies the 429 path AND the localhost bypass — "
+            "regressions in EITHER would silently break operations."
+        ),
+        "risk": "medium",
+        "file": "backend/api/rate_limit.py",
+        "test_fn": "test_heavy_mutation_blocks_after_5",
+        "test_file": "tests/test_rate_limiting.py",
+    },
+    # ── Mocking discipline (Core Rule 4.12, step 2.2.f) ──────────────────────
+    {
+        "id": "mocking-discipline",
+        "label": "tests mock at the system boundary, not the project boundary",
+        "rationale": (
+            "Pre-2.2 audit found ~40% of 729 mock-related lines patch project "
+            "code (write_fragment, _attempt_self_heal, install_app, etc.) — the "
+            "Q3 false-positive class where tests pass on mock-call-graph "
+            "assertions while production breaks. ADR 0002 documents the policy: "
+            "boundary mocks (subprocess, httpx, docker SDK, /proc) stay; "
+            "project-internal mocks get replaced by real fakes (tmp_path-backed "
+            "FS, fresh in-memory StateDB, real test manifests). "
+            "ms-enforce Tier 2 check_mock_discipline AST-walks tests and warns "
+            "when a single test stacks > 3 internal @patch('backend.*') "
+            "decorators. Warning, not block — sometimes 4+ is legitimate."
+        ),
+        "risk": "medium",
+        "file": "docs/adr/0002-mocking-policy.md",
+        "test_fn": "test_check_mock_discipline_runs",
+        "test_file": "tests/test_mock_discipline.py",
+    },
+    # ── Structured logging discipline (Core Rule 4.13, step 2.3.h) ───────────
+    {
+        "id": "structured-logging-discipline",
+        "label": "backend/ uses structlog with stable schema + correlation IDs",
+        "rationale": (
+            "Pre-2.3 the backend had 153 ad-hoc logging call-sites across 40 "
+            "modules (mix of f-string log.info / logging.info / occasional "
+            "print). Unparseable for incident response — when production fails "
+            "at 3am, grep correlation_id=X | jq '.event' is the difference "
+            "between a 5-minute fix and a 5-hour chase. backend/core/logging.py "
+            "configures structlog with a 6-field schema (timestamp / level / "
+            "logger / event / correlation_id / subsystem); CorrelationIdMiddleware "
+            "propagates X-Request-ID via contextvars (thread-and-asyncio safe). "
+            "ms-enforce Tier 2 check_logging_discipline reports remaining "
+            "ad-hoc call-sites as a warning while the 2.3.e sweep is in "
+            "progress; flips to mandatory once the count reaches zero."
+        ),
+        "risk": "medium",
+        "file": "backend/core/logging.py",
+        "test_fn": "test_get_logger_returns_bound_logger",
+        "test_file": "tests/test_logging.py",
+    },
+    # ── No dead code (Core Rule 4.17, step 3.1.e) ────────────────────────────
+    {
+        "id": "no-dead-code",
+        "label": "backend/ has no functions/classes/vars unreachable via static analysis",
+        "rationale": (
+            "Dead code lies — it suggests the system supports something it "
+            "doesn't, makes refactors harder by hiding what's actually live, "
+            "and hides production bugs (a parameter no caller reads is a "
+            "parameter no caller is using correctly). vulture runs in "
+            "ms-enforce Tier 2 (warning-only) at >=80% confidence with the "
+            "pyproject.toml [tool.vulture] whitelist covering decorator "
+            "dispatch (FastAPI / pytest / ms-enforce registry). Three "
+            "dispositions per finding: remove + paired regression test, "
+            "whitelist as false positive, or wire it up. Phase-2 sweep "
+            "(commit fceefd2, 2026-05-09) removed COMPOSE_VERSION + "
+            "ActionType Literal alias; tests/test_dead_code_removals.py "
+            "asserts they stay gone."
+        ),
+        "risk": "medium",
+        "file": "pyproject.toml",
+        "test_fn": "test_compose_version_constant_stays_removed",
+        "test_file": "tests/test_dead_code_removals.py",
+    },
+    # ── API versioning discipline (Core Rule 4.18, step 3.2.g) ───────────────
+    {
+        "id": "api-versioning-discipline",
+        "label": "every application route is dual-mounted at /api/v1/<area> + legacy /api/<area>",
+        "rationale": (
+            "Pre-3.2 the API had no versioning; any breaking change required "
+            "frontend + backend to deploy in lockstep. Now /api/v1/<area> is "
+            "the canonical mount; /api/<area> stays as deprecated alias with "
+            "Deprecation: true / Link: rel=successor-version / Sunset: 2026-09-01 "
+            "headers via DeprecationHeaderMiddleware. _mount() helper in "
+            "backend/api/main.py owns the dual registration. Infrastructure "
+            "routes (/api/ping, /api/health, /api/coverage) are exempt. "
+            "tests/test_api_versioning.py verifies dual-mount reachability, "
+            "byte-for-byte body parity, deprecation tripod presence on legacy, "
+            "absence on v1, and Swagger UI tag grouping. ADR 0005 documents "
+            "the policy."
+        ),
+        "risk": "high",
+        "file": "backend/api/main.py",
+        "test_fn": "test_v1_and_legacy_return_identical_body",
+        "test_file": "tests/test_api_versioning.py",
+    },
+    # ── Metrics discipline (Core Rule 4.19, step 4.1.f) ──────────────────────
+    {
+        "id": "metrics-discipline",
+        "label": "/metrics exposes Prometheus-format metrics with bounded-cardinality labels",
+        "rationale": (
+            "Pre-4.1 you couldn't tell if installs were getting slower over "
+            "time, which apps were failing health checks at what rate, or "
+            "whether DB-query latency was drifting. prometheus-fastapi-"
+            "instrumentator auto-instruments every route + 4 custom metrics "
+            "in backend/core/metrics.py (install_duration_seconds, "
+            "health_check_duration_seconds, db_query_duration_seconds, "
+            "errors_total). Cardinality discipline: app_key from catalog, "
+            "error_class from exception hierarchy, verb from SQL-verb enum — "
+            "no UUIDs, no raw URLs, no free-form strings. /metrics sits "
+            "OUTSIDE /api/v1/ since it's operational infrastructure, not "
+            "application API. tests/test_metrics_endpoint.py pins the "
+            "contract (endpoint reachability, content-type, exposition-format "
+            "markers, custom metric definitions, counter increments)."
+        ),
+        "risk": "medium",
+        "file": "backend/core/metrics.py",
+        "test_fn": "test_metrics_endpoint_responds_200",
+        "test_file": "tests/test_metrics_endpoint.py",
+    },
+    # ── Health probes discipline (Core Rule 4.20, step 4.2.d) ────────────────
+    {
+        "id": "health-probes-discipline",
+        "label": "K8s-style probes /healthz /readyz /startupz with distinct semantics",
+        "rationale": (
+            "Pre-4.2 /api/platform/status conflated liveness ('process alive') "
+            "with readiness ('can serve traffic') — a transient DB hiccup "
+            "would cause the orchestrator to kill the pod. /healthz is now "
+            "dependency-free and always returns 200 (liveness contract). "
+            "/readyz checks state.configure() + SELECT 1 ping with 1s timeout, "
+            "returns 503 with diagnostic checks map when not ready. /startupz "
+            "stays 503 until mark_startup_complete() runs from init_db() "
+            "after migrations apply, then stays 200 for process lifetime. "
+            "All three probes are include_in_schema=False (operational, not "
+            "API) and exempt from the deprecation-header middleware. "
+            "tests/test_probes.py enforces all five contract points."
+        ),
+        "risk": "medium",
+        "file": "backend/api/probes.py",
+        "test_fn": "test_healthz_returns_200_even_when_state_unconfigured",
+        "test_file": "tests/test_probes.py",
+    },
+    # ── Audit trail discipline (Core Rule 4.21, step 4.3.g) ──────────────────
+    {
+        "id": "audit-trail-discipline",
+        "label": "every mutating HTTP request writes one row to audit_log",
+        "rationale": (
+            "Pre-4.3 'what did I change last week' was grep + memory; no "
+            "non-repudiation; no correlation between user actions and "
+            "subsequent failures. AuditLogMiddleware now records POST/PUT/"
+            "DELETE/PATCH only (GET/HEAD/OPTIONS skipped by design). Schema: "
+            "(id, ts, actor, action, resource_id, request_body_hash, "
+            "response_status, correlation_id) — bodies are sha256-hashed, "
+            "never stored, so secrets in request bodies don't enter the "
+            "audit table. action uses route-template not literal URL "
+            "(bounded cardinality, same discipline as Rule 4.19). On audit-"
+            "write failure the middleware logs at WARNING and lets the "
+            "request through — auditing must NEVER break a request. "
+            "Operational-infrastructure paths (/metrics, /healthz, /readyz, "
+            "/startupz) are blocklisted. tests/test_audit_log.py verifies "
+            "table existence, GET-skip, POST-write, route-template format, "
+            "sha256 body hash, filter combinations, ordering, dual-mount, "
+            "and /metrics-not-audited."
+        ),
+        "risk": "high",
+        "file": "backend/api/middleware.py",
+        "test_fn": "test_post_writes_an_audit_row",
+        "test_file": "tests/test_audit_log.py",
+    },
+    # ── Repository Structure discipline (Core Rule 5.23, step 1.3.d) ──────────
+    {
+        "id": "5.23",
+        "label": "Repository Structure Discipline",
+        "rationale": (
+            "Canonical documents must live at one location only. Duplicate "
+            "copies at repo root or in unexpected directories diverge silently "
+            "and confuse audits. Gitignore data/ discipline makes tracked "
+            "subdirectories intentional and visible."
+        ),
+        "risk": "medium",
+        "file": "tools/check_structural_antipatterns.py",
+        "test_fn": "test_core_rules_not_at_repo_root",
+        "test_file": "tests/test_repository_structure.py",
+    },
+    # ── Structural Anti-Pattern discipline (Core Rule 5.24, step 1.4.g) ────────
+    {
+        "id": "5.24",
+        "label": "Structural Anti-Pattern Discipline",
+        "rationale": (
+            "When a new structural drift pattern is identified, encode it as "
+            "a rule rather than relying on human memory. The rule registry in "
+            "check_structural_antipatterns.py enforces known-bad patterns at "
+            "commit time (--staged) and in the ms-update audit banner (--audit)."
+        ),
+        "risk": "medium",
+        "file": "tools/check_structural_antipatterns.py",
+        "test_fn": "test_current_repo_is_clean",
+        "test_file": "tests/test_structural_antipatterns.py",
+    },
+    # ── Rule-Addition Contract discipline (Core Rule 5.25, step 2.4.d) ────────
+    {
+        "id": "5.25",
+        "label": "Rule-Addition Contract Discipline",
+        "rationale": (
+            "Without a commit-time gate, bookkeeping for new Core Rules "
+            "drifts silently: headings without coverage entries, map nodes "
+            "that don't match the RULES list, snapshots with stale counts. "
+            "ms-rule-contract enforces five companion changes (C1–C5) in "
+            "every commit that adds a numeric N.NN rule, and audits the full "
+            "repo state in CI (5 invariants). ADR 0012."
+        ),
+        "risk": "high",
+        "file": "ms-rule-contract",
+        "test_fn": "test_passes_with_all_companions",
+        "test_file": "tests/test_rule_contract.py",
+    },
+    # ── Installer Layout Discipline (Core Rule 5.26, step 1.2.b) ──────────────
+    {
+        "id": "5.26",
+        "label": "Installer Layout Discipline",
+        "rationale": (
+            "The installer must not hardcode /opt/mediastack or "
+            "/var/lib/mediastack in installer/ source files (except in a single "
+            "canonical default-value module); paths are read from CLI args, env vars, "
+            "or the state file. Enforces ADR 0013 INV-1 at commit time (rule-005 in "
+            "check_structural_antipatterns.py) and at the v5.0.0 audit gate."
+        ),
+        "risk": "high",
+        "file": "tools/check_structural_antipatterns.py",
+        "test_fn": "test_detects_hardcoded_opt_mediastack",
+        "test_file": "tests/test_structural_antipatterns.py",
+    },
+]
+
+
+def scan_rules() -> list[CoverageNode]:
+    """Return CoverageNodes for all architectural rules.
+
+    A rule is covered if its test_fn exists in its test_file.
+    A rule with no test is a critical/high-risk gap.
+    """
+    nodes = []
+    corpus = _build_test_corpus()
+    corpus_combined = " ".join(content for content, _ in corpus.values())
+
+    for rule in RULES:
+        test_fn = rule["test_fn"]
+        # Check if the test function exists anywhere in the test suite
+        covered = f"def {test_fn}" in corpus_combined
+        test_files = [
+            Path(fp).name for fp, (content, _) in corpus.items()
+            if f"def {test_fn}" in content
+        ]
+
+        nodes.append(CoverageNode(
+            id=f"rule:{rule['id']}",
+            kind="rule",
+            label=rule["label"],
+            detail=f"test: {test_fn}",
+            file=rule["file"],
+            line=1,
+            covered=covered,
+            test_count=1 if covered else 0,
+            test_kinds=["runtime"] if covered else [],
+            test_files=test_files,
+            risk=rule["risk"],
+            depends_on=[],
+            notes=rule["rationale"][:120],
+        ))
+    return nodes
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Coverage cross-reference
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_test_corpus() -> dict[str, tuple[str, str]]:
+    """Build a corpus of all test content, keyed by test file."""
+    corpus: dict[str, tuple[str, str]] = {}  # filepath → (content, kind)
+    test_dir = REPO / "tests"
+    if not test_dir.exists():
+        return corpus
+    for fpath in test_dir.rglob("test_*.py"):
+        if ".venv" in fpath.parts:
+            continue
+        content = fpath.read_text()
+        kind = "static"
+        if any(k in content for k in ("TestClient", "StateDB()", "install_app(", "step_")):
+            kind = "runtime"
+        if any(k in content for k in ("E2E", "e2e", "test_client", "app_client")):
+            kind = "e2e"
+        corpus[str(fpath)] = (content, kind)
+    return corpus
+
+
+def _search_terms_for_node(node: CoverageNode) -> list[str]:
+    """Generate search terms to look for in test files."""
+    terms = []
+    if node.kind == "route":
+        # e.g. "GET /api/health/sources" → look for "sources", "health/sources", etc.
+        parts = [p for p in node.label.split("/") if p and not p.startswith("{")]
+        terms.extend(parts[-2:] if len(parts) >= 2 else parts)
+        method = node.label.split(" ")[0].lower()
+        terms.append(method)
+        # Also look for handler name
+        handler = re.search(r'handler=(\w+)', node.detail)
+        if handler:
+            terms.append(handler.group(1))
+            terms.append(handler.group(1).replace("_", "-"))
+    elif node.kind == "table":
+        terms.append(node.label)
+        terms.append(f'"{node.label}"')
+        terms.append(f"FROM {node.label}")
+    elif node.kind == "provider":
+        cls = node.label
+        terms.append(cls)
+        terms.append(cls.replace("Provider", ""))
+        terms.append(node.notes.split("file=")[-1] if "file=" in node.notes else "")
+    elif node.kind == "manifest":
+        terms.append(node.id.split(":")[-1])  # app key
+        terms.append(node.label)
+    elif node.kind == "step":
+        terms.append(node.detail)  # step_function_name
+        terms.append(node.detail.replace("step_", ""))
+    elif node.kind == "view":
+        terms.append(node.label)
+        terms.append(node.file.split("/")[-1].replace(".vue", ""))
+    elif node.kind == "tool":
+        terms.append(node.label)
+        terms.append(node.label.replace("-", "_"))
+    return [t for t in terms if t and len(t) > 3]
+
+
+def cross_reference_coverage(nodes: list[CoverageNode]) -> list[CoverageNode]:
+    """Check each node against the test corpus."""
+    corpus = _build_test_corpus()
+
+    for node in nodes:
+        terms = _search_terms_for_node(node)
+        for fpath, (content, kind) in corpus.items():
+            fname = Path(fpath).name
+            if any(term in content for term in terms if len(term) > 3):
+                node.covered = True
+                node.test_count += content.count(terms[0]) if terms else 0
+                if kind not in node.test_kinds:
+                    node.test_kinds.append(kind)
+                if fname not in node.test_files:
+                    node.test_files.append(fname)
+
+    return nodes
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gap analysis and risk scoring
+# ─────────────────────────────────────────────────────────────────────────────
+
+KNOWN_BUGS = [
+    {"id": "compose-failure-ok-true",      "fixed": True,  "commit": "ce4b2df",
+     "desc": "compose failure returned ok=True — executor used result.add not result.fail",
+     "kind": "route", "node": "step:step_traefik_deploy"},
+    {"id": "pending-fixes-no-schema",      "fixed": True,  "commit": "ce4b2df",
+     "desc": "pending_fixes not in schema.sql — approve_fix returned 500 on fresh install",
+     "kind": "table", "node": "table:pending_fixes"},
+    {"id": "result-stderr-nameError",      "fixed": True,  "commit": "15c288e",
+     "desc": "4 providers used result.stderr on (rc, str) tuple — NameError on failure",
+     "kind": "provider", "node": "provider:GlanceDashboardProvider"},
+    {"id": "db-commit-maintenance",        "fixed": True,  "commit": "fe4ecc3",
+     "desc": "db.commit() called on StateDB — AttributeError → 500",
+     "kind": "route", "node": "route:POST:/api/health/maintenance-windows"},
+    {"id": "vpn-secrets-not-passed",       "fixed": True,  "commit": "a364ba2",
+     "desc": "VPN deploy called with empty cfg — vpn_service_provider always ''",
+     "kind": "step", "node": "step:step_deploy_infra"},
+    {"id": "else-block-status-failed",     "fixed": True,  "commit": "ce4b2df",
+     "desc": "else of 'if key==ollama' ran for all apps — overwrote status=running with failed",
+     "kind": "step", "node": "step:step_complete"},
+    {"id": "ms-audit-snapshot-immediate",  "fixed": True,  "commit": "3b5ca50",
+     "desc": "snapshot written unconditionally — gaps vanished on second run",
+     "kind": "tool", "node": "tool:ms-audit"},
+    {"id": "tracked-runtime-file",         "fixed": True,  "commit": "354d6a3",
+     "desc": "data/last_test_run.json tracked in git — blocked git pull silently",
+     "kind": "tool", "node": "tool:ms-update"},
+]
+
+
+def identify_gaps(nodes: list[CoverageNode]) -> list[dict]:
+    """Return uncovered high/critical nodes sorted by risk."""
+    risk_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    gaps = []
+    for n in nodes:
+        if not n.covered and n.risk in ("critical", "high"):
+            gaps.append({
+                "id": n.id, "kind": n.kind, "label": n.label,
+                "risk": n.risk, "file": n.file, "line": n.line,
+                "suggestion": _suggest_test(n),
+            })
+    return sorted(gaps, key=lambda g: risk_order.get(g["risk"], 9))
+
+
+def _suggest_test(node: CoverageNode) -> str:
+    if node.kind == "route":
+        method = node.label.split()[0]
+        path = node.label.split()[-1]
+        return (f"Add test: client.{method.lower()}('{path}') → assert status 200 + response shape. "
+                f"Add failure test: missing required fields → assert 422.")
+    elif node.kind == "table":
+        return (f"Add test: write a record to '{node.label}' → read it back → assert fields match. "
+                f"Test: missing required column → assert IntegrityError handled gracefully.")
+    elif node.kind == "provider":
+        return (f"Add test: {node.label}().deploy(valid_cfg) → assert result.ok. "
+                f"Add failure test: mock compose_up return (1, 'error') → assert not result.ok (no NameError).")
+    elif node.kind == "step":
+        return (f"Add test: {node.detail}(wizard_input) → run step → assert DB state or return value. "
+                f"Add test: step with invalid input → assert result.ok=False + result.error set.")
+    elif node.kind == "view":
+        return (f"Add frontend contract test: verify all API calls made by {node.label}View.vue "
+                f"exist as routes in the backend.")
+    elif node.kind == "tool":
+        return f"Add test: run {node.label} logic directly → assert key behaviors and output format."
+    if node.kind == "rule":
+        return (f"Add test: {node.detail.replace('test: ', '')}() — "
+                f"prove this invariant: {node.label}")
+    return f"Add behavioral test for {node.kind}: {node.label}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Summary and output
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_summary(nodes: list[CoverageNode]) -> dict:
+    by_kind: dict[str, dict] = {}
+    for n in nodes:
+        k = n.kind
+        if k not in by_kind:
+            by_kind[k] = {"total": 0, "covered": 0, "critical": 0, "high": 0}
+        by_kind[k]["total"] += 1
+        if n.covered:
+            by_kind[k]["covered"] += 1
+        if n.risk == "critical":
+            by_kind[k]["critical"] += 1
+        if n.risk == "high":
+            by_kind[k]["high"] += 1
+
+    total = len(nodes)
+    covered = sum(1 for n in nodes if n.covered)
+    pct = int(100 * covered / total) if total else 0
+
+    return {
+        "total": total, "covered": covered, "uncovered": total - covered,
+        "coverage_pct": pct, "by_kind": by_kind,
+        "critical_gaps": sum(1 for n in nodes if not n.covered and n.risk == "critical"),
+        "high_gaps": sum(1 for n in nodes if not n.covered and n.risk == "high"),
+    }
+
+
+def get_commit() -> str:
+    import subprocess
+    try:
+        return subprocess.run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"],
+                              capture_output=True, text=True).stdout.strip()
+    except Exception:
+        return "unknown"
+
+
+def print_report(nodes: list[CoverageNode], gaps: list[dict], summary: dict):
+    w = 62
+    print(f"\n{'─'*w}")
+    print(f"  Mediastack Coverage Map  ·  commit {get_commit()}")
+    print(f"{'─'*w}")
+
+    # Summary table
+    kinds = ["route", "table", "provider", "manifest", "step", "view", "tool", "rule"]
+    print(f"\n  {'Kind':<12} {'Total':>6} {'Covered':>8} {'Pct':>5}  {'Crit':>5} {'High':>5}")
+    print(f"  {'─'*12} {'─'*6} {'─'*8} {'─'*5}  {'─'*5} {'─'*5}")
+    for k in kinds:
+        s = summary["by_kind"].get(k, {"total": 0, "covered": 0, "critical": 0, "high": 0})
+        t, c = s["total"], s["covered"]
+        if t == 0:
+            continue
+        pct = int(100 * c / t)
+        bar_c = GREEN(f"{pct:3d}%") if pct >= 80 else (YELLOW(f"{pct:3d}%") if pct >= 50 else RED(f"{pct:3d}%"))
+        crit = RED(str(s["critical"])) if s["critical"] else DIM("   0")
+        high = YELLOW(str(s["high"])) if s["high"] else DIM("   0")
+        print(f"  {k:<12} {t:>6} {c:>8} {bar_c}  {crit:>5} {high:>5}")
+
+    total_pct = summary["coverage_pct"]
+    bar = GREEN(f"{total_pct}%") if total_pct >= 70 else (YELLOW(f"{total_pct}%") if total_pct >= 40 else RED(f"{total_pct}%"))
+    print(f"\n  Overall: {bar} ({summary['covered']}/{summary['total']} nodes covered)")
+    print(f"  Critical gaps: {RED(str(summary['critical_gaps'])) if summary['critical_gaps'] else GREEN('0')}   "
+          f"High gaps: {YELLOW(str(summary['high_gaps'])) if summary['high_gaps'] else GREEN('0')}")
+
+    if gaps:
+        print(f"\n  {'─'*w}")
+        print(f"  Uncovered high-risk nodes (fix these first)")
+        print(f"  {'─'*w}")
+        for g in gaps[:20]:
+            risk_badge = RED("CRIT") if g["risk"] == "critical" else YELLOW("HIGH")
+            print(f"\n  [{risk_badge}] {BOLD(g['label'])} ({g['kind']})")
+            print(f"    {DIM(g['file'])}:{g['line']}")
+            print(f"    → {DIM(g['suggestion'][:80])}")
+    else:
+        print(f"\n  {GREEN('✓')} No critical/high gaps found")
+
+    print(f"\n  Coverage map → {OUT}")
+    print(f"{'─'*w}\n")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────────────────────
+
+def main():
+    args = sys.argv[1:]
+    json_only = "--json" in args
+    gaps_only = "--gaps" in args
+    section_filter = None
+    if "--section" in args:
+        idx = args.index("--section")
+        section_filter = args[idx + 1] if idx + 1 < len(args) else None
+
+    if not json_only:
+        print(f"  → Scanning codebase…", end=" ", flush=True)
+
+    # Collect all nodes
+    nodes: list[CoverageNode] = []
+    nodes.extend(scan_routes())
+    nodes.extend(scan_db_tables())
+    nodes.extend(scan_providers())
+    nodes.extend(scan_manifests())
+    nodes.extend(scan_wizard_steps())
+    nodes.extend(scan_frontend_views())
+    nodes.extend(scan_tools())
+    nodes.extend(scan_rules())
+
+    if section_filter:
+        nodes = [n for n in nodes if n.kind == section_filter]
+
+    # Cross-reference with tests
+    nodes = cross_reference_coverage(nodes)
+
+    if not json_only:
+        print(f"done  {DIM(f'{len(nodes)} nodes scanned')}")
+        print(f"  → Cross-referencing tests…", end=" ", flush=True)
+
+    # Build output
+    gaps = identify_gaps(nodes)
+    summary = build_summary(nodes)
+
+    if not json_only:
+        cov_line = f"{summary['covered']}/{summary['total']} covered ({summary['coverage_pct']}%)"
+        print(f"done  {DIM(cov_line)}")
+
+    coverage_map = {
+        "generated_at": int(time.time()),
+        "commit": get_commit(),
+        "nodes": [asdict(n) for n in nodes],
+        "summary": summary,
+        "gaps": gaps,
+        "known_bugs": KNOWN_BUGS,
+    }
+
+    # Write JSON
+    DATA.mkdir(parents=True, exist_ok=True)
+    OUT.write_text(json.dumps(coverage_map, indent=2))
+
+    if json_only:
+        print(json.dumps(coverage_map, indent=2))
+        return
+
+    if gaps_only:
+        for g in gaps:
+            print(f"[{g['risk'].upper():8}] {g['kind']:<10} {g['label']}")
+            print(f"           {g['file']}:{g['line']}")
+            print(f"           {g['suggestion'][:100]}")
+            print()
+        return
+
+    print_report(nodes, gaps, summary)
+
+
+if __name__ == "__main__":
+    main()

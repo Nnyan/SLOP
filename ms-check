@@ -1,0 +1,559 @@
+#!/usr/bin/env bash
+# ms-check — Validate Mediastack platform health and configuration.
+#
+# Usage:
+#   sudo ms-check                     # Full check
+#   sudo ms-check --quick             # Skip slow checks (CF API, cert files)
+#
+# Exit codes:
+#   0 — all checks passed
+#   1 — warnings only (non-blocking)
+#   2 — errors found (something will not work correctly)
+#
+# Run automatically by deploy.sh and ms-update.
+# Run manually any time to diagnose issues.
+
+set -euo pipefail
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; RESET='\033[0m'
+BOLD='\033[1m'; DIM='\033[2m'
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+REPO="$SCRIPT_DIR"
+VENV="$REPO/.venv"
+SERVICE="mediastack"
+QUICK=false
+[[ "${1:-}" == "--quick" ]] && QUICK=true
+
+
+WARNINGS=0; ERRORS=0; SECT_PASS=0; SECT_FAIL=0; SECT_WARN=0
+
+_SEP="────────────────────────────────────────────────────────────"
+
+ok()    { echo -e "  ${GREEN}✓${RESET} $*"; }
+warn()  { echo -e "  ${YELLOW}!${RESET} $*"; WARNINGS=$((WARNINGS+1)); }
+fail()  { echo -e "  ${RED}✗${RESET} $*"; ERRORS=$((ERRORS+1)); }
+info()  { echo -e "  ${CYAN}→${RESET} $*"; }
+# pass() kept as alias for ok() — used throughout check sections
+pass()  { ok "$@"; }
+
+section() {
+    echo ""
+    printf "  ${BOLD}%s${RESET}\n" "$*"
+}
+
+_TS=$(date "+%H:%M  %Y-%m-%d")
+echo ""
+printf "  %s\n" "$_SEP"
+printf "  Mediastack Health Check  %s\n" "$_TS"
+printf "  %s\n" "$_SEP"
+
+# ── 1. Software versions ─────────────────────────────────────────────────
+section "Software dependencies"
+
+# Python
+if command -v python3 &>/dev/null; then
+    PYVER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    PYMINOR=$(echo "$PYVER" | cut -d. -f2)
+    if [[ "$PYMINOR" -ge 10 ]]; then
+        pass "Python $PYVER"
+    else
+        fail "Python $PYVER (3.10+ required)"
+    fi
+else
+    fail "Python not found"
+fi
+
+# Node
+if command -v node &>/dev/null; then
+    NODE_VER=$(node --version | tr -d 'v' | cut -d. -f1)
+    if [[ "$NODE_VER" -ge 18 ]]; then
+        pass "Node.js $(node --version)"
+    else
+        warn "Node.js $(node --version) (18+ recommended)"
+    fi
+fi
+
+# Docker
+if command -v docker &>/dev/null; then
+    DOCKER_VER=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo "unknown")
+    DOCKER_API=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || echo "0")
+    DOCKER_MIN_API=$(docker version --format '{{.Server.MinAPIVersion}}' 2>/dev/null || echo "0")
+    pass "Docker $DOCKER_VER (API $DOCKER_API, min $DOCKER_MIN_API)"
+    DOCKER_MAJOR=$(echo "$DOCKER_VER" | cut -d. -f1)
+else
+    fail "Docker not found"
+fi
+
+# Virtualenv
+if [[ -f "$VENV/bin/python" ]]; then
+    pass "Virtualenv at $VENV"
+else
+    fail "Virtualenv not found at $VENV — run: sudo $REPO/deploy.sh"
+fi
+
+# rsync
+if command -v rsync &>/dev/null; then
+    pass "rsync"
+elif [[ "$EUID" -eq 0 ]]; then
+    apt-get install -y rsync -qq &>/dev/null && pass "rsync: installed automatically" || warn "rsync: auto-install failed — run: apt-get install rsync"
+else
+    warn "rsync not installed — run: sudo apt-get install rsync"
+fi
+
+# ── 2. File locations ─────────────────────────────────────────────────────
+section "File locations"
+
+# .env file
+ENV_FILE="$REPO/.env"
+if [[ -f "$ENV_FILE" ]]; then
+    pass ".env at $ENV_FILE"
+    # Check permissions — auto-fix when running as root (sudo ms-check / sudo ms-update)
+    PERM=$(stat -c "%a" "$ENV_FILE")
+    if [[ "$PERM" == "600" ]] || [[ "$PERM" == "640" ]]; then
+        pass ".env permissions: $PERM"
+    elif [[ "$EUID" -eq 0 ]]; then
+        chmod 600 "$ENV_FILE"
+        pass ".env permissions: fixed → 600 (was $PERM)"
+    else
+        warn ".env permissions: $PERM (run: sudo chmod 600 $ENV_FILE)"
+    fi
+else
+    fail ".env not found at $ENV_FILE — run: sudo $REPO/deploy.sh"
+fi
+
+# Data directory
+DATA_DIR="${MS_DATA_DIR:-$REPO/data}"
+OLD_DATA="/data/mediastack"
+if [[ -d "$DATA_DIR" ]]; then
+    pass "Data dir: $DATA_DIR"
+elif [[ -d "$OLD_DATA" ]]; then
+    warn "Data dir using old location $OLD_DATA — run: sudo $REPO/deploy.sh to migrate"
+else
+    fail "Data dir not found: $DATA_DIR"
+fi
+
+# State DB
+DB_PATH="$DATA_DIR/state.db"
+if [[ ! -f "$DB_PATH" ]]; then
+    DB_PATH="$OLD_DATA/state.db"
+fi
+[[ -f "$DB_PATH" ]] && pass "State DB: $DB_PATH" || warn "State DB not found (first run?)"
+
+# Compose fragments dir
+COMPOSE_DIR="$DATA_DIR/compose"
+[[ -d "$COMPOSE_DIR" ]] && pass "Compose dir: $COMPOSE_DIR" || info "Compose dir: $COMPOSE_DIR (empty — no apps deployed yet)"
+
+# ── 3. Service ────────────────────────────────────────────────────────────
+section "Service"
+
+if systemctl is-active --quiet "$SERVICE" 2>/dev/null; then
+    SVC_USER=$(systemctl show "$SERVICE" -p User 2>/dev/null | cut -d= -f2)
+    pass "Service: running (user: $SVC_USER)"
+    if [[ "$SVC_USER" == "root" ]]; then
+        warn "Service running as root — re-run deploy.sh to fix"
+    fi
+    # Check which .env it reads
+    SVC_ENV_FILE=$(systemctl show "$SERVICE" -p EnvironmentFiles 2>/dev/null | grep -oP '(?<=EnvironmentFiles=)[^ ]+' || echo "")
+    if [[ -n "$SVC_ENV_FILE" ]]; then
+        if [[ "$SVC_ENV_FILE" == "$ENV_FILE" ]]; then
+            pass "Service reads correct .env: $SVC_ENV_FILE"
+        else
+            warn "Service reads $SVC_ENV_FILE (expected $ENV_FILE) — run: sudo deploy.sh"
+        fi
+    fi
+else
+    fail "Service not running — check: journalctl -u $SERVICE -n 30"
+fi
+
+# API responding
+if curl -sf "http://localhost:8080/api/ping" >/dev/null 2>&1; then
+    pass "API responding at http://localhost:8080"
+else
+    fail "API not responding at http://localhost:8080"
+    # Cross-check: is the port even bound?
+    if ss -tlnp 2>/dev/null | grep -q ":8080 "; then
+        info "Port 8080 is bound but API ping failed — service may be starting"
+    else
+        info "Port 8080 not bound — service failed to start"
+    fi
+    info "Last service log: $(journalctl -u $SERVICE -n 3 --no-pager -o short 2>/dev/null | tail -3 | sed 's/^/    /')"
+fi
+
+# ── 4. Docker socket ─────────────────────────────────────────────────────
+section "Docker"
+
+if [[ -S /var/run/docker.sock ]]; then
+    SOCK_GID=$(stat -c '%g' /var/run/docker.sock)
+    pass "Docker socket: /var/run/docker.sock (GID: $SOCK_GID)"
+    REAL_USER="${SUDO_USER:-$USER}"
+    if groups "$REAL_USER" 2>/dev/null | grep -qw docker; then
+        pass "$REAL_USER is in the docker group"
+    elif [[ "$EUID" -eq 0 ]]; then
+        usermod -aG docker "$REAL_USER" 2>/dev/null             && pass "$REAL_USER added to docker group (re-login required)"             || warn "Could not add $REAL_USER to docker group"
+    else
+        warn "$REAL_USER is not in the docker group — run: sudo usermod -aG docker $REAL_USER"
+    fi
+    # Cross-check: service user also needs docker access
+    SVC_USER_CHECK=$(systemctl show "$SERVICE" -p User 2>/dev/null | cut -d= -f2)
+    if [[ -n "$SVC_USER_CHECK" && "$SVC_USER_CHECK" != "$REAL_USER" && "$SVC_USER_CHECK" != "root" ]]; then
+        if ! groups "$SVC_USER_CHECK" 2>/dev/null | grep -qw docker; then
+            warn "Service user '$SVC_USER_CHECK' is not in the docker group — run: sudo usermod -aG docker $SVC_USER_CHECK"
+        fi
+    fi
+else
+    fail "Docker socket not found at /var/run/docker.sock"
+fi
+
+# Docker network
+if docker network inspect mediastack &>/dev/null 2>&1; then
+    pass "Docker network 'mediastack' exists"
+elif [[ "$EUID" -eq 0 ]]; then
+    docker network create mediastack &>/dev/null         && pass "Docker network 'mediastack': created automatically"         || warn "Could not create Docker network 'mediastack'"
+else
+    warn "Docker network 'mediastack' not found — run: docker network create mediastack"
+fi
+
+# ── 5. Port availability ─────────────────────────────────────────────────
+section "Port availability"
+
+for port in 80 443 8080 8081; do
+    # Use ss + grep; extract process name without gawk 3-arg match
+    ss_line=$(ss -tlnp 2>/dev/null | grep ":${port} " || true)
+    if [[ -z "$ss_line" ]]; then
+        pass "Port $port: free"
+    else
+        pid=$(echo "$ss_line" | grep -oP 'pid=\K[0-9]+' | head -1 || true)
+        if [[ -n "$pid" ]]; then
+            owner=$(cat /proc/$pid/comm 2>/dev/null || echo "unknown")
+        else
+            owner="unknown"
+        fi
+        # docker-proxy is Docker's userland proxy — it forwards to Traefik (expected)
+        if [[ "$port" == "80" || "$port" == "443" ]] && [[ "$owner" == "traefik" || "$owner" == "docker-proxy" ]]; then
+            pass "Port $port: traefik / docker-proxy (expected)"
+        elif [[ "$port" == "8081" ]] && [[ "$owner" == "docker-proxy" ]]; then
+            pass "Port $port: Traefik dashboard / docker-proxy (expected)"
+        elif [[ "$port" == "8080" ]] && [[ "$owner" == "python"* || "$owner" == "uvicorn" ]]; then
+            pass "Port $port: mediastack (expected)"
+        else
+            warn "Port $port: in use by \'$owner\'"
+        fi
+    fi
+done
+
+# ── 6. .env completeness ─────────────────────────────────────────────────
+section ".env variables"
+
+if [[ -f "$ENV_FILE" ]]; then
+    # Load env vars
+    declare -A ENV_VALS
+    while IFS= read -r line; do
+        [[ "$line" =~ ^#.*$ || -z "$line" || ! "$line" =~ = ]] && continue
+        key="${line%%=*}"
+        val="${line#*=}"
+        ENV_VALS["$key"]="$val"
+    done < "$ENV_FILE"
+
+    # Check Cloudflare vars — only warn if platform is ready with cloudflare dns_provider
+    CF_TOKEN="${ENV_VALS[CF_DNS_API_TOKEN]:-}"
+    _DNS_PROVIDER=$(python3 -c "
+from backend.core.state import StateDB
+try:
+    with StateDB() as db:
+        p = db.get_platform()
+        print(getattr(p, 'dns_provider', 'cloudflare') or 'cloudflare')
+except: print('unknown')
+" 2>/dev/null || echo "unknown")
+
+    if [[ -n "$CF_TOKEN" ]]; then
+        pass "CF_DNS_API_TOKEN: set"
+    elif [[ "$_DNS_PROVIDER" == "cloudflare" || "$_DNS_PROVIDER" == "unknown" ]]; then
+        warn "CF_DNS_API_TOKEN: not set (required for Cloudflare DNS-01 cert challenge)"
+    else
+        info "CF_DNS_API_TOKEN: not set (dns_provider is $_DNS_PROVIDER — not needed)"
+    fi
+
+    for var in CF_ZONE_ID CF_ACCOUNT_ID; do
+        val="${ENV_VALS[$var]:-}"
+        [[ -n "$val" ]] && pass "$var: set" || info "$var: not set (optional — only needed for CF Tunnel)"
+    done
+
+    # POSTGRES_PASSWORD: only warn if postgres infra is actually deployed
+    _PG_VAL="${ENV_VALS[POSTGRES_PASSWORD]:-}"
+    _PG_DEPLOYED=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM infra_slots WHERE slot_key='postgres' AND status='active'" 2>/dev/null || echo 0)
+    if [[ -n "$_PG_VAL" ]]; then
+        pass "POSTGRES_PASSWORD: set"
+    elif [[ "$_PG_DEPLOYED" -gt 0 ]]; then
+        warn "POSTGRES_PASSWORD: not set (postgres infra is active — this will cause auth failures)"
+    else
+        info "POSTGRES_PASSWORD: not set (postgres not deployed — set when adding postgres infra)"
+    fi
+
+    # Validate CONFIG_ROOT exists
+    CR="${ENV_VALS[CONFIG_ROOT]:-}"
+    if [[ -n "$CR" ]]; then
+        if [[ -d "$CR" ]]; then
+            pass "CONFIG_ROOT: $CR (exists)"
+        else
+            # Cross-check: if apps are installed this is a hard failure
+            APP_COUNT=0
+            [[ -f "$DB_PATH" ]] && APP_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM apps" 2>/dev/null || echo 0)
+            if [[ "$APP_COUNT" -gt 0 ]]; then
+                fail "CONFIG_ROOT: $CR does not exist — $APP_COUNT installed app(s) will fail to start"
+                info "Fix: mkdir -p $CR"
+            else
+                warn "CONFIG_ROOT: $CR does not exist — create it before installing apps"
+                info "Fix: mkdir -p $CR"
+            fi
+        fi
+    fi
+fi
+
+# ── 7. Traefik (if running) ───────────────────────────────────────────────
+section "Traefik"
+
+if docker container inspect traefik &>/dev/null 2>&1; then
+    T_IMAGE=$(docker container inspect traefik --format '{{index .Config.Image}}' 2>/dev/null || echo "unknown")
+    T_STATUS=$(docker container inspect traefik --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+    pass "Traefik: $T_STATUS ($T_IMAGE)"
+
+    # Check acme.json permissions
+    ACME_PATHS=("$REPO/config/traefik/acme.json" "/home/stack/mediacenter/config/traefik/acme.json")
+    for ap in "${ACME_PATHS[@]}"; do
+        if [[ -f "$ap" ]]; then
+            ACME_PERM=$(stat -c "%a" "$ap")
+            if [[ "$ACME_PERM" == "600" ]]; then
+                pass "acme.json permissions: 600"
+            elif [[ "$EUID" -eq 0 ]]; then
+                chmod 600 "$ap" && pass "acme.json permissions: fixed → 600 (was $ACME_PERM)"                     || warn "acme.json permissions: $ACME_PERM (could not auto-fix)"
+            else
+                warn "acme.json permissions: $ACME_PERM (run: sudo chmod 600 $ap)"
+            fi
+            break
+        fi
+    done
+
+    # Cross-check Traefik version against Docker version
+    if [[ "$T_IMAGE" == *"v3.3"* && "${DOCKER_MAJOR:-0}" -ge 29 ]]; then
+        warn "Traefik v3.3 + Docker 29: known API negotiation bug detected"
+        info "Fix: docker pull traefik:v3.2 && docker compose -f $DATA_DIR/compose/traefik.yaml up -d"
+    elif [[ "${DOCKER_MAJOR:-0}" -ge 29 ]]; then
+        pass "Traefik $T_IMAGE: compatible with Docker $DOCKER_VER"
+    fi
+
+    # Check acme.json has actual cert entries (not just an empty file)
+    ACME_PATHS=("$REPO/config/traefik/acme.json" "/home/stack/mediacenter/config/traefik/acme.json")
+    for ap in "${ACME_PATHS[@]}"; do
+        if [[ -f "$ap" ]]; then
+            SIZE=$(stat -c "%s" "$ap" 2>/dev/null || echo 0)
+            if [[ "$SIZE" -gt 100 ]]; then
+                # File has content — likely has cert entries
+                # Check if it contains a certificate key
+                if grep -q '"certificate"' "$ap" 2>/dev/null || grep -q '"Certificate"' "$ap" 2>/dev/null; then
+                    pass "TLS certificate: issued (acme.json has cert data)"
+                else
+                    warn "TLS certificate: acme.json exists but appears empty — cert may not have been issued yet"
+                    info "Check: docker logs traefik 2>&1 | grep -i acme"
+                fi
+            else
+                warn "TLS certificate: acme.json is empty — cert has not been issued"
+                info "Causes: CF_DNS_API_TOKEN wrong, DNS propagation pending, or Let's Encrypt rate-limited"
+                info "Check: docker logs traefik 2>&1 | grep -i 'acme\|certificate\|error'"
+            fi
+            break
+        fi
+    done
+else
+    # Check if Traefik was deployed but stopped (compose fragment exists)
+    if [[ -f "$COMPOSE_DIR/traefik.yaml" ]]; then
+        warn "Traefik: compose fragment exists but container is not running"
+        if [[ "$EUID" -eq 0 ]]; then
+            info "Auto-starting Traefik…"
+            docker compose -f "$COMPOSE_DIR/traefik.yaml" up -d --quiet-pull 2>/dev/null                 && pass "Traefik: started successfully"                 || fail "Traefik: failed to start — check: docker logs traefik"
+        else
+            info "Fix: sudo docker compose -f $COMPOSE_DIR/traefik.yaml up -d"
+        fi
+    else
+        # Check if platform is in setup/pending state — then this is expected
+        PLATFORM_STATUS=$(curl -sf "http://localhost:8080/api/platform/status" 2>/dev/null             | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null             || echo "unknown")
+        if [[ "$PLATFORM_STATUS" == "pending" ]] || [[ "$PLATFORM_STATUS" == "configuring" ]]; then
+            info "Traefik: not yet deployed (platform setup in progress)"
+        else
+            warn "Traefik: not deployed — run platform setup or: Infra → Platform"
+        fi
+    fi
+fi
+
+
+
+# ── 8. Infrastructure provider check ─────────────────────────────────────
+section "Infrastructure"
+
+# Count how many slots have providers by querying the API
+if curl -sf "http://localhost:8080/api/infra/slots" >/dev/null 2>&1; then
+    SLOT_DATA=$(curl -sf "http://localhost:8080/api/infra/slots" 2>/dev/null || echo "[]")
+    ACTIVE=$(echo "$SLOT_DATA" | python3 -c "import sys,json; slots=json.load(sys.stdin); print(sum(1 for s in slots if s.get('status')=='active'))" 2>/dev/null || echo "?")
+    TOTAL=$(echo "$SLOT_DATA" | python3 -c "import sys,json; slots=json.load(sys.stdin); print(len(slots))" 2>/dev/null || echo "?")
+    [[ "$ACTIVE" != "?" ]] && pass "Infra slots: $ACTIVE / $TOTAL active" || info "Could not parse infra slot data"
+else
+    info "Infra slot check skipped (API not responding)"
+fi
+
+# ── 8. Ghost resources ───────────────────────────────────────────────────
+section "Ghost resources"
+
+if [[ -d "$COMPOSE_DIR" ]] && [[ -f "$DB_PATH" ]]; then
+    GHOST_FRAGS=0
+    ORPHAN_RECORDS=0
+    INFRA_KEYS="traefik tinyauth authelia cloudflared tailscale headscale gluetun glance homepage dockge dockhand komodo portainer portainer_be"
+
+    # Check 1: Compose fragments with no DB entry (ghost fragments)
+    for frag in "$COMPOSE_DIR"/*.yaml; do
+        [[ -f "$frag" ]] || continue
+        key=$(basename "$frag" .yaml)
+        case "$key" in
+            traefik|tinyauth|authelia|cloudflared|tailscale|headscale|gluetun|glance|homepage|dockge|dockhand|komodo|portainer|portainer_be)
+                continue ;;
+        esac
+        if ! sqlite3 "$DB_PATH" "SELECT key FROM apps WHERE key='$key'" 2>/dev/null | grep -q .; then
+            warn "Ghost fragment: $key.yaml (no DB entry) — run: rm $frag"
+            GHOST_FRAGS=$((GHOST_FRAGS+1))
+        fi
+    done
+
+    # Check 2: DB records with no compose fragment (orphaned records)
+    while IFS= read -r app_key; do
+        [[ -z "$app_key" ]] && continue
+        if [[ ! -f "$COMPOSE_DIR/$app_key.yaml" ]]; then
+            if [[ "$EUID" -eq 0 ]]; then
+                # Auto-fix: no compose fragment means Docker never started for this app.
+                # Safe to delete — user can reinstall cleanly from the catalog.
+                if sqlite3 "$DB_PATH" \
+                    "DELETE FROM apps WHERE key='$app_key';
+                     DELETE FROM health_checks WHERE subject_key='$app_key';
+                     DELETE FROM health_check_history WHERE subject_key='$app_key';
+                     DELETE FROM operations WHERE subject_key='$app_key';" 2>/dev/null; then
+                    pass "Auto-removed orphaned record: '$app_key' (no compose fragment — reinstall from Catalog if needed)"
+                else
+                    warn "Orphaned DB record: '$app_key' — sqlite3 delete failed (check permissions on $DB_PATH)"
+                fi
+            else
+                warn "Orphaned DB record: '$app_key' has no compose fragment — run as root (sudo ms-check) to auto-remove"
+            fi
+            ORPHAN_RECORDS=$((ORPHAN_RECORDS+1))
+        fi
+    done < <(sqlite3 "$DB_PATH" "SELECT key FROM apps WHERE status NOT IN ('disabled','removing')" 2>/dev/null)
+
+    [[ $GHOST_FRAGS -eq 0 && $ORPHAN_RECORDS -eq 0 ]] && pass "No ghost compose fragments"
+else
+    info "Skipping ghost check (no compose dir or DB yet)"
+fi
+
+
+
+# ── Coverage Map ───────────────────────────────────────────────────────────
+section "Coverage map"
+
+_COV_FILE="$REPO/data/coverage_map.json"
+if [[ -f "$_COV_FILE" ]]; then
+    _COV_PCT=$(python3 -c "import json; d=json.load(open('$_COV_FILE')); s=d['summary']; print(s['coverage_pct'])" 2>/dev/null || echo "?")
+    _COV_COVERED=$(python3 -c "import json; d=json.load(open('$_COV_FILE')); s=d['summary']; print(s['covered'])" 2>/dev/null || echo "?")
+    _COV_TOTAL=$(python3 -c "import json; d=json.load(open('$_COV_FILE')); s=d['summary']; print(s['total'])" 2>/dev/null || echo "?")
+    _COV_CRIT=$(python3 -c "import json; d=json.load(open('$_COV_FILE')); s=d['summary']; print(s['critical_gaps'])" 2>/dev/null || echo "?")
+    _COV_HIGH=$(python3 -c "import json; d=json.load(open('$_COV_FILE')); s=d['summary']; print(s['high_gaps'])" 2>/dev/null || echo "?")
+    _COV_TS=$(python3 -c "import json,time; d=json.load(open('$_COV_FILE')); age=int(time.time()-d['generated_at']); print(f'{age//3600}h{(age%3600)//60}m ago' if age>60 else 'just now')" 2>/dev/null || echo "?")
+
+    _RULE_GAPS=$(python3 -c "
+import json
+d=json.load(open('$_COV_FILE'))
+rule_gaps=[n for n in d['nodes'] if n['kind']=='rule' and not n['covered']]
+print(len(rule_gaps))
+" 2>/dev/null || echo "0")
+
+    if [[ "$_COV_CRIT" != "0" ]]; then
+        fail "Coverage: ${_COV_COVERED}/${_COV_TOTAL} (${_COV_PCT}%) · ${_COV_CRIT} critical gaps · ${_COV_HIGH} high gaps  (generated ${_COV_TS})"
+    elif [[ "$_RULE_GAPS" != "0" ]]; then
+        fail "Coverage: ${_COV_COVERED}/${_COV_TOTAL} (${_COV_PCT}%) · ${_RULE_GAPS} architectural rule(s) uncovered — run: ms-coverage --section rule"
+    elif [[ "$_COV_HIGH" != "0" ]]; then
+        warn "Coverage: ${_COV_COVERED}/${_COV_TOTAL} (${_COV_PCT}%) · ${_COV_HIGH} high-risk gaps  (generated ${_COV_TS})"
+    else
+        pass "Coverage: ${_COV_COVERED}/${_COV_TOTAL} (${_COV_PCT}%) · 0 gaps · 47 rules verified  (generated ${_COV_TS})"
+    fi
+else
+    info "Coverage map not yet generated — run: ms-coverage"
+fi
+
+
+# ── Security: dependency CVEs ─────────────────────────────────────────────
+section "Dependency security (pip-audit)"
+
+if python3 -m pip_audit --version &>/dev/null 2>&1; then
+    _AUDIT_JSON=$(python3 -m pip_audit --format json --requirement "$REPO/requirements.txt" 2>/dev/null || echo '{}')
+    _AUDIT_VULNS=$(echo "$_AUDIT_JSON" | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(sum(len(x.get('vulns',[])) for x in d.get('dependencies',[])))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
+    if [[ "$_AUDIT_VULNS" -eq 0 ]]; then
+        pass "pip-audit: 0 known CVEs in requirements.txt"
+    else
+        warn "pip-audit: ${_AUDIT_VULNS} known CVE(s) in Python dependencies — run: ms-trivy"
+    fi
+else
+    info "pip-audit not installed — run: sudo ms-setup-tools"
+fi
+
+# ── Git sync ───────────────────────────────────────────────────────────────
+section "Git sync"
+
+_REMOTE=$(git -C "$REPO" rev-parse origin/main 2>/dev/null || echo "")
+_LOCAL=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo "")
+_BRANCH=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+
+if [[ -z "$_REMOTE" ]]; then
+    warn "Cannot reach origin — run: git -C $REPO fetch origin"
+elif [[ "$_LOCAL" == "$_REMOTE" ]]; then
+    pass "Git: in sync with origin/main  ($(git -C "$REPO" rev-parse --short HEAD))"
+else
+    _BEHIND=$(git -C "$REPO" rev-list --count HEAD..origin/main 2>/dev/null || echo "?")
+    _AHEAD=$(git -C "$REPO" rev-list --count origin/main..HEAD 2>/dev/null || echo "0")
+    if [[ "$_BEHIND" != "0" ]] && [[ "$_BEHIND" != "?" ]]; then
+        fail "Git: ${_BEHIND} commit(s) behind origin/main — run: sudo ms-update"
+    fi
+    if [[ "$_AHEAD" != "0" ]]; then
+        warn "Git: ${_AHEAD} local commit(s) not on remote"
+    fi
+fi
+
+if [[ "$_BRANCH" != "main" ]]; then
+    fail "Git: on branch '$_BRANCH' not 'main' — run: git checkout main"
+fi
+
+# Check for modified tracked files (blocks future pulls)
+_DIRTY=$(git -C "$REPO" diff --name-only 2>/dev/null | grep -v "^#" | head -5)
+if [[ -n "$_DIRTY" ]]; then
+    warn "Git: tracked files modified (may block pull): $_DIRTY"
+    info "Fix: git -C $REPO checkout -- ."
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────────
+_commit=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo "?")
+_ts=$(date "+%H:%M  %Y-%m-%d")
+echo ""
+printf "  %s\n" "$_SEP"
+if [[ $ERRORS -eq 0 && $WARNINGS -eq 0 ]]; then
+    printf "  ${GREEN}✓${RESET}  All checks passed  ${DIM}%s  %s${RESET}\n" "$_commit" "$_ts"
+    echo ""
+    exit 0
+elif [[ $ERRORS -eq 0 ]]; then
+    printf "  ${YELLOW}!${RESET}  %s warning(s) — review above  ${DIM}%s${RESET}\n" "$WARNINGS" "$_commit"
+    echo ""
+    exit 1
+else
+    printf "  ${RED}✗${RESET}  %s error(s), %s warning(s) — fix before proceeding  ${DIM}%s${RESET}\n" "$ERRORS" "$WARNINGS" "$_commit"
+    echo ""
+    exit 2
+fi

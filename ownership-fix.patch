@@ -1,0 +1,63 @@
+diff --git a/ms-enforce b/ms-enforce
+index cc34e47..66c9a3d 100755
+--- a/ms-enforce
++++ b/ms-enforce
+@@ -176,6 +176,29 @@ def check_bandit() -> tuple[bool, str]:
+         return True, "bandit not available (skip)"
+ 
+ 
++def check_ownership() -> tuple[bool, str]:
++    """All project files owned by the service user.
++
++    sudo-invoked tools (ms-update, deploy.sh) can leave root-owned files in
++    the working tree; this check fails fast so the issue is caught at commit
++    time rather than two days later when an editor save mysteriously fails.
++    Run `sudo tools/normalize-ownership.sh` to fix.
++    """
++    script = REPO / "tools" / "normalize-ownership.sh"
++    if not script.exists():
++        return True, "normalize-ownership.sh not found (skip)"
++    rc, out = _run(["bash", str(script), "--check"], timeout=30)
++    if rc == 0:
++        # Script prints "All files owned by user:group" on success.
++        last = out.strip().splitlines()[-1] if out.strip() else "ok"
++        return True, last.strip().lstrip("✓ ").strip()
++    # rc=1 means wrong ownership found. The script prints the offenders.
++    bad = [ln.strip() for ln in out.splitlines()
++           if ln.strip() and not ln.strip().startswith(("→", "✗", "..."))][:3]
++    detail = "\n".join(f"    {ln}" for ln in bad)
++    return False, f"wrong ownership found:\n{detail}\n    fix: sudo {script}"
++
++
+ 
+ 
+ def check_write_read_cycles() -> tuple[bool, str]:
+@@ -434,6 +457,7 @@ TIER_1: list[tuple[str, object]] = [
+     ("Catalog compliance (Core Rule 5.5)", check_catalog_compliance),
+     ("Ruff — Python correctness",          check_ruff),
+     ("Bandit — Python security",           check_bandit),
++    ("File ownership — service user only", check_ownership),
+     ("Write-read cycles (Core Rule 2.8)",    check_write_read_cycles),
+     ("Precondition guards (Core Rule 2.9)",   check_precondition_declarations),
+     ("ShellCheck — shell script errors",          check_shellcheck),
+diff --git a/ms-update b/ms-update
+index 2ede78c..1452160 100755
+--- a/ms-update
++++ b/ms-update
+@@ -97,6 +97,16 @@ if [[ "$_TESTS_ONLY" == "0" ]] && [[ -z "${_MS_REEXECED:-}" ]]; then
+         echo "    Run: sudo git -C $REPO reset --hard origin/main"
+     fi
+ 
++    # 6. Fix working-tree ownership (sudo git pull/reset creates root-owned
++    #    files in the working tree; .git was handled in step 1 but the rest
++    #    of the tree wasn't until now). Use the dedicated normalizer if
++    #    present; fall back to a one-shot chown if it's not.
++    if [[ -x "$REPO/tools/normalize-ownership.sh" ]]; then
++        "$REPO/tools/normalize-ownership.sh" --quiet 2>/dev/null || true
++    else
++        chown -R "${_SVC_USER}:${_SVC_USER}" "$REPO" 2>/dev/null || true
++    fi
++
+     if [[ "$_pre" != "$_post" ]] && git -C "$REPO" diff --name-only "$_pre" "$_post" 2>/dev/null | grep -q "^ms-update$"; then
+         export _MS_REEXECED=1 OLD_COMMIT
+         exec bash "$REPO/ms-update" "$@"

@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""ms-postmortem — Unified Bug → Enforcement Pipeline
+
+When a new bug, gap, or issue is found, this tool:
+  1. Diagnoses WHY existing enforcement didn't catch it
+  2. Traces the root cause gap in the enforcement system
+  3. Generates targeted enforcement additions (tests, rules, constants)
+  4. Adds a lessons-learned entry to CORE_RULES.md
+  5. Runs ms-enforce to verify the fix works
+  6. Optionally applies the generated changes (--apply)
+
+This is the missing layer between "found a bug" and "won't happen again."
+
+Usage:
+  ms-postmortem "Q3 checked REPO/data/compose but providers write to config.data_dir/compose"
+  ms-postmortem --recent           # analyze the most recent test failure
+  ms-postmortem --list             # list all past postmortems
+  ms-postmortem --apply            # generate AND apply enforcement additions
+
+Install: sudo ln -sf /srv/mediastack/ms-postmortem /usr/local/bin/ms-postmortem
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent
+
+# Use config.data_dir — same source production code (and ms-test.py) uses
+# (Core Rule 3.9). Hardcoding REPO/"data" diverges on non-default MS_DATA_DIR
+# deployments. Closes 1.1.5.k.
+try:
+    import sys as _sys
+    _sys.path.insert(0, str(REPO))
+    from backend.core.config import config as _cfg
+    DATA = _cfg.data_dir
+except Exception:
+    # Fallback for environments without backend on path
+    DATA = REPO / "data"
+POSTMORTEM_LOG = DATA / "postmortem_log.json"
+
+_RESET = "\033[0m"
+_BOLD = "\033[1m"
+_DIM = "\033[2m"
+_GREEN = "\033[0;32m"
+_YELLOW = "\033[1;33m"
+_RED = "\033[0;31m"
+_CYAN = "\033[0;36m"
+
+
+def G(s: str) -> str: return f"{_GREEN}{s}{_RESET}"
+def R(s: str) -> str: return f"{_RED}{s}{_RESET}"
+def Y(s: str) -> str: return f"{_YELLOW}{s}{_RESET}"
+def D(s: str) -> str: return f"{_DIM}{s}{_RESET}"
+def B(s: str) -> str: return f"{_BOLD}{s}{_RESET}"
+def C(s: str) -> str: return f"{_CYAN}{s}{_RESET}"
+
+
+def ok(msg: str)   -> None: print(f"  {G(chr(10003))} {msg}")
+def fail(msg: str) -> None: print(f"  {R(chr(10007))} {msg}")
+def info(msg: str) -> None: print(f"  {C(chr(8594))} {msg}")
+def sect(title: str) -> None: print(f"\n  {B(title)}")
+
+
+_SEP = chr(9472) * 60
+
+# ── Enforcement gap taxonomy ───────────────────────────────────────────────
+# Each gap type maps to the enforcement mechanism that prevents it.
+# When a new bug is found, we identify its gap type, then add the
+# corresponding enforcement.
+
+GAP_TYPES = {
+    "wrong_path": {
+        "description": "Test checks wrong path — write and read use different locations",
+        "enforcement": ["Shared constant from config (COMPOSE_DIR)", "Write→read cycle test",
+                        "Semgrep test-hardcodes-data-path rule"],
+        "core_rule": "2.8",
+        "test_class": "TestComposeFragmentWriteReadCycle",
+    },
+    "wrong_table_name": {
+        "description": "Hardcoded table name string — doesn't match schema.sql",
+        "enforcement": ["TABLE_* constant in state.py", "TestTableNameConstants",
+                        "Semgrep test-hardcodes-table-name rule"],
+        "core_rule": "2.8",
+        "test_class": "TestTableNameConstants",
+    },
+    "wrong_context": {
+        "description": "Test runs in wrong state — checks fragments in pending state",
+        "enforcement": ["section_requires() precondition guard", "_populate_context()",
+                        "TestQ3ComposeFragmentInvariant"],
+        "core_rule": "2.9",
+        "test_class": "TestQ3ComposeFragmentInvariant",
+    },
+    "schema_mismatch": {
+        "description": "Writer and reader use different JSON schema keys",
+        "enforcement": ["Schema test in TestAllDataPipelineSchemas",
+                        "TestToolFindingsSchema", "TestLastTestRunSchema"],
+        "core_rule": "2.8",
+        "test_class": "TestAllDataPipelineSchemas",
+    },
+    "invisible_code": {
+        "description": "Python in shell heredoc — invisible to Ruff/Semgrep/Bandit",
+        "enforcement": ["Extract to backend/scripts/*.py", "check_heredoc_python() in ms-enforce",
+                        "python-in-shell-heredoc Semgrep rule"],
+        "core_rule": "5.14",
+        "test_class": "TestUpdateRecommendationsScript",
+    },
+    "missing_precondition": {
+        "description": "State-dependent test has no precondition guard",
+        "enforcement": ["section_requires() guard", "check_precondition_declarations()",
+                        "Semgrep test-missing-precondition-guard rule"],
+        "core_rule": "2.9",
+        "test_class": "TestQ3ComposeFragmentInvariant",
+    },
+    "string_key_mismatch": {
+        "description": "Hardcoded string key for dict lookup — writer changed key, reader didn't",
+        "enforcement": ["Named constant for the key", "Write→read cycle test for that pipeline",
+                        "Add to TestAllDataPipelineSchemas"],
+        "core_rule": "2.8",
+        "test_class": "TestAllDataPipelineSchemas",
+    },
+}
+
+
+def get_recent_failure() -> dict | None:
+    """Get the most recent test failure from last_test_run.json."""
+    last_run = DATA / "last_test_run.json"
+    if not last_run.exists():
+        return None
+    data = json.loads(last_run.read_text())
+    if data.get("failed", 0) == 0:
+        return None
+    return data
+
+
+def diagnose_gap(description: str) -> dict:
+    """Identify which enforcement gap a bug description matches."""
+    description_lower = description.lower()
+
+    scores = {}
+    for gap_type, info in GAP_TYPES.items():
+        score = 0
+        keywords = info["description"].lower().split()
+        for kw in keywords:
+            if kw in description_lower:
+                score += 1
+        # Exact phrase matching
+        if "path" in description_lower and gap_type == "wrong_path":
+            score += 3
+        if "table" in description_lower and gap_type == "wrong_table_name":
+            score += 3
+        if "pending" in description_lower or "context" in description_lower:
+            if gap_type in ("wrong_context", "missing_precondition"):
+                score += 3
+        if "schema" in description_lower or "key" in description_lower:
+            if gap_type in ("schema_mismatch", "string_key_mismatch"):
+                score += 3
+        if "heredoc" in description_lower or "shell" in description_lower:
+            if gap_type == "invisible_code":
+                score += 5
+        scores[gap_type] = score
+
+    best = max(scores, key=lambda k: scores[k])
+    if scores[best] == 0:
+        return {"gap_type": "unknown", "confidence": 0}
+
+    return {
+        "gap_type": best,
+        "confidence": min(scores[best] * 25, 100),
+        **GAP_TYPES[best],
+    }
+
+
+def check_enforcement_coverage() -> dict:
+    """Run all enforcement checks and report which pass/fail."""
+    results = {}
+    checks = [
+        ("ms-enforce --fast", ["python3", str(REPO / "ms-enforce"), "--fast"]),
+        ("write→read cycles", ["python3", "-m", "pytest",
+                               "tests/test_comprehensive_contracts.py",
+                               "-q", "--tb=no", "--no-header", "-x"]),
+        ("precondition tests", ["python3", "-m", "pytest",
+                                "tests/test_comprehensive_contracts.py::TestQ3ComposeFragmentInvariant",
+                                "-q", "--tb=no", "--no-header"]),
+    ]
+
+    for name, cmd in checks:
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(REPO), timeout=60)
+        results[name] = {
+            "passed": r.returncode == 0,
+            "summary": r.stdout.splitlines()[-2] if r.stdout.strip() else "no output",
+        }
+
+    return results
+
+
+def generate_enforcement_report(description: str, gap: dict) -> str:
+    """Generate a plain-language enforcement addition report."""
+    lines = [
+        f"Bug: {description}",
+        "",
+        f"Gap type: {gap.get('gap_type', 'unknown')} (confidence: {gap.get('confidence', 0)}%)",
+        f"Description: {gap.get('description', 'Unknown gap')}",
+        f"Core Rule: {gap.get('core_rule', '?')}",
+        "",
+        "Enforcement additions needed:",
+    ]
+
+    for item in gap.get("enforcement", ["No enforcement identified"]):
+        lines.append(f"  - {item}")
+
+    lines.extend([
+        "",
+        f"Verify with: python3 -m pytest tests/test_comprehensive_contracts.py::{gap.get('test_class', 'TestPathContractAlignment')} -v",
+        "",
+        "Root cause checklist:",
+        "  [ ] Was the code in scope for Ruff/Semgrep/Bandit?",
+        "  [ ] Was there a write→read cycle test for this pipeline?",
+        "  [ ] Was there a precondition guard for context-sensitive assertions?",
+        "  [ ] Were string literals used as constants across boundaries?",
+    ])
+
+    return "\n".join(lines)
+
+
+def save_postmortem(description: str, gap: dict, enforcement: str) -> None:
+    """Save postmortem to log for future reference."""
+    DATA.mkdir(parents=True, exist_ok=True)
+    log = json.loads(POSTMORTEM_LOG.read_text()) if POSTMORTEM_LOG.exists() else {"entries": []}
+    log["entries"].append({
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "description": description,
+        "gap_type": gap.get("gap_type"),
+        "core_rule": gap.get("core_rule"),
+        "confidence": gap.get("confidence", 0),
+    })
+    POSTMORTEM_LOG.write_text(json.dumps(log, indent=2))
+
+
+def add_lessons_learned(description: str, gap: dict) -> None:
+    """Append a lessons-learned entry to CORE_RULES.md."""
+    rules_path = REPO / "docs" / "CORE_RULES.md"
+    if not rules_path.exists():
+        return
+
+    entry = (
+        f"\n| {time.strftime('%Y-%m-%d')} | {gap.get('gap_type', '?')} | "
+        f"{description[:80]} | Core Rule {gap.get('core_rule', '?')} |"
+    )
+
+    rules = rules_path.read_text()
+    if description[:40] in rules:
+        return  # Already documented
+
+    # Append to lessons table if it exists
+    if "| Date | Gap type |" in rules or "lessons" in rules.lower():
+        rules_path.write_text(rules.rstrip() + "\n" + entry + "\n")
+        ok("Lessons-learned entry added to CORE_RULES.md")
+
+
+def main() -> None:
+    args = sys.argv[1:]
+
+    print(f"\n  {_SEP}")
+    print(f"  {B('Mediastack Postmortem')}  {D(time.strftime('%H:%M  %Y-%m-%d'))}")
+    print(f"  {_SEP}")
+
+    if "--list" in args:
+        sect("Past Postmortems")
+        if POSTMORTEM_LOG.exists():
+            log = json.loads(POSTMORTEM_LOG.read_text())
+            for entry in log.get("entries", [])[-10:]:
+                print(f"  {D(entry['timestamp'][:10])} [{entry.get('gap_type', '?')}] "
+                      f"{entry.get('description', '')[:60]}")
+        else:
+            info("No postmortems logged yet")
+        print()
+        return
+
+    # Get bug description
+    description = ""
+    if "--recent" in args:
+        recent = get_recent_failure()
+        if recent:
+            failures = recent.get("failures", [])
+            description = f"Test failure: {', '.join(failures[:2])}" if failures else "unknown failure"
+        else:
+            info("No recent failures found in data/last_test_run.json")
+            return
+    elif args and not args[0].startswith("--"):
+        description = args[0]
+    else:
+        print("Usage: ms-postmortem 'description of the bug'")
+        print("       ms-postmortem --recent   (analyze most recent test failure)")
+        print("       ms-postmortem --list     (show past postmortems)")
+        print()
+        sys.exit(1)
+
+    apply = "--apply" in args
+
+    sect("1. Diagnosing enforcement gap")
+    gap = diagnose_gap(description)
+    info(f"Gap type: {gap.get('gap_type')} (confidence: {gap.get('confidence')}%)")
+    info(f"Core Rule: {gap.get('core_rule', '?')}")
+    if gap.get("description"):
+        info(f"Pattern: {gap['description']}")
+
+    sect("2. Current enforcement coverage")
+    coverage = check_enforcement_coverage()
+    for check_name, result in coverage.items():
+        if result["passed"]:
+            ok(f"{check_name}: passing")
+        else:
+            fail(f"{check_name}: failing — {result['summary'][:60]}")
+
+    sect("3. Enforcement additions needed")
+    report = generate_enforcement_report(description, gap)
+    for line in report.splitlines()[4:]:  # Skip header we already printed
+        print(f"  {line}")
+
+    if apply:
+        sect("4. Applying enforcement additions")
+        info("Use ms-audit --improve for automated test generation based on this gap")
+        # Run ms-audit --improve with context about the gap
+        context_file = DATA / "postmortem_context.txt"
+        context_file.write_text(report)
+        subprocess.run(
+            ["python3", str(REPO / "ms-audit"), "--improve", "--apply",
+             "--context", str(context_file)],
+            cwd=str(REPO)
+        )
+
+    sect("5. Saving postmortem")
+    save_postmortem(description, gap, report)
+    add_lessons_learned(description, gap)
+    ok(f"Postmortem saved to {POSTMORTEM_LOG}")
+
+    print(f"\n  {_SEP}")
+    print(f"  {G(chr(10003))}  Postmortem complete")
+    print(f"  {D('Next: implement the enforcement additions above, then run ms-enforce')}")
+    print()
+
+
+if __name__ == "__main__":
+    main()

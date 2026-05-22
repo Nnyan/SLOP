@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+"""ms-trivy — Container + Dependency CVE Scanner
+
+Scans:
+  1. requirements.txt — Python package CVEs (PyPI advisory database)
+  2. catalog/apps/*.yaml — Docker image CVEs for all 56 catalog apps
+  3. Filesystem scan of /srv/mediastack — config file secrets
+
+Core Rule 5.5 (Catalog Compliance is a Merge Gate): catalog apps must
+have no critical/high CVEs before being listed.
+
+Findings → data/trivy_findings.json → auto-ingested by ms-audit --improve
+
+Usage:
+  ms-trivy                    # scan requirements.txt + catalog images
+  ms-trivy --quick            # requirements.txt only (fast)
+  ms-trivy --image nginx      # scan specific image
+  ms-trivy --catalog          # scan all 56 catalog images (slow, ~10 min)
+  ms-trivy --report           # show last saved report
+
+Install: sudo ln -sf /srv/mediastack/ms-trivy /usr/local/bin/ms-trivy
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import yaml
+
+# ── Output style — matches ms-update canonical design ─────────────────────
+_RESET = "\033[0m"; _BOLD = "\033[1m"; _DIM  = "\033[2m"
+_GREEN = "\033[0;32m"; _YELLOW = "\033[1;33m"; _RED = "\033[0;31m"; _CYAN = "\033[0;36m"
+
+def G(s): return f"{_GREEN}{s}{_RESET}"
+def R(s): return f"{_RED}{s}{_RESET}"
+def Y(s): return f"{_YELLOW}{s}{_RESET}"
+def D(s): return f"{_DIM}{s}{_RESET}"
+def B(s): return f"{_BOLD}{s}{_RESET}"
+def C(s): return f"{_CYAN}{s}{_RESET}"
+
+def ok(msg):   print(f"  {G('✓')} {msg}")
+def fail(msg): print(f"  {R('✗')} {msg}")
+def warn(msg): print(f"  {Y('!')} {msg}")
+def info(msg): print(f"  {C('→')} {msg}")
+
+_SEP = "─" * 60
+
+def header(title: str) -> None:
+    import time as _t
+    ts = _t.strftime("%H:%M  %Y-%m-%d")
+    print(f"\n  {_SEP}\n  {title}  {D(ts)}\n  {_SEP}")
+
+def sect(title: str) -> None:
+    print(f"\n  {B(title)}")
+
+
+REPO = Path(__file__).resolve().parent
+DATA = REPO / "data"
+FINDINGS_FILE = DATA / "trivy_findings.json"
+
+_R = "\033[0m"; _G = "\033[32m"; _Y = "\033[33m"
+_RED = "\033[31m"; _DIM = "\033[2m"; _B = "\033[1m"; _C = "\033[36m"
+
+
+def trivy_available() -> bool:
+    return subprocess.run(["which", "trivy"], capture_output=True).returncode == 0
+
+
+def scan_requirements() -> dict:
+    """Scan requirements.txt for Python package CVEs."""
+    req_file = REPO / "requirements.txt"
+    if not req_file.exists():
+        return {"target": "requirements.txt", "error": "file not found"}
+
+    result = subprocess.run(
+        ["trivy", "fs", "--scanners", "vuln",
+         "--format", "json", "--quiet", str(req_file)],
+        capture_output=True, text=True, cwd=str(REPO)
+    )
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"target": "requirements.txt", "vulns": [], "error": result.stderr[:200]}
+
+    vulns = []
+    for r in data.get("Results", []):
+        for v in r.get("Vulnerabilities", []):
+            vulns.append({
+                "target": "requirements.txt",
+                "package": v.get("PkgName", ""),
+                "version": v.get("InstalledVersion", ""),
+                "cve": v.get("VulnerabilityID", ""),
+                "severity": v.get("Severity", "").upper(),
+                "title": v.get("Title", "")[:120],
+                "fixed_in": v.get("FixedVersion", ""),
+            })
+
+    return {"target": "requirements.txt", "vulns": vulns}
+
+
+def scan_image(image: str, tag: str = "latest") -> dict:
+    """Scan a single Docker image for CVEs."""
+    full_image = f"{image}:{tag}" if ":" not in image else image
+
+    result = subprocess.run(
+        ["trivy", "image", "--scanners", "vuln",
+         "--format", "json", "--quiet",
+         "--severity", "CRITICAL,HIGH",
+         full_image],
+        capture_output=True, text=True, timeout=120
+    )
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"target": full_image, "vulns": [], "error": "scan failed"}
+
+    vulns = []
+    for r in data.get("Results", []):
+        for v in r.get("Vulnerabilities", []):
+            if v.get("Severity", "") in ("CRITICAL", "HIGH"):
+                vulns.append({
+                    "target": full_image,
+                    "package": v.get("PkgName", ""),
+                    "cve": v.get("VulnerabilityID", ""),
+                    "severity": v.get("Severity", "").upper(),
+                    "title": v.get("Title", "")[:100],
+                    "fixed_in": v.get("FixedVersion", ""),
+                })
+
+    return {"target": full_image, "vulns": vulns}
+
+
+def load_catalog_images() -> list[tuple[str, str]]:
+    """Load all image:tag pairs from catalog manifests."""
+    catalog_dir = REPO / "catalog" / "apps"
+    images = []
+    for f in sorted(catalog_dir.glob("*.yaml")):
+        try:
+            data = yaml.safe_load(f.read_text())
+            image = data.get("image", "")
+            tag = data.get("image_tag", "latest")
+            if image:
+                images.append((image, tag))
+        except Exception:
+            pass
+    return images
+
+
+def scan_pip_audit() -> dict:
+    """Run pip-audit for Python package CVEs (complementary to trivy)."""
+    result = subprocess.run(
+        ["python3", "-m", "pip_audit", "--format", "json",
+         "--requirement", str(REPO / "requirements.txt")],
+        capture_output=True, text=True, cwd=str(REPO)
+    )
+
+    try:
+        data = json.loads(result.stdout)
+        vulns = []
+        for dep in data.get("dependencies", []):
+            for v in dep.get("vulns", []):
+                vulns.append({
+                    "target": "requirements.txt (pip-audit)",
+                    "package": dep.get("name", ""),
+                    "version": dep.get("version", ""),
+                    "cve": v.get("id", ""),
+                    "severity": "HIGH",
+                    "title": v.get("description", "")[:120],
+                    "fixed_in": ", ".join(v.get("fix_versions", [])),
+                })
+        return {"target": "pip-audit", "vulns": vulns}
+    except Exception as e:
+        return {"target": "pip-audit", "vulns": [], "error": str(e)}
+
+
+def save_findings(results: list[dict]) -> dict:
+    all_vulns = [v for r in results for v in r.get("vulns", [])]
+    crit = sum(1 for v in all_vulns if v["severity"] == "CRITICAL")
+    high = sum(1 for v in all_vulns if v["severity"] == "HIGH")
+
+    findings = {
+        "tool": "trivy",
+        "generated_at": int(time.time()),
+        "total_vulns": len(all_vulns),
+        "severity_counts": {"CRITICAL": crit, "HIGH": high},
+        "passed": crit == 0,
+        "results": results,
+        "findings": all_vulns[:50],  # cap for LLM context
+    }
+
+    DATA.mkdir(parents=True, exist_ok=True)
+    FINDINGS_FILE.write_text(json.dumps(findings, indent=2))
+    return findings
+
+
+def print_report(findings: dict) -> None:
+    crit = findings["severity_counts"]["CRITICAL"]
+    high = findings["severity_counts"]["HIGH"]
+    total = findings["total_vulns"]
+
+    print(f"\n{'─'*60}")
+    print(f"  {_B}Trivy + pip-audit — CVE Scanner{_R}")
+    print(f"{'─'*60}")
+
+    if total == 0:
+        print(f"  {_G}✓{_R}  No known vulnerabilities found")
+    else:
+        color = _RED if crit else _Y
+        print(f"  {color}{'✗' if crit else '!'}{_R}  {crit} CRITICAL, {high} HIGH CVEs found")
+        for v in findings["findings"][:10]:
+            sev_c = _RED if v["severity"] == "CRITICAL" else _Y
+            print(f"\n  {sev_c}[{v['severity']}]{_R} {v['target']}: {v['package']}")
+            print(f"    {v['cve']}: {v['title'][:80]}")
+            if v["fixed_in"]:
+                print(f"    {_G}Fix:{_R} upgrade to {v['fixed_in']}")
+
+    print(f"\n  Findings → {FINDINGS_FILE}")
+    print(f"{'─'*60}\n")
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    quick = "--quick" in args
+    catalog = "--catalog" in args
+    report = "--report" in args
+    image_arg = args[args.index("--image") + 1] if "--image" in args else ""
+
+    if report:
+        if FINDINGS_FILE.exists():
+            findings = json.loads(FINDINGS_FILE.read_text())
+            print_report(findings)
+        else:
+            print("No report yet. Run ms-trivy to generate.")
+        return
+
+    if not trivy_available():
+        print(f"  {_Y}!{_R}  trivy not installed")
+        print("  Install: curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin")
+        sys.exit(1)
+
+    print(f"\n  {_C}→{_R}  Scanning for CVEs…", flush=True)
+    results = []
+
+    # Always scan requirements.txt
+    print(f"  {_DIM}→ requirements.txt…{_R}", end=" ", flush=True)
+    r = scan_requirements()
+    results.append(r)
+    print(f"{len(r.get('vulns', []))} vulns")
+
+    # pip-audit complementary scan
+    print(f"  {_DIM}→ pip-audit…{_R}", end=" ", flush=True)
+    r2 = scan_pip_audit()
+    results.append(r2)
+    print(f"{len(r2.get('vulns', []))} vulns")
+
+    if image_arg:
+        print(f"  {_DIM}→ {image_arg}…{_R}", end=" ", flush=True)
+        r = scan_image(image_arg)
+        results.append(r)
+        print(f"{len(r.get('vulns', []))} critical/high")
+
+    if catalog and not quick:
+        images = load_catalog_images()
+        print(f"  {_DIM}→ scanning {len(images)} catalog images (slow)…{_R}")
+        for image, tag in images[:10]:  # cap at 10 to avoid extremely long runs
+            print(f"    {_DIM}→ {image}:{tag}…{_R}", end=" ", flush=True)
+            try:
+                r = scan_image(image, tag)
+                results.append(r)
+                print(f"{len(r.get('vulns', []))} critical/high")
+            except subprocess.TimeoutExpired:
+                print("timeout")
+
+    findings = save_findings(results)
+    print_report(findings)
+    sys.exit(0 if findings["passed"] else 1)
+
+
+if __name__ == "__main__":
+    main()

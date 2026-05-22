@@ -1,0 +1,40 @@
+# Gitleaks — secret detection
+# Core Rule 3.8: secrets in commits caught before push
+# Scans: staged files on commit, full history on demand
+
+title = "Mediastack Gitleaks Config"
+
+[extend]
+useDefault = true  # inherit all default rules (AWS keys, GH tokens, etc.)
+
+[[rules]]
+id = "mediastack-api-key"
+description = "Mediastack/Anthropic API key in source"
+regex = '''ANTHROPIC_API_KEY\s*=\s*["']sk-ant-[a-zA-Z0-9-_]{20,}["']'''
+severity = "CRITICAL"
+
+[[rules]]
+id = "mediastack-groq-key"
+description = "Groq API key"
+regex = '''GROQ_API_KEY\s*=\s*["']gsk_[a-zA-Z0-9]{20,}["']'''
+severity = "HIGH"
+
+[[rules]]
+id = "hardcoded-cf-token"
+description = "Cloudflare API token"
+regex = '''CF_API_TOKEN\s*=\s*["'][a-zA-Z0-9_-]{30,}["']'''
+severity = "CRITICAL"
+
+[allowlist]
+description = "Ignore test fixtures and example values"
+regexes = [
+    "fake_key_for_testing",
+    "test_api_key_placeholder",
+    "your_key_here",
+    "example\\.com",
+]
+paths = [
+    "tests/",
+    "catalog/",
+    "docs/",
+]

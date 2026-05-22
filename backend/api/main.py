@@ -1,0 +1,470 @@
+"""backend/api/main.py
+
+FastAPI application entry point.
+
+All routes are registered here. The app is designed to be run with:
+  uvicorn backend.api.main:app --host 0.0.0.0 --port 8080
+
+On startup it initialises the state database and serves the frontend
+static files from the compiled dist/ directory.
+"""
+from __future__ import annotations
+
+from typing import Any
+from collections.abc import AsyncIterator
+
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from backend.api import catalog as catalog_router
+from backend.api import health as health_router
+from backend.api import settings as settings_router
+from backend.api import registry as registry_router
+from backend.api import routing as routing_router
+from backend.api import storage as storage_router
+from backend.api import models as models_router
+from backend.api import platform as platform_router
+from backend.api import quickstart as quickstart_router
+from backend.api.middleware import (
+    AuditLogMiddleware,
+    CorrelationIdMiddleware,
+    DeprecationHeaderMiddleware,
+)
+from backend.api.rate_limit import limiter
+from backend.core.config import config
+from backend.core.logging import configure_logging, get_logger
+from backend.core.state import init_db
+
+# Step 2.3 — configure structlog before any backend code logs at import time
+# so the first line emitted shares the project schema (timestamp / level /
+# logger / event / correlation_id / subsystem). Honours MEDIASTACK_LOG_LEVEL
+# and MEDIASTACK_LOG_FORMAT env vars; falls back to DEBUG-when-debug / console.
+configure_logging(level="DEBUG" if config.debug else "INFO")
+
+log = get_logger(__name__)
+
+
+
+def _recover_orphaned_installs() -> None:
+    """On startup, mark any in-flight installs that never wrote __done__ as failed.
+
+    If the server died mid-install, operation_steps has rows for that key but
+    no __done__ sentinel. The progress poller would spin forever. Write a failed
+    __done__ so the frontend can show an error instead of a hanging spinner.
+    """
+    try:
+        from backend.core.state import StateDB
+        with StateDB() as db:
+            # Find all keys that have steps but no __done__
+            rows = db._c.execute(
+                """SELECT DISTINCT op_key FROM operation_steps
+                   WHERE op_key NOT IN (
+                       SELECT op_key FROM operation_steps WHERE step_name = '__done__'
+                   )"""
+            ).fetchall()
+            orphaned = [r["op_key"] for r in rows]
+            for key in orphaned:
+                db.write_op_step(
+                    key, "__done__", "error",
+                    "Install did not complete — the server restarted mid-install. "
+                    "Re-install the app to try again.",
+                )
+            if orphaned:
+                log.warning(
+                    "Recovered %d orphaned installs: %s",
+                    len(orphaned), ", ".join(orphaned),
+                )
+    except Exception as e:
+        log.warning("Could not recover orphaned installs: %s", e)
+
+
+async def _reconcile_on_startup() -> None:
+    """Compare running containers against DB and log orphans. Non-blocking."""
+    import asyncio as _asyncio
+
+    await _asyncio.sleep(8)  # let service fully start first
+
+    try:
+        from backend.core.state import StateDB
+        from backend.core.config import config as _cfg
+
+        try:
+            from backend.core import docker_client as _dc
+            containers = _dc.list_containers() if hasattr(_dc, "list_containers") else []
+            running_names = {c.name for c in containers}
+        except Exception:
+            return  # Docker not available
+
+        _INFRA = {"traefik", "cloudflared", "tinyauth", "gluetun", "portainer"}
+
+        with StateDB() as db:
+            db_apps = {a.key: a for a in db.get_all_apps(status="running")}
+
+        for name in running_names - _INFRA:
+            if name not in db_apps:
+                log.warning(
+                    "Ghost container: '%s' is running but not in Mediastack DB. "
+                    "Use Settings → System Health to adopt or remove it.", name
+                )
+
+        for key, app in db_apps.items():
+            cname = getattr(app, "container_name", key)
+            if cname and cname not in running_names:
+                log.warning(
+                    "App '%s' is marked running but container '%s' not found — "
+                    "may have stopped unexpectedly.", key, cname
+                )
+
+        if _cfg.compose_dir.exists():
+            for frag in _cfg.compose_dir.glob("*.yaml"):
+                k = frag.stem
+                if k in _INFRA or k in db_apps:
+                    continue
+                log.warning(
+                    "Ghost compose fragment: '%s.yaml' has no DB entry — "
+                    "run ms-check for details.", k
+                )
+
+    except Exception as e:
+        import logging as _l
+        _l.getLogger(__name__).debug("Startup reconciliation skipped: %s", e)
+
+
+
+def _cleanup_orphaned_records() -> None:
+    """Remove DB records with no compose fragment and stale health data.
+
+    Runs synchronously at startup before the server accepts requests.
+    Safe to re-run — idempotent. Keeps the DB in sync with the filesystem.
+    """
+    try:
+        from backend.core.state import StateDB
+        from backend.core.config import config as _cfg
+        import pathlib as _pl
+
+        compose_dir: _pl.Path = _cfg.compose_dir
+        if not compose_dir.exists():
+            return
+
+        INFRA = {"traefik", "tinyauth", "authelia", "cloudflared", "tailscale",
+                 "headscale", "gluetun", "glance", "homepage", "dockge",
+                 "dockhand", "komodo", "portainer", "portainer_be"}
+
+        with StateDB() as db:
+            # 1. Orphaned app records — DB entry but no compose fragment
+            removed = []
+            for app in db.get_all_apps():
+                if app.key in INFRA:
+                    continue
+                if app.status in ("disabled", "removing"):
+                    continue
+                if not (compose_dir / f"{app.key}.yaml").exists():
+                    db.execute("DELETE FROM apps WHERE key=?", (app.key,))
+                    db.execute("DELETE FROM health_checks WHERE subject_key=?", (app.key,))
+                    db.execute("DELETE FROM health_check_history WHERE subject_key=?", (app.key,))
+                    db.execute("DELETE FROM operations WHERE subject_key=?", (app.key,))
+                    try:
+                        db.execute("DELETE FROM pending_fixes WHERE app_key=?", (app.key,))
+                    except Exception:
+                        pass
+                    removed.append(app.key)
+            if removed:
+                # NOTE: StateDB auto-commits on __exit__ — db._conn.commit() removed (Core Rule 4.4)
+                log.info("Startup cleanup: removed %d orphaned DB records: %s",
+                         len(removed), ", ".join(removed))
+
+            # 2. Stale health records for keys no longer in apps table
+            stale = db.execute(
+                "SELECT DISTINCT subject_key FROM health_checks "
+                "WHERE subject_type='app' AND subject_key NOT IN (SELECT key FROM apps)"
+            ).fetchall()
+            if stale:
+                db.execute(
+                    "DELETE FROM health_checks WHERE subject_type='app' "
+                    "AND subject_key NOT IN (SELECT key FROM apps)"
+                )
+                db.execute(
+                    "DELETE FROM health_check_history WHERE subject_type='app' "
+                    "AND subject_key NOT IN (SELECT key FROM apps)"
+                )
+                # NOTE: StateDB auto-commits on __exit__ — db._conn.commit() removed (Core Rule 4.4)
+                log.info("Startup cleanup: cleared stale health records for: %s",
+                         ", ".join(r[0] for r in stale))
+
+    except Exception as e:
+        log.debug("Startup orphan cleanup skipped: %s", e)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Startup and shutdown logic."""
+    # Ensure data directory and database exist
+    config.data_dir.mkdir(parents=True, exist_ok=True)
+    config.compose_dir.mkdir(parents=True, exist_ok=True)
+    init_db(config.db_path)
+    log.info("Mediastack backend ready — db: %s", config.db_path)
+
+    # Mark any in-flight installs as failed.
+    # If the server restarted mid-install the __done__ sentinel was never written,
+    # leaving the progress poller stuck. Clean those up on startup.
+    _recover_orphaned_installs()
+    # Clean up orphaned DB records and stale health data
+    _cleanup_orphaned_records()
+    # Ghost resource detection (runs in background, non-blocking)
+    import asyncio as _asyncio
+    _asyncio.create_task(_reconcile_on_startup())
+
+    # Start background health check scheduler.
+    # It waits internally for the platform to be ready before running checks.
+    from backend.health.scheduler import start_scheduler, stop_scheduler
+    start_scheduler()
+
+    yield
+
+    # Graceful shutdown — cancel the scheduler task
+    stop_scheduler()
+    log.info("Mediastack backend stopping")
+
+
+app = FastAPI(
+    title="Mediastack",
+    description="Self-hosted media stack manager",
+    version="4.0.0",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    redoc_url=None,
+)
+
+# CORS: allow all origins in debug mode; in production restrict to configured origins.
+# The SPA on the same origin doesn't need CORS, but the CLI and external tools do.
+# Set MS_CORS_ORIGINS="https://myapp.com,http://localhost:3000" in .env to restrict.
+import os as _os
+_cors_origins_env = _os.environ.get("MS_CORS_ORIGINS", "")
+_cors_origins = (
+    ["*"] if config.debug
+    else [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+    or ["*"]   # homelab default: allow all — restrict with MS_CORS_ORIGINS
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Step 2.3.d — correlation-ID middleware. Sets a contextvar at request
+# entry that every nested log line inherits, including async tasks.
+# Echoes the ID back as `X-Request-ID` so callers can correlate logs.
+app.add_middleware(CorrelationIdMiddleware)
+# Step 3.2.d — deprecation-header middleware. Adds `Deprecation: true`
+# + `Link: <successor>; rel=successor-version` + `Sunset: ...` to
+# unversioned /api/<area>/... responses (ADR 0005).
+app.add_middleware(DeprecationHeaderMiddleware)
+# Step 4.3.c — audit log middleware. Records every POST/PUT/DELETE/
+# PATCH request in audit_log table after the handler returns.
+# See migrations/004_audit_log.sql for the schema rationale.
+app.add_middleware(AuditLogMiddleware)
+
+# Step 4.1 — Prometheus instrumentation. Auto-instruments every
+# FastAPI route with request count + duration histograms; exposes
+# /metrics in the default Prometheus exposition format. Custom
+# Mediastack-specific metrics (install duration, health-check
+# duration, DB query time, error counters) live in
+# backend/core/metrics.py and join the same registry.
+from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
+import backend.core.metrics  # noqa: F401, E402  — register custom metrics
+
+_metrics_instrumentator = Instrumentator(
+    should_group_status_codes=False,  # 200/201/204 stay distinct
+    should_ignore_untemplated=True,   # skip /docs etc. for cardinality control
+    excluded_handlers=["/metrics", "/openapi.json"],
+)
+_metrics_instrumentator.instrument(app).expose(
+    app, endpoint="/metrics", include_in_schema=False, tags=["System"],
+)
+
+# Step 4.2 — Kubernetes-style health probes. /healthz /readyz
+# /startupz sit OUTSIDE the /api/v1/ versioning umbrella (they're
+# operational infrastructure, not the application API).
+from backend.api import probes as probes_router  # noqa: E402
+
+app.include_router(probes_router.router)
+
+# Step 2.4 — rate limiter. Per-endpoint @limiter.limit(...) decorators
+# tier the limits (heavy mutation: 5/min, heavy read: 10/min, light
+# mutation: 30/min, default: 60/min). Localhost is bypassed.
+from slowapi import _rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]  # slowapi handler signature is narrower than Starlette's
+
+
+# Step 4.1 wire-up: increment `mediastack_errors_total` on every
+# unhandled exception that bubbles up to FastAPI. The handler then
+# re-raises so Starlette's default 500 response logic still runs —
+# this is metrics-only, not error-suppression.
+@app.exception_handler(Exception)
+async def _record_unhandled_error(
+    request: Request, exc: Exception,
+) -> Any:
+    from backend.core.metrics import errors_total
+    # Resolve route template (bounded cardinality) instead of the
+    # literal URL — same discipline as audit middleware.
+    template = request.url.path
+    try:
+        from starlette.routing import Match
+        for route in request.app.router.routes:
+            match, _scope = route.matches(request.scope)
+            if match == Match.FULL:
+                template = getattr(route, "path", template)
+                break
+    except Exception:
+        pass
+    try:
+        errors_total.labels(
+            endpoint=template,
+            error_class=type(exc).__name__,
+        ).inc()
+    except Exception:
+        pass  # metrics never break error handling
+    # Re-raise so Starlette's default 500 handler renders the response.
+    raise exc
+
+# ── API routes (ALL must be registered BEFORE the SPA catch-all) ─────────
+
+# Step 3.2: dual-mount every router at both `/api/v1/<area>` (the new
+# canonical form) and `/api/<area>` (the legacy alias, deprecated as
+# of 3.2). See `docs/adr/0005-api-versioning.md` for the policy.
+def _mount(router_module: Any, name: str, tag: str) -> None:
+    """Register `router_module.router` at both /api/v1/<name> and /api/<name>.
+    The legacy /api/<name> mount carries a `deprecated` tag so Swagger
+    UI groups it separately; the deprecation middleware below adds the
+    `Deprecation: true` response header to unversioned requests."""
+    app.include_router(router_module.router, prefix=f"/api/v1/{name}", tags=[tag])
+    app.include_router(router_module.router, prefix=f"/api/{name}", tags=[tag, "deprecated"])
+
+
+_mount(platform_router, "platform", "Platform")
+_mount(registry_router, "registry", "Registry")
+_mount(catalog_router, "catalog", "Catalog")
+_mount(models_router, "models", "Models")
+_mount(health_router, "health", "Health")
+_mount(settings_router, "settings", "Settings")
+_mount(routing_router, "routing", "Routing")
+_mount(storage_router, "storage/sources", "Storage")
+
+# Step 4 followup: quickstart.py's APIRouter carries its own
+# `prefix="/quickstart"`, so the parent prefix is just `/api/v1` (or
+# `/api`) without a name component. _mount can't express empty
+# names (FastAPI rejects trailing-slash prefixes), so we handle the
+# dual-mount directly here.
+app.include_router(
+    quickstart_router.router, prefix="/api/v1", tags=["QuickStart"],
+)
+app.include_router(
+    quickstart_router.router, prefix="/api", tags=["QuickStart", "deprecated"],
+)
+
+# Late imports — these modules import the executor which in turn imports docker,
+# so they are deferred to avoid import errors when docker is not installed.
+from backend.api import apps as apps_router  # noqa: E402
+from backend.api import infra as infra_router  # noqa: E402
+
+_mount(apps_router, "apps", "Apps")
+_mount(infra_router, "infra", "Infrastructure")
+
+# Step 4.3.e — audit-log query endpoint. Read-only; the writing
+# surface lives in AuditLogMiddleware above.
+from backend.api import audit as audit_router  # noqa: E402
+
+_mount(audit_router, "audit", "Audit")
+
+
+# ── System health endpoint ────────────────────────────────────────────────
+
+@app.get("/api/ping", tags=["System"])
+@app.get("/api/health", tags=["System"])  # backward-compat alias
+def ping() -> dict[str, Any]:
+    return {"status": "ok", "version": "3.0.0"}
+
+
+@app.get("/api/coverage")
+def get_coverage_map() -> dict[str, Any]:
+    """Return the latest coverage map generated by ms-coverage.
+
+    Used by the topology dashboard to show live coverage state.
+    Regenerates the map on each call if data is stale (>1 hour).
+
+    Defined here (above the SPA catch-all) — was previously below
+    `/{full_path:path}` and silently shadowed for GET requests.
+    """
+    import json as _j, time as _t, subprocess as _sp
+    from backend.core.config import config as _cfg
+    out = (_cfg.repo_root if hasattr(_cfg, "repo_root") else _cfg.data_dir.parent) / "data" / "coverage_map.json"
+    try:
+        # Regenerate if stale or missing
+        if not out.exists() or (_t.time() - out.stat().st_mtime > 3600):
+            _sp.run(
+                ["python3", str((_cfg.repo_root if hasattr(_cfg, "repo_root") else _cfg.data_dir.parent) / "ms-coverage"), "--json"],
+                capture_output=True, timeout=30,
+                cwd=str(_cfg.repo_root if hasattr(_cfg, "repo_root") else _cfg.data_dir.parent),
+            )
+        if out.exists():
+            data: dict[str, Any] = _j.loads(out.read_text())
+            return data
+    except Exception as _e:
+        pass
+    return {"error": "Coverage map not available. Run ms-coverage to generate."}
+
+
+# ── Serve Vue frontend (MUST be last — catch-all shadows earlier routes) ──
+# CRITICAL: Any include_router() call after this point will be unreachable
+# for GET requests because /{full_path:path} matches everything.
+
+_static = config.static_dir
+if _static.exists():
+    _assets = _static / "assets"
+    if _assets.exists():
+        app.mount("/assets", StaticFiles(directory=_assets), name="assets")
+
+    # Serve root-level static files (favicon, icons) explicitly
+    # — must come before the SPA fallback or they'd get index.html
+    _root_files = {
+        "favicon.svg": "image/svg+xml",
+        "favicon.ico": "image/x-icon",
+        "apple-touch-icon.png": "image/png",
+        "icon-192.png": "image/png",
+        "icon-512.png": "image/png",
+    }
+    for _fname, _mime in _root_files.items():
+        _fpath = _static / _fname
+        if _fpath.exists():
+            def _make_route(path: Path = _fpath, mime: str = _mime) -> Any:
+                @app.get(f"/{path.name}", include_in_schema=False)
+                def _static_file() -> FileResponse:
+                    return FileResponse(path, media_type=mime)
+            _make_route()
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str) -> FileResponse:
+        """Return index.html for all non-API GET requests (Vue Router client-side routing)."""
+        index = _static / "index.html"
+        if not index.exists():
+            from fastapi import HTTPException
+            raise HTTPException(status_code=503, detail="Frontend not built. Run: cd frontend && npm run build")
+        return FileResponse(index)
+else:
+    log.warning(
+        "Frontend static dir not found: %s — UI will not be available. "
+        "Build with: cd frontend && npm run build",
+        _static,
+    )
+
+
+# (`get_coverage_map` was defined above — moved before the SPA catch-all
+#  since `/{full_path:path}` shadowed it for GET requests.)
+

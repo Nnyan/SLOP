@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+# ms-setup-tools — Install all Mediastack testing tools
+#
+# Installs every tool in the testing stack that isn't a Python package.
+# Run once after first clone, or after adding new tools.
+# Idempotent — safe to re-run.
+#
+# Tools installed:
+#   Binary:  gitleaks, trivy
+#   npm:     eslint, eslint-plugin-vue
+#   pip:     ruff, bandit, pip-audit, hypothesis, semgrep
+#   System:  playwright chromium
+#
+# Usage:
+#   sudo ms-setup-tools              # install everything
+#   sudo ms-setup-tools --check      # show what's installed/missing
+#   sudo ms-setup-tools --pip-only   # pip packages only (no sudo needed)
+#
+# Install: sudo ln -sf /srv/mediastack/ms-setup-tools /usr/local/bin/ms-setup-tools
+set -euo pipefail
+
+REPO="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+
+RED='\033[31m'; GREEN='\033[32m'; YELLOW='\033[33m'; CYAN='\033[36m'
+DIM='\033[2m'; BOLD='\033[1m'; RESET='\033[0m'
+ok()   { echo -e "  ${GREEN}✓${RESET} $*"; }
+fail() { echo -e "  ${RED}✗${RESET} $*"; }
+warn() { echo -e "  ${YELLOW}!${RESET} $*"; }
+info() { echo -e "  ${CYAN}→${RESET} $*"; }
+sect() { echo ""; printf "  ${BOLD}%s${RESET}\n" "$*"; }
+
+CHECK_ONLY=0; PIP_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --check)    CHECK_ONLY=1 ;;
+    --pip-only) PIP_ONLY=1 ;;
+  esac
+done
+
+_SEP="────────────────────────────────────────────────────────────"
+_TS=$(date '+%H:%M  %Y-%m-%d')
+echo ""
+printf "  %s\n" "$_SEP"
+printf "  Mediastack Tool Setup  %s\n" "$_TS"
+printf "  %s\n" "$_SEP"
+
+# ── Python packages (pip) ─────────────────────────────────────────────────────
+sect "Python packages"
+
+# Package name → module name mapping (for packages where they differ)
+declare -A PIP_MODULE_MAP
+PIP_MODULE_MAP["pip-audit"]="pip_audit"
+PIP_MODULE_MAP["ruff"]="ruff"
+PIP_MODULE_MAP["bandit"]="bandit"
+PIP_MODULE_MAP["hypothesis"]="hypothesis"
+PIP_MODULE_MAP["semgrep"]="semgrep"
+
+PIP_TOOLS="ruff bandit pip-audit hypothesis semgrep"
+for tool in $PIP_TOOLS; do
+  module="${PIP_MODULE_MAP[$tool]:-$tool}"
+  if python3 -c "import $module" 2>/dev/null || python3 -m "$module" --version &>/dev/null 2>&1; then
+    VER=$(python3 -m "$module" --version 2>/dev/null | head -1 || echo "installed")
+    ok "$tool: $VER"
+  else
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      fail "$tool: NOT INSTALLED — run: pip install $tool --break-system-packages --root-user-action=ignore"
+    else
+      info "Installing $tool…"
+      python3 -m pip install "$tool" --break-system-packages -q --root-user-action=ignore
+      ok "$tool: installed"
+    fi
+  fi
+done
+
+[[ "$PIP_ONLY" -eq 1 ]] && { echo; exit 0; }
+
+# ── Gitleaks ──────────────────────────────────────────────────────────────────
+sect "Gitleaks (secret detection)"
+
+GITLEAKS_VER="8.18.4"
+if command -v gitleaks &>/dev/null; then
+  ok "gitleaks: $(gitleaks version 2>/dev/null)"
+elif [[ "$CHECK_ONLY" -eq 1 ]]; then
+  fail "gitleaks: NOT INSTALLED"
+else
+  info "Installing gitleaks v${GITLEAKS_VER}…"
+  ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
+  URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/gitleaks_${GITLEAKS_VER}_linux_${ARCH}.tar.gz"
+  curl -sSfL "$URL" | tar xz -C /tmp gitleaks
+  mv /tmp/gitleaks /usr/local/bin/gitleaks
+  chmod +x /usr/local/bin/gitleaks
+  ok "gitleaks: $(gitleaks version)"
+fi
+
+# ── Trivy ─────────────────────────────────────────────────────────────────────
+sect "Trivy (CVE scanner)"
+
+if command -v trivy &>/dev/null; then
+  ok "trivy: $(trivy --version 2>/dev/null | head -1)"
+elif [[ "$CHECK_ONLY" -eq 1 ]]; then
+  fail "trivy: NOT INSTALLED"
+else
+  info "Installing trivy…"
+  curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+    | sh -s -- -b /usr/local/bin 2>&1 | tail -1
+  ok "trivy: $(trivy --version 2>/dev/null | head -1)"
+fi
+
+# ── ESLint ────────────────────────────────────────────────────────────────────
+sect "ESLint (Vue 3 frontend linting)"
+
+if command -v eslint &>/dev/null; then
+  ok "eslint: $(eslint --version)"
+elif [[ "$CHECK_ONLY" -eq 1 ]]; then
+  fail "eslint: NOT INSTALLED — run: npm install -g eslint @eslint/js eslint-plugin-vue"
+else
+  info "Installing eslint + vue plugin…"
+  npm install -g eslint @eslint/js eslint-plugin-vue --silent 2>/dev/null
+  ok "eslint: $(eslint --version)"
+fi
+
+# ── Playwright ────────────────────────────────────────────────────────────────
+sect "Playwright (browser E2E)"
+
+if python3 -c "from playwright.sync_api import sync_playwright" 2>/dev/null; then
+  if python3 -m playwright install --dry-run 2>/dev/null | grep -q "chromium"; then
+    ok "playwright: installed, chromium available"
+  else
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      warn "playwright: installed but chromium not installed — run: python3 -m playwright install chromium"
+    else
+      info "Installing Playwright chromium browser…"
+      python3 -m playwright install chromium 2>&1 | tail -2
+      ok "playwright: chromium installed"
+    fi
+  fi
+elif [[ "$CHECK_ONLY" -eq 1 ]]; then
+  fail "playwright: NOT INSTALLED — run: pip install playwright --break-system-packages"
+else
+  info "Installing playwright…"
+  python3 -m pip install playwright pytest-playwright --break-system-packages -q --root-user-action=ignore
+  python3 -m playwright install chromium 2>&1 | tail -2
+  ok "playwright: installed + chromium ready"
+fi
+
+# ── Semgrep ───────────────────────────────────────────────────────────────────
+sect "Semgrep (architectural rule enforcement)"
+
+if command -v semgrep &>/dev/null; then
+  ok "semgrep: $(semgrep --version 2>/dev/null)"
+elif [[ "$CHECK_ONLY" -eq 1 ]]; then
+  fail "semgrep: NOT INSTALLED — run: pip install semgrep --break-system-packages"
+else
+  info "Installing semgrep…"
+  python3 -m pip install semgrep --break-system-packages -q --root-user-action=ignore 2>/dev/null || \
+    warn "semgrep: install failed — install manually: pip install semgrep"
+  command -v semgrep &>/dev/null && ok "semgrep: $(semgrep --version)" || warn "semgrep: not available"
+fi
+
+# ── ms-*** symlinks ───────────────────────────────────────────────────────────
+sect "ms-*** tool symlinks"
+
+MS_TOOLS="ms-coverage ms-testgen ms-audit ms-check ms-update ms-test-all \
+          ms-mutmut ms-schemathesis ms-keploy ms-semgrep ms-trivy ms-enforce ms-setup-tools"
+
+for tool in $MS_TOOLS; do
+  src="$REPO/$tool"
+  dst="/usr/local/bin/$tool"
+  if [[ ! -f "$src" ]]; then
+    warn "$tool: not in repo — skip"
+    continue
+  fi
+  chmod +x "$src"
+  if [[ -L "$dst" ]] && [[ "$(readlink -f "$dst")" == "$(readlink -f "$src")" ]]; then
+    ok "$tool: symlink OK"
+  else
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      warn "$tool: symlink missing — run: sudo ln -sf $src $dst"
+    else
+      ln -sf "$src" "$dst"
+      ok "$tool: symlinked → $dst"
+    fi
+  fi
+done
+
+# ── Git commit-msg hook (Conventional Commits 1.0, Core Rule 7.1) ────────────
+sect "Git commit-msg hook"
+
+HOOK_SRC="$REPO/tools/commit_msg_hook.py"
+HOOK_DST="$REPO/.git/hooks/commit-msg"
+
+if [[ ! -f "$HOOK_SRC" ]]; then
+  warn "tools/commit_msg_hook.py: not in repo — skip"
+elif [[ ! -d "$REPO/.git" ]]; then
+  warn ".git/ not found — skip (worktree?)"
+else
+  chmod +x "$HOOK_SRC"
+  if [[ -L "$HOOK_DST" ]] && [[ "$(readlink -f "$HOOK_DST")" == "$(readlink -f "$HOOK_SRC")" ]]; then
+    ok "commit-msg: symlink OK"
+  else
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      warn "commit-msg: symlink missing — run: ln -sf $HOOK_SRC $HOOK_DST"
+    else
+      ln -sf "$HOOK_SRC" "$HOOK_DST"
+      ok "commit-msg: symlinked → $HOOK_DST"
+    fi
+  fi
+fi
+
+
+# ── Git pre-commit hook (structural anti-pattern block, Core Rule 5.24) ────────
+sect "Git pre-commit hook"
+
+PRE_COMMIT_SRC="$REPO/tools/check_structural_antipatterns.py"
+PRE_COMMIT_DST="$REPO/.git/hooks/pre-commit"
+
+if [[ ! -f "$PRE_COMMIT_SRC" ]]; then
+  warn "tools/check_structural_antipatterns.py: not in repo — skip"
+elif [[ ! -d "$REPO/.git" ]]; then
+  warn ".git/ not found — skip (worktree?)"
+else
+  if [[ -f "$PRE_COMMIT_DST" ]] && grep -q "check_cleanup_ledger" "$PRE_COMMIT_DST" 2>/dev/null; then
+    ok "pre-commit: hook installed"
+  else
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      warn "pre-commit: hook missing — run: ms-setup-tools"
+    else
+      cat > "$PRE_COMMIT_DST" << 'HOOKEOF'
+#!/usr/bin/env bash
+# pre-commit hook — structural anti-pattern hard-block, rule-addition contract,
+# and cleanup ledger advisory
+set -euo pipefail
+REPO="$(git rev-parse --show-toplevel)"
+if [[ -f "$REPO/ms-rule-contract" ]]; then
+    python3 "$REPO/ms-rule-contract" --check
+fi
+if [[ -f "$REPO/tools/check_structural_antipatterns.py" ]]; then
+    python3 "$REPO/tools/check_structural_antipatterns.py" --staged
+fi
+if [[ -f "$REPO/tools/check_cleanup_ledger.py" ]]; then
+    python3 "$REPO/tools/check_cleanup_ledger.py" --check
+fi
+HOOKEOF
+      chmod +x "$PRE_COMMIT_DST"
+      ok "pre-commit: hook installed"
+    fi
+  fi
+fi
+
+# ── Hypothesis database ────────────────────────────────────────────────────────
+sect "Hypothesis configuration"
+
+HYPO_DB="$REPO/hypothesis_db"
+HYPO_TOML="$REPO/hypothesis.toml"
+
+if [[ -f "$HYPO_TOML" ]]; then
+  ok "hypothesis.toml: exists"
+else
+  if [[ "$CHECK_ONLY" -eq 1 ]]; then
+    warn "hypothesis.toml: missing"
+  else
+    cat > "$HYPO_TOML" << 'TOML'
+[hypothesis]
+database = "hypothesis_db"
+max_examples = 100
+suppress_health_check = ["too_slow"]
+TOML
+    mkdir -p "$HYPO_DB"
+    ok "hypothesis.toml: created"
+  fi
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+echo ""
+echo ""
+printf "  %s\n" "$_SEP"
+if [[ "$CHECK_ONLY" -eq 1 ]]; then
+  printf "  ${CYAN}→${RESET} Check complete. Run: sudo ms-setup-tools to install missing tools.\n"
+else
+  printf "  ${GREEN}✓${RESET} Setup complete. Run: sudo ms-check to verify.\n"
+  printf "  ${DIM}  Tip: sudo ms-mutmut --schedule 'Sun 02:00'  (weekly mutation testing)${RESET}\n"
+fi
+echo ""

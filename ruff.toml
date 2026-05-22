@@ -1,0 +1,53 @@
+# Ruff — Python linter and formatter
+# Replaces: flake8, pylint (style), isort
+# Catches real bugs: undefined names, mutable defaults, unreachable code
+# Core Rules: 3.1 (semantic checks), 3.5 (behavioral companion to static)
+
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes — undefined names, unused imports (real bugs)
+    "W",    # pycodestyle warnings
+    "B",    # flake8-bugbear — common bugs
+    "C4",   # flake8-comprehensions
+    "C901", # mccabe complexity (Core Rule 5.22 / 8.1, step 1.4.c)
+    "UP",   # pyupgrade
+    "S",    # bandit security rules (subset)
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "E501",   # line length handled separately
+    "S101",   # assert usage — we use assert in tests intentionally
+    "S603",   # subprocess — we call Docker, intentional
+    "S607",   # partial path — ms-*** scripts use short commands
+    "B008",   # function call in default arg — FastAPI depends on this
+]
+
+[lint.mccabe]
+# Threshold dropped 15→12 in step 2.7.j (2026-05-08) after the 1.4
+# complexity backlog phase 2 cleared. New additions over 12 are
+# blocked; the four pre-existing offenders above the threshold are
+# grandfathered into the per-file ignore list below.
+max-complexity = 12
+
+[lint.per-file-ignores]
+"tests/*" = ["S", "B"]    # tests: allow assert, subprocess patterns
+"ms-*" = ["S603", "S607"] # operational scripts: subprocess is intentional
+
+# ── C901 per-file ignores (step 1.4.c) ───────────────────────────────────────
+# Two categories per strategy §2.2:
+#
+# INTRINSIC (permanently ignored — complexity is surface-area):
+"backend/api/platform.py"           = ["C901"]  # FastAPI routes + wizard surface
+"backend/api/health.py"             = ["C901"]  # FastAPI route handlers
+"backend/api/apps.py"               = ["C901"]  # FastAPI route handlers
+"backend/api/models.py"             = ["C901"]  # FastAPI route handler (evaluate_hardware_for_model)
+"backend/api/settings.py"           = ["C901"]  # FastAPI route handler (update_settings — surface-area)
+"backend/scripts/update_recommendations.py" = ["C901"]  # one-shot CLI
+#
+# TRANSITIONAL — fully cleared (phase 2: step 2.7.a–i, 2026-05-08;
+# phase 3: step 2.7 follow-up, 2026-05-08). All complexity offenders
+# refactored into per-phase helpers; only INTRINSIC ignores remain.

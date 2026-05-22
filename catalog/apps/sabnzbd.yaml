@@ -1,0 +1,46 @@
+key: sabnzbd
+display_name: SABnzbd
+description: Usenet binary newsreader and download manager
+category: downloader
+tier: 2
+icon: 📥
+version: "1.0"
+
+image: lscr.io/linuxserver/sabnzbd
+image_tag: latest
+linuxserver: true
+start_grace_s: 60
+
+ports:
+  web: 8086
+
+volumes:
+  config: /config
+  media: /downloads
+
+traefik:
+  enabled: true
+  subdomain: sabnzbd
+  auth: true
+
+health:
+  checks:
+    - name: api_reachable
+      type: http
+      path: /api?mode=version&output=json
+      expect_status: 200
+      interval: 30
+  self_heal:
+    - condition: api_reachable
+      action: restart
+      max_attempts: 3
+      cooldown: 60
+
+tags:
+  - usenet
+  - downloader
+  - download
+
+links:
+  docs: https://sabnzbd.org/wiki
+  github: https://github.com/sabnzbd/sabnzbd

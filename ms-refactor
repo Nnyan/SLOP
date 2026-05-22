@@ -1,0 +1,449 @@
+#!/usr/bin/env python3
+"""ms-refactor — Refactoring Contract Verifier
+
+When code is moved, extracted, or reorganized, this tool:
+  1. Maps every behavior of the original element (data flows, I/O, side effects)
+  2. Verifies each behavior exists in the destination(s)
+  3. Reports anything that was dropped — blocking the commit if so
+
+The ms-update heredoc extraction dropped 8 SQL DELETE operations, 4 print
+outputs, and all DB commits because we only verified "what was added" not
+"what was removed." This tool prevents that class of error.
+
+BEHAVIOR INVENTORY covers:
+  SQL writes    — DELETE/INSERT/UPDATE table names
+  SQL reads     — SELECT FROM table names
+  File writes   — .write_text(), open(..., 'w'), pathlib writes
+  File deletes  — .unlink(), os.remove(), shutil.rmtree()
+  Subprocess    — subprocess.run(), os.system() calls
+  DB commits    — .commit() calls (atomicity)
+  Print/output  — user-visible messages (contract with human readers)
+  Func defs     — capabilities exposed by the element
+
+Usage:
+  ms-refactor analyze PATH          # show behavior inventory
+  ms-refactor compare OLD NEW...    # verify OLD behaviors all exist in NEW files
+  ms-refactor check                 # auto-detect refactors from git staging area
+  ms-refactor verify-heredocs       # verify all Python heredocs have been extracted
+
+Install: sudo ln -sf /srv/mediastack/ms-refactor /usr/local/bin/ms-refactor
+"""
+from __future__ import annotations
+
+import ast
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent
+
+_RESET = "\033[0m"; _BOLD = "\033[1m"; _DIM = "\033[2m"
+_GREEN = "\033[0;32m"; _YELLOW = "\033[1;33m"; _RED = "\033[0;31m"; _CYAN = "\033[0;36m"
+
+
+def G(s: str) -> str: return f"{_GREEN}{s}{_RESET}"
+def R(s: str) -> str: return f"{_RED}{s}{_RESET}"
+def Y(s: str) -> str: return f"{_YELLOW}{s}{_RESET}"
+def D(s: str) -> str: return f"{_DIM}{s}{_RESET}"
+def B(s: str) -> str: return f"{_BOLD}{s}{_RESET}"
+def C(s: str) -> str: return f"{_CYAN}{s}{_RESET}"
+
+
+def ok(msg: str)   -> None: print(f"  {G(chr(10003))} {msg}")
+def fail(msg: str) -> None: print(f"  {R(chr(10007))} {msg}")
+def warn(msg: str) -> None: print(f"  {Y('!')} {msg}")
+def info(msg: str) -> None: print(f"  {C(chr(8594))} {msg}")
+
+_SEP = chr(9472) * 60
+
+
+# ── Behavior extraction ────────────────────────────────────────────────────
+
+def extract_behaviors(code: str, source_label: str = "") -> dict:
+    """Extract all significant behaviors from a code block.
+
+    Returns a dict mapping behavior category to list of specific instances.
+    Each instance is a string identifying the behavior precisely enough
+    to verify it exists in destination code.
+    """
+    behaviors: dict[str, list[str]] = {
+        "sql_writes":    [],
+        "sql_reads":     [],
+        "file_writes":   [],
+        "file_deletes":  [],
+        "subprocess":    [],
+        "db_commits":    [],
+        "print_outputs": [],
+        "func_defs":     [],
+        "table_names":   [],
+    }
+
+    # SQL operations — most critical for data integrity
+    for match in re.finditer(
+        r'(DELETE\s+FROM|INSERT\s+INTO|UPDATE)\s+(\w+)', code, re.I
+    ):
+        op, table = match.group(1).strip().upper(), match.group(2)
+        behaviors["sql_writes"].append(f"{op} {table}")
+        behaviors["table_names"].append(table)
+
+    for match in re.finditer(r'SELECT\s+.{0,50}\s+FROM\s+(\w+)', code, re.I):
+        behaviors["sql_reads"].append(f"SELECT FROM {match.group(1)}")
+        behaviors["table_names"].append(match.group(1))
+
+    # DB commits — atomicity markers
+    behaviors["db_commits"] = re.findall(r'\.commit\(\)', code)
+
+    # File operations
+    for pat in [r'\.write_text\(', r'open\(.+["\']w', r'\.write\(']:
+        if re.search(pat, code):
+            behaviors["file_writes"].append(pat.replace(r'\.', '.').rstrip('('))
+
+    behaviors["file_deletes"] = [
+        m.group() for m in re.finditer(r'\.unlink\(\)|os\.remove\(|shutil\.rmtree\(', code)
+    ]
+
+    # Subprocess calls
+    for m in re.finditer(r'subprocess\.run\(|subprocess\.call\(|os\.system\(', code):
+        behaviors["subprocess"].append(m.group())
+
+    # Print outputs — user-visible contract
+    for m in re.finditer(r'print\(f?["\']([^"\']{5,60})', code):
+        behaviors["print_outputs"].append(m.group(1)[:50])
+
+    # Function definitions
+    for m in re.finditer(r'def (\w+)\(', code):
+        if not m.group(1).startswith('_'):
+            behaviors["func_defs"].append(m.group(1))
+
+    # Remove empty categories
+    return {k: v for k, v in behaviors.items() if v}
+
+
+def compare_behaviors(original: dict, destinations: list[tuple[str, dict]]) -> list[str]:
+    """Find behaviors in original that are not covered by any destination.
+
+    Returns list of gap descriptions. Empty list = complete coverage.
+    """
+    # Merge all destination behaviors
+    covered: dict[str, set] = {}
+    for _label, dest_behaviors in destinations:
+        for category, items in dest_behaviors.items():
+            covered.setdefault(category, set()).update(items)
+
+    gaps = []
+    for category, orig_items in original.items():
+        if category in ("table_names",):  # derived, not directly checked
+            continue
+        dest_items = covered.get(category, set())
+        for item in orig_items:
+            # Fuzzy match: table name in any destination sql operation
+            if category in ("sql_writes", "sql_reads"):
+                table = item.split()[-1]
+                all_dest_tables = covered.get("table_names", set())
+                if table not in all_dest_tables:
+                    gaps.append(f"[{category}] '{item}' — table '{table}' not written/read anywhere in destinations")
+            else:
+                # Check if the key term appears in any destination
+                key_term = item[:30].strip()
+                all_dest_text = " ".join(str(v) for vals in covered.values() for v in vals)
+                if not any(kw in all_dest_text for kw in key_term.split()[:3]):
+                    gaps.append(f"[{category}] '{key_term}' not found in any destination")
+
+    return gaps
+
+
+def analyze_file(path: Path) -> dict:
+    """Extract behaviors from a file, including Python embedded in shell heredocs."""
+    if not path.exists():
+        return {}
+
+    content = path.read_text(errors="replace")
+    behaviors = extract_behaviors(content, str(path))
+
+    # Extract Python from shell heredocs (the exact class of bug we're preventing)
+    heredoc_py = re.findall(
+        r"python3[^\n]*<<\s*'[A-Z_]+'\n(.*?)\n[A-Z_]+",
+        content, re.DOTALL
+    )
+    for py_block in heredoc_py:
+        py_behaviors = extract_behaviors(py_block, f"{path} (heredoc)")
+        for k, v in py_behaviors.items():
+            behaviors.setdefault(k, []).extend(v)
+
+    return behaviors
+
+
+def check_git_staged_refactors() -> list[str]:
+    """Detect refactors in the git staging area and verify behavior coverage.
+
+    Looks for: deleted files, renamed files, heredocs that were removed.
+    For each, verifies the behaviors exist in replacement files.
+    """
+    gaps = []
+
+    # Get staged changes
+    r = subprocess.run(
+        ["git", "diff", "--cached", "--name-status"],
+        capture_output=True, text=True, cwd=str(REPO)
+    )
+    if r.returncode != 0:
+        return []
+
+    deleted = []
+    modified = []
+    for line in r.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        status, path = parts[0], parts[-1]
+        if status == "D":
+            deleted.append(Path(path))
+        elif status in ("M", "A"):
+            modified.append(Path(path))
+
+    # For deleted files: check if behaviors appear in modified files
+    for deleted_path in deleted:
+        if not deleted_path.suffix == ".py" and ".py" not in deleted_path.name:
+            continue
+
+        # Get original content from git
+        r2 = subprocess.run(
+            ["git", "show", f"HEAD:{deleted_path}"],
+            capture_output=True, text=True, cwd=str(REPO)
+        )
+        if r2.returncode != 0:
+            continue
+
+        orig_behaviors = extract_behaviors(r2.stdout, str(deleted_path))
+        if not any(orig_behaviors.values()):
+            continue
+
+        # Check if behaviors appear in any modified/new file
+        dest_behaviors = []
+        for mod_path in modified:
+            p = REPO / mod_path
+            if p.exists():
+                dest_behaviors.append((str(mod_path), analyze_file(p)))
+
+        file_gaps = compare_behaviors(orig_behaviors, dest_behaviors)
+        for gap in file_gaps:
+            gaps.append(f"{deleted_path}: {gap}")
+
+    # Also check for heredocs that were removed in modified shell scripts
+    for mod_path in modified:
+        if not str(mod_path).endswith((".sh", "ms-update", "ms-check", "ms-test-all")):
+            continue
+        p = REPO / mod_path
+        if not p.exists():
+            continue
+
+        r3 = subprocess.run(
+            ["git", "show", f"HEAD:{mod_path}"],
+            capture_output=True, text=True, cwd=str(REPO)
+        )
+        if r3.returncode != 0:
+            continue
+
+        old_content = r3.stdout
+        new_content = p.read_text(errors="replace")
+
+        # Find heredocs in old that are gone in new
+        old_heredocs = re.findall(
+            r"python3[^\n]*<<\s*'([A-Z_]+)'\n(.*?)\n\1",
+            old_content, re.DOTALL
+        )
+        new_heredoc_names = set(re.findall(r"<<\s*'([A-Z_]+)'", new_content))
+
+        for name, py_code in old_heredocs:
+            if name in new_heredoc_names:
+                continue  # Still present
+
+            # Heredoc was removed — check behaviors are covered elsewhere
+            orig_behaviors = extract_behaviors(py_code, f"{mod_path} heredoc {name}")
+            if not any(orig_behaviors.values()):
+                continue
+
+            dest_behaviors = []
+            for dest in modified:
+                dp = REPO / dest
+                if dp.exists() and dp != p:
+                    dest_behaviors.append((str(dest), analyze_file(dp)))
+
+            file_gaps = compare_behaviors(orig_behaviors, dest_behaviors)
+            for gap in file_gaps:
+                gaps.append(f"{mod_path} (removed heredoc {name}): {gap}")
+
+    return gaps
+
+
+# ── CLI commands ────────────────────────────────────────────────────────────
+
+def cmd_analyze(path_str: str) -> None:
+    """Show the full behavior inventory of a file."""
+    path = REPO / path_str
+    if not path.exists():
+        fail(f"File not found: {path}")
+        sys.exit(1)
+
+    behaviors = analyze_file(path)
+
+    print(f"\n  {_SEP}")
+    print(f"  Behavior Inventory: {B(path_str)}")
+    print(f"  {_SEP}\n")
+
+    if not behaviors:
+        info("No significant behaviors found (empty file or no patterns matched)")
+        return
+
+    for category, items in behaviors.items():
+        if not items:
+            continue
+        print(f"  {B(category)} ({len(items)})")
+        for item in items[:10]:
+            print(f"    {D(chr(9472))} {item}")
+        if len(items) > 10:
+            print(f"    {D(f'... and {len(items)-10} more')}")
+        print()
+
+
+def cmd_compare(old_path_str: str, new_paths: list[str]) -> None:
+    """Compare original file behaviors against one or more destination files."""
+    old_path = REPO / old_path_str
+    if not old_path.exists():
+        # Try git history
+        r = subprocess.run(
+            ["git", "show", f"HEAD:{old_path_str}"],
+            capture_output=True, text=True, cwd=str(REPO)
+        )
+        if r.returncode != 0:
+            fail(f"File not found: {old_path_str}")
+            sys.exit(1)
+        orig_behaviors = extract_behaviors(r.stdout, old_path_str)
+    else:
+        orig_behaviors = analyze_file(old_path)
+
+    destinations = []
+    for np in new_paths:
+        dp = REPO / np
+        if dp.exists():
+            destinations.append((np, analyze_file(dp)))
+        else:
+            warn(f"Destination not found: {np}")
+
+    print(f"\n  {_SEP}")
+    print(f"  Refactor Coverage Check")
+    print(f"  {B('Source:')} {old_path_str}")
+    for label, _ in destinations:
+        print(f"  {B('Dest:  ')} {label}")
+    print(f"  {_SEP}\n")
+
+    gaps = compare_behaviors(orig_behaviors, destinations)
+
+    if not gaps:
+        ok(f"Complete coverage — all {sum(len(v) for v in orig_behaviors.values())} "
+           f"behaviors from source are present in destination(s)")
+    else:
+        fail(f"{len(gaps)} behavior(s) NOT covered in destination(s):")
+        for gap in gaps:
+            print(f"    {R(chr(10007))} {gap}")
+        print()
+        print(f"  {Y('!')} These behaviors were DROPPED by the refactoring.")
+        print(f"  {D('Add them to the destination file(s) before committing.')}")
+        sys.exit(1)
+
+
+def cmd_check() -> None:
+    """Auto-detect refactors in staging area and verify coverage."""
+    print(f"\n  {_SEP}")
+    print(f"  Refactor Contract Check (staged changes)")
+    print(f"  {_SEP}\n")
+
+    gaps = check_git_staged_refactors()
+
+    if not gaps:
+        ok("All staged refactors maintain complete behavior coverage")
+    else:
+        fail(f"{len(gaps)} behavior gap(s) in staged refactors:")
+        for gap in gaps:
+            print(f"    {R(chr(10007))} {gap}")
+        print()
+        print(f"  {Y('!')} Commit blocked — refactoring dropped behaviors.")
+        print(f"  {D('Run: ms-refactor analyze <old_file>  to see full inventory')}")
+        print(f"  {D('Run: ms-refactor compare <old> <new>  to debug specific gaps')}")
+        sys.exit(1)
+
+
+def cmd_verify_heredocs() -> None:
+    """Verify all Python heredocs in shell scripts are small or extracted."""
+    print(f"\n  {_SEP}")
+    print(f"  Python Heredoc Extraction Verification")
+    print(f"  {_SEP}\n")
+
+    violations = []
+    for script in REPO.glob("ms-*"):
+        if not script.is_file():
+            continue
+        try:
+            content = script.read_text()
+        except Exception:
+            continue
+
+        matches = re.findall(
+            r"python3[^\n]*<<\s*'([A-Z_]+)'\n(.*?)\n\1",
+            content, re.DOTALL
+        )
+        for name, py_code in matches:
+            lines = [l for l in py_code.splitlines() if l.strip()]
+            behaviors = extract_behaviors(py_code)
+            total_behaviors = sum(len(v) for v in behaviors.values())
+
+            if len(lines) > 20 or total_behaviors > 5:
+                violations.append({
+                    "script": script.name,
+                    "heredoc": name,
+                    "lines": len(lines),
+                    "behaviors": total_behaviors,
+                    "sql_writes": behaviors.get("sql_writes", []),
+                })
+
+    if not violations:
+        ok("All Python heredocs are small (<20 lines, <5 behaviors) or extracted")
+    else:
+        for v in violations:
+            fail(f"{v['script']} heredoc {v['heredoc']}: "
+                 f"{v['lines']} lines, {v['behaviors']} behaviors")
+            if v["sql_writes"]:
+                print(f"    SQL writes (will be invisible to tools): {v['sql_writes'][:3]}")
+        print()
+        info("Extract large heredocs to backend/scripts/*.py")
+        sys.exit(1)
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    if not args:
+        print("Usage:")
+        print("  ms-refactor analyze PATH         -- behavior inventory")
+        print("  ms-refactor compare OLD NEW...   -- verify refactor coverage")
+        print("  ms-refactor check                -- check staged changes")
+        print("  ms-refactor verify-heredocs      -- check shell heredocs")
+        sys.exit(0)
+
+    cmd = args[0]
+    if cmd == "analyze" and len(args) >= 2:
+        cmd_analyze(args[1])
+    elif cmd == "compare" and len(args) >= 3:
+        cmd_compare(args[1], args[2:])
+    elif cmd == "check":
+        cmd_check()
+    elif cmd == "verify-heredocs":
+        cmd_verify_heredocs()
+    else:
+        fail(f"Unknown command: {cmd}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

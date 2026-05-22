@@ -1,0 +1,49 @@
+# ms-enforce — Core Rules compliance gate in CI
+# This is the AUTHORITATIVE enforcer. No --no-verify bypass here.
+# Every push to main must satisfy all Core Rules.
+
+name: Core Rules Enforcement
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  enforce:
+    name: Core Rules Compliance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt --root-user-action=ignore -q
+          pip install ruff bandit semgrep --root-user-action=ignore -q || true
+
+      - name: Rule-Addition Contract Audit (ADR 0012)
+        run: |
+          python3 ms-rule-contract --audit
+        env:
+          PYTHONPATH: .
+
+      - name: Run ms-enforce (full — Tier 0+1+2)
+        run: |
+          python3 ms-enforce
+        env:
+          PYTHONPATH: .
+
+      - name: Upload coverage map on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-map
+          path: data/coverage_map.json

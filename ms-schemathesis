@@ -1,0 +1,273 @@
+#!/usr/bin/env python3
+"""ms-schemathesis — Mediastack API Fuzzing
+
+Reads the FastAPI OpenAPI spec and generates adversarial test cases:
+null values, empty strings, max-length strings, wrong types, boundary
+integers, Unicode, nested nulls, path traversal strings.
+
+Automatically finds endpoints that return 500 on any input (Core Rule 3.7).
+Feeds new findings to ms-audit --improve for test generation.
+
+Core Rules: 3.7 (zero-data no-500), 3.8 (security sanitization), 1.5 (fail loud)
+
+Usage:
+  ms-schemathesis                     # fuzz live server, all endpoints
+  ms-schemathesis --quick             # 25 examples per endpoint (fast scan)
+  ms-schemathesis --deep              # 500 examples per endpoint (thorough)
+  ms-schemathesis --endpoint /api/apps # single endpoint prefix
+  ms-schemathesis --report            # show last saved report
+
+The server must be running. Default: http://localhost:8080
+
+Install: sudo ln -sf /srv/mediastack/ms-schemathesis /usr/local/bin/ms-schemathesis
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent
+DATA = REPO / "data"
+REPORT_FILE = DATA / "schemathesis_report.json"
+
+# ── Output style — matches ms-update canonical design ─────────────────────
+_RESET = "\033[0m"; _BOLD = "\033[1m"; _DIM  = "\033[2m"
+_GREEN = "\033[0;32m"; _YELLOW = "\033[1;33m"; _RED = "\033[0;31m"; _CYAN = "\033[0;36m"
+
+def G(s): return f"{_GREEN}{s}{_RESET}"
+def R(s): return f"{_RED}{s}{_RESET}"
+def Y(s): return f"{_YELLOW}{s}{_RESET}"
+def D(s): return f"{_DIM}{s}{_RESET}"
+def B(s): return f"{_BOLD}{s}{_RESET}"
+def C(s): return f"{_CYAN}{s}{_RESET}"
+
+def ok(msg):   print(f'  {G(chr(10003))} {msg}')
+def fail(msg): print(f'  {R(chr(10007))} {msg}')
+def warn(msg): print(f'  {Y("!")} {msg}')
+def info(msg): print(f'  {C(chr(8594))} {msg}')
+
+_SEP = chr(9472) * 60
+
+def header(title: str) -> None:
+    import time as _t
+    ts = _t.strftime("%H:%M  %Y-%m-%d")
+    print(f'\n  {_SEP}\n  {title}  {D(ts)}\n  {_SEP}')
+
+def sect(title: str) -> None:
+    print(f'\n  {B(title)}')
+    try:
+        import urllib.request
+        urllib.request.urlopen(f"{base_url}/api/platform/status", timeout=3)
+        return True
+    except Exception:
+        return False
+
+
+def run_schemathesis(
+    base_url: str,
+    examples: int = 50,
+    endpoint_filter: str = "",
+) -> dict:
+    """Run schemathesis against the live API. Returns findings dict."""
+
+    spec_url = f"{base_url}/openapi.json"
+    report_path = DATA / "schemathesis_junit.xml"
+    DATA.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "python3", "-m", "schemathesis", "run",
+        spec_url,
+        "--checks", "all",                    # 500s, schema, content-type, auth
+        "--hypothesis-max-examples", str(examples),
+        "--hypothesis-seed", "42",             # reproducible
+        "--junit-xml", str(report_path),
+        "--show-errors-tracebacks",
+        "--exclude-checks", "use_after_free",  # not applicable to REST
+        "--validate-schema", "false",          # we validate separately
+    ]
+
+    if endpoint_filter:
+        cmd += ["--endpoint", endpoint_filter]
+
+    # Add stateful testing for sequences (POST → GET → DELETE)
+    cmd += ["--stateful", "links"]
+
+    print(f"  → Fuzzing {D(spec_url)} ({examples} examples/endpoint)…", flush=True)
+    start = time.time()
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=str(REPO),
+        timeout=600,
+    )
+
+    elapsed = time.time() - start
+    output = result.stdout + result.stderr
+
+    # Parse results
+    failures = []
+    total_cases = 0
+    endpoints_tested = set()
+
+    for line in output.splitlines():
+        if "FAILED" in line or "500" in line:
+            failures.append(line.strip())
+        if "passed" in line.lower() and "/" in line:
+            try:
+                total_cases += int(line.split()[0])
+            except (ValueError, IndexError):
+                pass
+        if line.strip().startswith(("GET", "POST", "PUT", "PATCH", "DELETE")):
+            endpoints_tested.add(line.strip().split()[1] if len(line.strip().split()) > 1 else "")
+
+    # Categorize failures by severity
+    path_traversal = [f for f in failures if any(c in f for c in ("..", "%2F", "etc/passwd"))]
+    server_errors  = [f for f in failures if "500" in f or "Internal Server Error" in f]
+    schema_errors  = [f for f in failures if "schema" in f.lower() or "422" in f]
+    other          = [f for f in failures if f not in path_traversal + server_errors + schema_errors]
+
+    findings = {
+        "generated_at": int(time.time()),
+        "base_url": base_url,
+        "examples_per_endpoint": examples,
+        "elapsed_s": int(elapsed),
+        "total_cases": total_cases,
+        "endpoints_tested": len(endpoints_tested),
+        "total_failures": len(failures),
+        "server_errors": server_errors[:20],
+        "path_traversal": path_traversal[:10],
+        "schema_errors": schema_errors[:10],
+        "other": other[:10],
+        "passed": len(failures) == 0,
+        "raw_exit_code": result.returncode,
+    }
+
+    REPORT_FILE.write_text(json.dumps(findings, indent=2))
+    return findings
+
+
+def show_report(findings: dict) -> None:
+    """Print formatted findings."""
+    w = 64
+    print(f"\n{'─'*w}")
+    print(f"  Schemathesis API Fuzz Report")
+    print(f"{'─'*w}")
+    print(f"  Endpoints tested:  {findings['endpoints_tested']}")
+    print(f"  Test cases run:    {findings['total_cases']}")
+    print(f"  Elapsed:           {findings['elapsed_s']}s")
+    print()
+
+    if findings["total_failures"] == 0:
+        print(f"  {G('✓')} Zero failures — all endpoints handle edge cases correctly")
+    else:
+        print(f"  {R('✗')} {findings['total_failures']} failures found:\n")
+
+        if findings["server_errors"]:
+            print(f"  {R('500 Server Errors')} ({len(findings['server_errors'])}):")
+            for e in findings["server_errors"][:5]:
+                print(f"    {e[:80]}")
+
+        if findings["path_traversal"]:
+            print(f"  {R('Path Traversal / Injection')} ({len(findings['path_traversal'])}):")
+            for e in findings["path_traversal"][:3]:
+                print(f"    {e[:80]}")
+
+        if findings["schema_errors"]:
+            print(f"  {R('Schema Violations')} ({len(findings['schema_errors'])}):")
+            for e in findings["schema_errors"][:3]:
+                print(f"    {e[:80]}")
+
+        print(f"\n  → Run: ms-schemathesis --deep to reproduce")
+        print(f"  → Run: ms-audit --improve --context data/schemathesis_report.json")
+
+    print(f"\n  Report: {DATA / 'schemathesis_report.json'}")
+    print(f"{'─'*w}\n")
+
+
+def auto_generate_tests(findings: dict) -> None:
+    """Pipe findings to ms-audit --improve when failures exist."""
+    if not findings["server_errors"] and not findings["path_traversal"]:
+        return
+
+    context = {
+        "source": "schemathesis",
+        "failures": {
+            "server_errors": findings["server_errors"],
+            "path_traversal": findings["path_traversal"],
+            "schema_errors": findings["schema_errors"],
+        },
+        "instruction": (
+            "Generate pytest tests that reproduce each failure above. "
+            "Each test must make an HTTP call that triggers the failure and assert "
+            "the response status is NOT 500 and follows Core Rule 1.5 (correct status code). "
+            "Use the app_client fixture from conftest.py."
+        ),
+    }
+
+    context_file = DATA / "schemathesis_context_for_llm.json"
+    context_file.write_text(json.dumps(context, indent=2))
+
+    ms_audit = REPO / "ms-audit"
+    if ms_audit.exists():
+        print(f"  → Auto-generating regression tests for {len(findings['server_errors'])} failures…")
+        subprocess.run(
+            [sys.executable, str(ms_audit), "--improve",
+             "--context", str(context_file)],
+            cwd=str(REPO),
+        )
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    show_only       = "--report"   in args
+    quick           = "--quick"    in args
+    deep            = "--deep"     in args
+    base_url        = "http://localhost:8080"
+
+    endpoint_filter = ""
+    if "--endpoint" in args:
+        idx = args.index("--endpoint")
+        endpoint_filter = args[idx + 1] if idx + 1 < len(args) else ""
+
+    if show_only:
+        if REPORT_FILE.exists():
+            findings = json.loads(REPORT_FILE.read_text())
+            show_report(findings)
+        else:
+            print("No report yet. Run ms-schemathesis to generate.")
+        return
+
+    print(f"\n  Mediastack API Fuzzing  ·  schemathesis")
+    print(f"  {D('Testing every endpoint with adversarial inputs')}\n")
+
+    if not server_reachable(base_url):
+        print(f"  {R('✗')} Server not reachable at {base_url}")
+        print(f"  Start with: sudo ms-update --tests")
+        sys.exit(1)
+
+    examples = 25 if quick else (500 if deep else 50)
+    findings = run_schemathesis(base_url, examples, endpoint_filter)
+    show_report(findings)
+
+    # Auto-generate tests for failures when AI is available
+    has_failures = findings["total_failures"] > 0
+    has_ai = (REPO / "ms-audit").exists() and (
+        subprocess.run(["curl", "-sf", "http://localhost:11434/api/tags"],
+                       capture_output=True).returncode == 0
+        or os.environ.get("GROQ_API_KEY")
+    )
+
+    if has_failures and has_ai:
+        auto_generate_tests(findings)
+
+    sys.exit(0 if findings["passed"] else 1)
+
+
+if __name__ == "__main__":
+    main()

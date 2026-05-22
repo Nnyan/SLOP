@@ -1,0 +1,63 @@
+# Mediastack v4 — Docker-only deployment
+#
+# Quick start (new install):
+#   mkdir -p /srv/mediastack && cd /srv/mediastack
+#   curl -fsSL https://raw.githubusercontent.com/Nnyan/mediastack/main/docker-compose.option-b.yml \
+#     -o docker-compose.yml
+#   cp .env.example .env && nano .env   # set your domain and secrets
+#   docker compose up -d
+#
+# Update:
+#   docker compose pull && docker compose up -d
+#
+# ─── Critical volume contract ─────────────────────────────────────────────
+# Mediastack writes compose fragments containing HOST filesystem paths like:
+#   /srv/mediastack/config/sonarr:/config
+# The Docker daemon on the HOST reads these paths — they must be identical
+# inside and outside the Mediastack container. Mount the data and config
+# directories at the SAME absolute path inside the container as on the host.
+#
+# Default: /srv/mediastack/data and /srv/mediastack/config
+# If you change MS_HOST_DATA_DIR or MS_HOST_CONFIG_DIR, mount accordingly.
+
+name: mediastack
+
+services:
+  mediastack:
+    image: ghcr.io/nnyan/mediastack:latest
+    container_name: mediastack
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # ── CRITICAL: mount at the same absolute path as MS_HOST_DATA_DIR ──
+      - /srv/mediastack/data:/srv/mediastack/data
+      - /srv/mediastack/config:/srv/mediastack/config
+      # Docker socket — required to manage host containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # .env — read by Mediastack AND by docker compose when starting apps
+      - /srv/mediastack/.env:/srv/mediastack/.env
+    environment:
+      # Internal paths (inside container) — same as host due to volume mount
+      MS_DATA_DIR: /srv/mediastack/data
+      MS_CONFIG_ROOT: /srv/mediastack/config
+      # Host paths — used when writing compose fragment volume mounts
+      # Must match the left-hand side of the volume entries above
+      MS_HOST_DATA_DIR: /srv/mediastack/data
+      MS_HOST_CONFIG_DIR: /srv/mediastack/config
+      MS_HOST_ENV_FILE: /srv/mediastack/.env
+      PYTHONPATH: /app
+    networks:
+      - mediastack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/ping"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+
+networks:
+  mediastack:
+    name: mediastack
+    driver: bridge
+    external: false

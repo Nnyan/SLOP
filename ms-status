@@ -1,0 +1,445 @@
+#!/usr/bin/env python3
+"""
+ms-status — show Mediastack cleanup project progress and (optionally) the
+handoff prompt for the next session.
+
+Usage:
+    ms-status                  # show colored project list (current step expanded)
+    ms-status --handoff         # also show recommended handoff prompt + chat title
+    ms-status --plain           # no ANSI colors (for piping/CI)
+    ms-status --json            # machine-readable (for tooling)
+
+Output is hierarchical:
+  - Done steps: chapter line only (green ✓)
+  - Current step: chapter line + indented sub-task list with each
+    sub-task's individual status (✓ done / ▸ next / ○ pending)
+  - Upcoming steps: chapter line only (purple ○)
+
+Per the handoff protocol (docs/HANDOFF_PROTOCOL.md), incoming sessions
+should NOT trust user-curated commit summaries. The --handoff prompt
+explicitly tells the next session to verify by inspecting git log itself.
+"""
+import argparse
+import json
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+PLAN_PATH = Path("docs/cleanup/PROJECT_CLEANUP.md")
+PROTOCOL_PATH = Path("docs/HANDOFF_PROTOCOL.md")
+
+# ANSI color codes
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+GREEN = "\033[32m"
+BLUE = "\033[34m"
+PURPLE = "\033[95m"
+YELLOW = "\033[33m"
+RED = "\033[31m"
+
+
+def parse_plan(text):
+    """Parse PROJECT_CLEANUP.md into a list of steps.
+
+    Each step dict has:
+        tier, step_id, title, line_no,
+        subs: [(checked: bool, sub_id, owner, desc), ...]
+    """
+    steps = []
+    current_tier = None
+    current_step = None
+
+    re_tier = re.compile(r"^##\s+TIER\s+(\d+)\b")
+    re_step = re.compile(r"^###\s+Step\s+([\d.]+)\s*[—-]\s*(.+)$")
+    re_sub = re.compile(
+        r"^-\s+\[([ xX])\]\s+\*\*([\d.]+\.[a-z])\s+\[([A-Z]+)\]\*\*\s*(.*)$"
+    )
+
+    for idx, line in enumerate(text.splitlines(), start=1):
+        m = re_tier.match(line)
+        if m:
+            current_tier = int(m.group(1))
+            continue
+
+        m = re_step.match(line)
+        if m:
+            if current_step:
+                steps.append(current_step)
+            title = clean_step_title(m.group(2))
+            current_step = {
+                "tier": current_tier,
+                "step_id": m.group(1),
+                "title": title,
+                "line_no": idx,
+                "subs": [],
+            }
+            continue
+
+        m = re_sub.match(line)
+        if m and current_step:
+            checked = m.group(1).strip().lower() == "x"
+            sub_id = m.group(2)
+            owner = m.group(3)
+            desc = m.group(4).strip()
+            current_step["subs"].append((checked, sub_id, owner, desc))
+
+    if current_step:
+        steps.append(current_step)
+
+    return steps
+
+
+def clean_step_title(raw):
+    """Strip trailing annotations to produce a clean chapter name."""
+    s = raw.strip()
+    s = re.sub(r"\s*\[[^\]]+\]\s*$", "", s)
+    s = re.sub(r"\s*✓\s*DONE\s+[\d-]+.*$", "", s)
+    s = re.sub(r"\s*✓.*$", "", s)
+    return s.strip()
+
+
+def make_chapter_name(raw, max_width=45):
+    """Derive a short chapter-name-style label from a sub-task description.
+
+    Applies heuristics in order:
+      1. Strip markdown backticks and ✓ DONE/DEFERRED markers
+      2. Drop content after first ' — ' (doc refs OR curated-name separator)
+      3. If still too long, split on first ';' (parallel tasks)
+      4. If still too long, split on first '(' (parenthetical detail)
+      5. Truncate to max_width as last resort
+
+    Curation convention: write the sub-task as
+        - [ ] **<id> [<owner>]** <Chapter Name> — <full description>
+    The em-dash split in step 2 keeps '<Chapter Name>' as the displayed label.
+    """
+    s = raw.strip()
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+    s = re.sub(r"\s*✓\s+(DONE|DEFERRED).*$", "", s)
+    s = s.strip()
+
+    # 1. Drop em-dash suffix (doc refs / curated-name separator)
+    if " — " in s:
+        s = s.split(" — ", 1)[0].strip()
+
+    if len(s) <= max_width:
+        return s
+
+    # 2. Split on first semicolon (separates parallel tasks)
+    if ";" in s:
+        head = s.split(";", 1)[0].strip()
+        if 5 < len(head) <= max_width:
+            return head
+
+    # 3. Split on first paren (parenthetical detail)
+    if "(" in s:
+        head = s.split("(", 1)[0].strip()
+        if 5 < len(head) <= max_width:
+            return head
+
+    # 4. Truncate
+    return s[: max_width - 1].rstrip() + "…"
+
+
+def classify_steps(steps):
+    """Mark each step with status: done, current, future, empty."""
+    seen_current = False
+    for step in steps:
+        if not step["subs"]:
+            step["status"] = "empty"
+        elif all(c for c, _, _, _ in step["subs"]):
+            step["status"] = "done"
+        elif not seen_current:
+            step["status"] = "current"
+            seen_current = True
+        else:
+            step["status"] = "future"
+    return steps
+
+
+def find_next_subtask(steps):
+    for step in steps:
+        if step["status"] == "current":
+            for sub in step["subs"]:
+                if not sub[0]:
+                    return step, sub
+    return None, None
+
+
+def git(*args, default=""):
+    try:
+        result = subprocess.run(
+            ["git", *args], capture_output=True, text=True, check=False
+        )
+        return result.stdout.strip()
+    except Exception:
+        return default
+
+
+def render_status(steps, use_color=True):
+    out = []
+
+    def c(color, text):
+        return f"{color}{text}{RESET}" if use_color else text
+
+    # Available width for sub-task descriptions
+    term_width = shutil.get_terminal_size((100, 20)).columns
+    # Indent (11) + sub_mark+space (2) + sub_id (up to 7) + space + [OWNER] (~10) + 2 spaces
+    desc_width = max(40, term_width - 35)
+
+    out.append("")
+    out.append(c(BOLD, "Mediastack v4 — cleanup progress"))
+    out.append("")
+
+    last_tier = None
+    for step in steps:
+        if step["status"] == "empty":
+            continue
+        if step["tier"] != last_tier:
+            out.append(c(DIM, f"  ─── TIER {step['tier']} ───"))
+            last_tier = step["tier"]
+
+        # Top-level chapter line
+        if step["status"] == "done":
+            mark, color = "✓", GREEN
+        elif step["status"] == "current":
+            mark, color = "◆", BLUE
+        else:
+            mark, color = "○", PURPLE
+
+        sid_padded = f"{step['step_id']:<6}"
+        progress = ""
+        if step["status"] == "current":
+            done = sum(1 for c0, _, _, _ in step["subs"] if c0)
+            total = len(step["subs"])
+            progress_text = f"   ({done}/{total} sub-tasks done)"
+            progress = c(DIM, progress_text) if use_color else progress_text
+
+        line = f"  {c(color, mark + ' ' + sid_padded + ' ' + step['title'])}{progress}"
+        out.append(line)
+
+        # Expand sub-tasks ONLY for the current step
+        if step["status"] == "current" and step["subs"]:
+            next_idx = next(
+                (i for i, s in enumerate(step["subs"]) if not s[0]), None
+            )
+            max_sid_len = max(len(s[1]) for s in step["subs"])
+            max_owner_len = max(len(s[2]) for s in step["subs"])
+
+            for idx, (checked, sub_id, owner, desc) in enumerate(step["subs"]):
+                if checked:
+                    sub_mark, sub_color = "✓", GREEN
+                    suffix = ""
+                elif idx == next_idx:
+                    sub_mark, sub_color = "▸", BLUE
+                    suffix_text = "  ← pick up here"
+                    suffix = (
+                        c(BOLD + BLUE, suffix_text) if use_color else suffix_text
+                    )
+                else:
+                    sub_mark, sub_color = "○", PURPLE
+                    suffix = ""
+
+                chapter_name = make_chapter_name(desc)
+
+                sid_part = f"{sub_id:<{max_sid_len}}"
+                owner_part = f"[{owner}]".ljust(max_owner_len + 2)
+                # Color the ENTIRE sub-task line (prefix + chapter name) so the
+                # description text picks up the same green/blue/purple as its icon.
+                line_text = f"{sub_mark} {sid_part} {owner_part} {chapter_name}"
+                full_line = f"           {c(sub_color, line_text)}{suffix}"
+                out.append(full_line)
+
+    out.append("")
+    return "\n".join(out)
+
+
+def render_handoff_prompt(steps, use_color=True):
+    out = []
+
+    def c(color, text):
+        return f"{color}{text}{RESET}" if use_color else text
+
+    next_step, next_sub = find_next_subtask(steps)
+    head = git("rev-parse", "--short", "HEAD")
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    unpushed = git("log", "--oneline", "origin/main..HEAD")
+    dirty = git("status", "--porcelain", "--untracked-files=no")
+
+    out.append("")
+    out.append(c(BOLD, "Pre-handoff state check"))
+    out.append("")
+
+    if dirty:
+        out.append(c(YELLOW, "  ⚠ tracked files have uncommitted changes:"))
+        for line in dirty.splitlines():
+            out.append(f"     {line}")
+        out.append(
+            c(YELLOW, "    Commit before handing off, or the next session starts mid-air.")
+        )
+        out.append("")
+
+    out.append(f"  HEAD:   {head} ({branch})")
+    remote_url = git("remote", "get-url", "origin")
+    if remote_url:
+        out.append(f"  Remote: {remote_url}")
+    if unpushed:
+        out.append(f"  Unpushed commits ({len(unpushed.splitlines())}):")
+        for line in unpushed.splitlines():
+            out.append(f"     {line}")
+    else:
+        out.append("  Unpushed: none (everything is on origin/main)")
+
+    if not next_step:
+        out.append("")
+        out.append(c(BOLD + GREEN, "🎉 All steps complete. Nothing to hand off."))
+        out.append("")
+        return "\n".join(out)
+
+    _, sub_id, owner, _ = next_sub
+
+    # Suggested chat title — copy/paste into the new chat's title field.
+    # (No AI tool can set the chat title automatically; this is a manual step.)
+    suggested_title = f"Mediastack {sub_id} — {next_step['title']}"
+
+    out.append("")
+    out.append(c(BOLD, "Suggested chat title (rename your new chat to this):"))
+    out.append(c(GREEN, f"  {suggested_title}"))
+    out.append("")
+    out.append(c(BOLD, f"Recommended prompt for the next session ([{owner}])"))
+    out.append("")
+    sep = "─" * 76
+    out.append(sep)
+
+    prompt_lines = [
+        f"You are continuing Mediastack v4 cleanup as {owner}, collaborating with the project owner.",
+        "",
+        "ROLES (read carefully — this is the most common source of confusion):",
+        "  - The project owner has terminal access to stack@10.0.1.60 and the repo at /srv/mediastack.",
+        "  - You design scripts, edits, and plans. The project owner runs everything and pastes output back.",
+        "  - You do NOT have shell access to the server, GitHub credentials, or the SSH alias for origin.",
+        "    All credentials live on the server, not with you.",
+        "",
+        "DO NOT attempt to:",
+        "  - SSH to stack@10.0.1.60 (you have no key; the server is not reachable from your environment)",
+        "  - git push or git fetch from your own environment (the deploy key is on the server)",
+        "  - Treat your own shell as if it were the project's shell — your state changes have no effect on the project",
+        "",
+        "Read first (ask the project owner to paste excerpts when needed):",
+        "  1. docs/HANDOFF_PROTOCOL.md   (workflow rules and roles — start here)",
+        "  2. docs/CORE_RULES.md         (project rules; pre-read for code/test changes)",
+        "  3. docs/cleanup/PROJECT_CLEANUP.md  (full plan and current state)",
+    ]
+    if next_step["step_id"].startswith("1.2"):
+        prompt_lines.append(
+            "  4. docs/cleanup/STEP_1_2_MYPY_STRATEGY.md  (your step's strategy doc)"
+        )
+
+    prompt_lines += [
+        "",
+        "Project context:",
+        "  Server (project owner's): stack@10.0.1.60",
+        "  Repo path: /srv/mediastack",
+        "  Tmp/scratch dir: /srv/tmp (NOT /tmp)",
+        "  Branch: main",
+        "  Available library: tools/cleanup-helpers.sh (14 primitives; bash tools/cleanup-helpers.sh --self-test)",
+        "",
+        "Pre-flight: ask the project owner to run these and paste output (git is the source of truth — do not trust",
+        "this prompt's task description blindly):",
+        "  cd /srv/mediastack",
+        "  git log --oneline origin/main..HEAD     # any unpushed commits to know about?",
+        "  git diff --stat origin/main..HEAD        # what files were touched recently",
+        "  git remote -v                            # confirms SSH alias for origin",
+        "  git fetch origin                         # confirms push auth works (project owner runs)",
+        "  bash tools/cleanup-helpers.sh --self-test  # confirm helpers work",
+        "  python3 ms-enforce --fast                # current Tier 0 state",
+        "  python3 ms-status                        # confirm task list matches",
+        "",
+        f"Your task: {sub_id} — {next_step['title']}",
+        f"  Full sub-task definition: docs/cleanup/PROJECT_CLEANUP.md (around line {next_step['line_no']}).",
+        "  Drop apply scripts in /srv/tmp/ for the project owner to run — never /tmp/.",
+        "",
+        "End-of-step ritual (per HANDOFF_PROTOCOL.md):",
+        "  1. Ensure all work is committed (no dirty tracked files; project owner verifies via git status)",
+        "  2. Project owner runs: python3 ms-status --handoff",
+        "  3. Project owner pastes the resulting handoff prompt into a fresh Claude chat",
+    ]
+
+    out.extend(prompt_lines)
+    out.append(sep)
+    out.append("")
+    return "\n".join(out)
+
+
+def render_json(steps):
+    next_step, next_sub = find_next_subtask(steps)
+    payload = {
+        "head": git("rev-parse", "--short", "HEAD"),
+        "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
+        "unpushed_count": len(
+            [l for l in git("log", "--oneline", "origin/main..HEAD").splitlines() if l]
+        ),
+        "dirty_tracked": bool(git("status", "--porcelain", "--untracked-files=no")),
+        "steps": [
+            {
+                "tier": s["tier"],
+                "step_id": s["step_id"],
+                "title": s["title"],
+                "status": s["status"],
+                "sub_count": len(s["subs"]),
+                "sub_done": sum(1 for c, _, _, _ in s["subs"] if c),
+            }
+            for s in steps
+        ],
+        "next": (
+            {
+                "step_id": next_step["step_id"],
+                "title": next_step["title"],
+                "sub_id": next_sub[1],
+                "owner": next_sub[2],
+            }
+            if next_step
+            else None
+        ),
+    }
+    return json.dumps(payload, indent=2)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    p.add_argument("--handoff", action="store_true",
+                   help="also print the handoff prompt for the next session")
+    p.add_argument("--plain", action="store_true", help="no ANSI colors")
+    p.add_argument("--json", action="store_true",
+                   help="machine-readable output (overrides --handoff/--plain)")
+    args = p.parse_args()
+
+    if not PLAN_PATH.exists():
+        print(f"ERROR: {PLAN_PATH} not found. Run from repo root.", file=sys.stderr)
+        sys.exit(2)
+
+    text = PLAN_PATH.read_text()
+    steps = classify_steps(parse_plan(text))
+
+    if not steps:
+        print(
+            f"ERROR: no steps parsed from {PLAN_PATH} — file structure may have changed.",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+
+    if args.json:
+        print(render_json(steps))
+        return
+
+    use_color = (not args.plain) and sys.stdout.isatty()
+
+    print(render_status(steps, use_color=use_color))
+    if args.handoff:
+        print(render_handoff_prompt(steps, use_color=use_color))
+
+
+if __name__ == "__main__":
+    main()

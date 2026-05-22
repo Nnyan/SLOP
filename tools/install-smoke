@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# tools/install-smoke — run install.sh inside a fresh ubuntu:24.04 smoke container.
+#
+# Usage:
+#   tools/install-smoke                           # full pipeline
+#   tools/install-smoke --stop-after=deps_install # stop cleanly after deps step
+#   tools/install-smoke --keep-container          # leave container running for inspection
+#   tools/install-smoke --help
+#
+# Stop-after values (matches MS_SMOKE_STOP_AFTER step names in installer/main.py):
+#   prereq_check, detect_os, deps_install, docker_install, user_install,
+#   data_dir_install, fetch_repo, backend_setup, frontend_build, service_install
+#
+# The smoke fixture mounts the local repo read-only at /repo, then invokes
+# install.sh with --install-docker=yes and --version-ref pointing to HEAD.
+# No network access to GitHub is required — the mount substitutes for the clone.
+#
+# Note: node_modules/ is kept after the frontend build (Option A of ADR 0014).
+# This is intentional divergence from a hypothetical "clean post-build" state;
+# the decision is deferred to Step 4.5. See docs/adr/0014-frontend-build-
+# release-policy.md for the four options being evaluated.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DOCKERFILE="$REPO_ROOT/tools/smoke-Dockerfile"
+IMAGE_TAG="mediastack-smoke:latest"
+CONTAINER_NAME="mediastack-smoke-$$"
+STOP_AFTER=""
+KEEP_CONTAINER=0
+
+usage() {
+    grep '^#' "$0" | cut -c3-
+    exit 0
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --stop-after=*)  STOP_AFTER="${arg#--stop-after=}" ;;
+        --keep-container) KEEP_CONTAINER=1 ;;
+        --help|-h)       usage ;;
+        *) echo "Unknown argument: $arg" >&2; exit 1 ;;
+    esac
+done
+
+echo "==> Building smoke image from $DOCKERFILE"
+docker build -t "$IMAGE_TAG" -f "$DOCKERFILE" "$REPO_ROOT" --quiet
+
+DOCKER_RUN_ARGS=(
+    --name "$CONTAINER_NAME"
+    --rm
+    --privileged
+    --volume "$REPO_ROOT:/repo:ro"
+)
+
+if [ -n "$STOP_AFTER" ]; then
+    DOCKER_RUN_ARGS+=(--env "MS_SMOKE_STOP_AFTER=$STOP_AFTER")
+fi
+
+if [ "$KEEP_CONTAINER" -eq 1 ]; then
+    DOCKER_RUN_ARGS=(
+        --name "$CONTAINER_NAME"
+        --privileged
+        --volume "$REPO_ROOT:/repo:ro"
+    )
+    if [ -n "$STOP_AFTER" ]; then
+        DOCKER_RUN_ARGS+=(--env "MS_SMOKE_STOP_AFTER=$STOP_AFTER")
+    fi
+fi
+
+echo "==> Running install.sh inside $IMAGE_TAG"
+if [ "$KEEP_CONTAINER" -eq 1 ]; then
+    docker run "${DOCKER_RUN_ARGS[@]}" "$IMAGE_TAG" \
+        bash /repo/install.sh --install-docker=yes --version-ref=smoke-local || true
+    echo "==> Container '$CONTAINER_NAME' left running. Inspect with: docker exec -it $CONTAINER_NAME bash"
+elif [ -n "$STOP_AFTER" ]; then
+    docker run "${DOCKER_RUN_ARGS[@]}" "$IMAGE_TAG" \
+        bash /repo/install.sh --install-docker=yes --version-ref=smoke-local
+else
+    # Full pipeline: run install then verify post-install assertions.
+    # F16 regression: data dir must exist with mediastack:mediastack 0750 after install.
+    # Service-active assertion requires systemd as PID 1; in a container that lacks it,
+    # this will surface a clear failure rather than a silent pass.
+    docker run "${DOCKER_RUN_ARGS[@]}" "$IMAGE_TAG" bash -c '
+set -euo pipefail
+bash /repo/install.sh --install-docker=yes --version-ref=smoke-local
+
+INSTALL_DIR=/opt/mediastack
+DATA_DIR=/var/lib/mediastack
+STATE_FILE="$INSTALL_DIR/.installer-state.json"
+POST_INSTALL="$INSTALL_DIR/POST_INSTALL.txt"
+
+# ── F16: data dir ownership / mode ───────────────────────────────────────────
+echo "==> [smoke] Checking $DATA_DIR ownership and mode (F16)"
+OWNER_MODE=$(stat -c "%U:%G %a" "$DATA_DIR" 2>&1) || {
+    echo "FAIL [F16]: $DATA_DIR absent after install"
+    exit 1
+}
+[ "$OWNER_MODE" = "mediastack:mediastack 750" ] || {
+    echo "FAIL [F16]: wrong owner/mode on $DATA_DIR: $OWNER_MODE (expected mediastack:mediastack 750)"
+    exit 1
+}
+echo "PASS [F16]: $DATA_DIR mediastack:mediastack 750"
+
+# ── INV-7/9: state file phase=installed + smoke_test_passed=true ─────────────
+echo "==> [smoke] Checking state file phase and smoke_test_passed (INV-7, INV-9)"
+[ -f "$STATE_FILE" ] || {
+    echo "FAIL [INV-7]: $STATE_FILE absent after install"
+    exit 1
+}
+python3 - "$STATE_FILE" <<'"'"'PYEOF'"'"'
+import json, sys
+with open(sys.argv[1]) as f:
+    s = json.load(f)
+if s.get("phase") != "installed":
+    print(f"FAIL [INV-7]: phase={s.get('phase')!r} (expected 'installed')")
+    sys.exit(1)
+if not s.get("smoke_test_passed"):
+    print(f"FAIL [INV-9]: smoke_test_passed={s.get('smoke_test_passed')!r} (expected true)")
+    sys.exit(1)
+print("PASS [INV-7]: phase=installed")
+print("PASS [INV-9a]: smoke_test_passed=true")
+PYEOF
+
+# ── INV-8: POST_INSTALL.txt exists, mode 0644, owner mediastack:mediastack ───
+echo "==> [smoke] Checking POST_INSTALL.txt existence, mode, owner (INV-8)"
+[ -f "$POST_INSTALL" ] || {
+    echo "FAIL [INV-8]: $POST_INSTALL absent after successful install"
+    exit 1
+}
+PI_OWNER_MODE=$(stat -c "%U:%G %a" "$POST_INSTALL" 2>&1)
+[ "$PI_OWNER_MODE" = "mediastack:mediastack 644" ] || {
+    echo "FAIL [INV-8]: wrong owner/mode on $POST_INSTALL: $PI_OWNER_MODE (expected mediastack:mediastack 644)"
+    exit 1
+}
+echo "PASS [INV-8a]: $POST_INSTALL exists"
+echo "PASS [INV-8b]: $POST_INSTALL mediastack:mediastack 644"
+
+# ── INV-8 (continued): no unfilled <placeholder> tokens in body ───────────────
+echo "==> [smoke] Checking POST_INSTALL.txt for unfilled placeholders (INV-8)"
+python3 - "$POST_INSTALL" <<'"'"'PYEOF'"'"'
+import re, sys
+body = open(sys.argv[1]).read()
+tokens = re.findall(r"<[a-z_]+>", body)
+if tokens:
+    print(f"FAIL [INV-8]: unfilled placeholders found: {tokens}")
+    sys.exit(1)
+print("PASS [INV-8c]: no unfilled placeholders in POST_INSTALL.txt")
+PYEOF
+
+# ── INV-9 (write-coupling): smoke_test_passed=true ↔ POST_INSTALL.txt exists ─
+echo "==> [smoke] Checking write-coupling invariant (INV-9)"
+[ -f "$POST_INSTALL" ] || {
+    echo "FAIL [INV-9b]: smoke_test_passed=true but POST_INSTALL.txt absent (write-coupling broken)"
+    exit 1
+}
+echo "PASS [INV-9b]: write-coupling holds (smoke_test_passed=true and POST_INSTALL.txt present)"
+
+# ── INV-10: smoke test timing (budget is 30s, enforced internally by smoke.py) ─
+echo "NOTE [INV-10]: 30s timing budget enforced internally by installer/smoke.py"
+echo "               Full-distro timing audit deferred to Step 4.5 on baseline VM."
+
+# ── INV-11: after uninstall, POST_INSTALL.txt absent (uninstall not yet impl.) ─
+echo "NOTE [INV-11]: uninstall not yet implemented; check deferred to Step 4.5."
+
+# ── Service active ────────────────────────────────────────────────────────────
+echo "==> [smoke] Waiting 10s for mediastack service to start..."
+sleep 10
+systemctl is-active mediastack || {
+    echo "FAIL: mediastack service not active after 10s"
+    systemctl status mediastack --no-pager 2>&1 || true
+    exit 1
+}
+echo "PASS: mediastack service active after 10s"
+'
+fi

@@ -1,0 +1,21 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Minimal smoke fixture — mirrors a real 24.04 server image:
+#   - python3 present (but python3-venv intentionally absent → exercises F1)
+#   - curl absent → exercises F2 (deps_debian pre-installs curl before NodeSource)
+#   - npm/nodejs absent → exercises F4/F13
+#   - git, useradd, usermod, getent, systemctl stubs present (F7/F8/F9/F11 need
+#     a more stripped image; deferred to minimal-host tier)
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        git \
+        passwd \
+        systemd \
+        ca-certificates \
+        -qq && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /repo

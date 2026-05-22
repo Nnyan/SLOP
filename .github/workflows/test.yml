@@ -1,0 +1,80 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        # test_session_a contains async integration tests that require a running
+        # event loop and can be flaky in CI — run separately or locally.
+        run: pytest tests/ -q --tb=short --no-header --ignore=tests/test_session_a.py
+        env:
+          PYTHONPATH: .
+
+      - name: Run contract tests (wizard gap detection)
+        run: |
+          echo "=== Wizard Contract Tests ==="
+          pytest tests/test_wizard_contracts.py -v --tb=short
+          echo ""
+          echo "=== Contract Analysis (catches dead fields / missing deploy paths) ==="
+          python3 tools/analyze-tests.py --contracts
+        env:
+          PYTHONPATH: .
+
+      - name: Validate all manifests load
+        run: |
+          python -c "
+          from backend.manifests.loader import load_all_manifests, clear_cache
+          clear_cache()
+          m = load_all_manifests()
+          media = [k for k,v in m.items() if v.service_type == 'media']
+          print(f'Manifests: {len(m)} total, {len(media)} media apps')
+          assert len(m) >= 50, f'Expected 50+ manifests, got {len(m)}'
+          assert len(media) >= 4, f'Expected 4+ media apps, got {len(media)}'
+          print('All manifests valid')
+          "
+        env:
+          PYTHONPATH: .
+
+      - name: Check for port conflicts
+        run: |
+          python -c "
+          from backend.manifests.loader import load_all_manifests, clear_cache
+          clear_cache()
+          manifests = load_all_manifests()
+          # System ports (80, 443, 8080, 8081) are intentionally shared —
+          # apps on these ports don't bind host ports (Traefik owns them).
+          SYSTEM_PORTS = {80, 443, 8080, 8081}
+          port_map = {}
+          for key, m in manifests.items():
+              if m.web_port and m.web_port not in SYSTEM_PORTS:
+                  port_map.setdefault(m.web_port, []).append(key)
+          conflicts = {p: keys for p, keys in port_map.items() if len(keys) > 1}
+          if conflicts:
+              print(f'PORT CONFLICTS: {conflicts}')
+              exit(1)
+          print('No port conflicts')
+          "
+        env:
+          PYTHONPATH: .

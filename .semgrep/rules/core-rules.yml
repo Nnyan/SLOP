@@ -1,0 +1,261 @@
+# Semgrep/Opengrep — Custom Architectural Rule Enforcement
+# Each rule maps to a Core Rule in docs/CORE_RULES.md
+# Findings written to data/semgrep_findings.json for LLM ingestion
+#
+# To run: semgrep --config .semgrep/rules/ backend/ --json > data/semgrep_findings.json
+# Or:     python3 ms-semgrep
+
+rules:
+
+  # Core Rule 4.4: Transaction Atomicity
+  - id: bare-db-commit
+    patterns:
+      - pattern: $DB._c.commit()
+      - pattern-not: self._c.commit()
+    message: >
+      Core Rule 4.4 (Transaction Atomicity): Use StateDB context manager,
+      not db._c.commit() directly. StateDB auto-commits on __exit__.
+      Manual commits bypass atomicity guarantees.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      core_rule: "4.4"
+      bug_history: "install_instance wrote to app_instances then called db._c.commit() separately"
+
+  # Core Rule 3.8: User Input Sanitization
+  - id: unsanitized-user-key-as-path
+    patterns:
+      - pattern: |
+          $KEY = $REQ.$FIELD
+          ...
+          Path(...) / $KEY
+      - pattern: |
+          $KEY = $DATA["key"]
+          ...
+          open($KEY, ...)
+    message: >
+      Core Rule 3.8 (Security): User-supplied key used directly in filesystem path.
+      Sanitize first: re.sub(r'[^a-z0-9_]', '_', key.lower())[:64]
+    languages: [python]
+    severity: ERROR
+    metadata:
+      core_rule: "3.8"
+      bug_history: "key='../../etc/passwd' used as filename in install-from-github"
+
+  # Core Rule 1.5: Fail Loud — result.add never sets ok=False
+  - id: result-add-not-fail
+    patterns:
+      - pattern: $RESULT.add($STEP, "error", $MSG)
+      - pattern: $RESULT.add($STEP, "failed", $MSG)
+    message: >
+      Core Rule 1.5 (Fail Loud): result.add('step', 'error', msg) does NOT set
+      result.ok=False. Use result.fail(msg) to mark the operation as failed.
+      Silent success on failure is a critical bug.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      core_rule: "1.5"
+      bug_history: "compose failure ok=True — result.add used instead of result.fail"
+
+  # Core Rule 2.6: Fixture Isolation
+  - id: fixture-depends-on-test-db
+    pattern: def app_client($TEST_DB, ...)
+    message: >
+      Core Rule 2.6 (Fixture Isolation): app_client must not depend on test_db fixture.
+      Shared fixture causes state_mod.configure to point at deleted tmp dir in full suite.
+      app_client must create its own isolated DB.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      core_rule: "2.6"
+      bug_history: "app_client(test_db) caused intermittent 500s only visible in full suite"
+
+  # Core Rule 3.7: Zero-data state must not 500
+  - id: missing-none-check-before-attribute
+    patterns:
+      - pattern: |
+          $OBJ = db.get_platform()
+          $OBJ.$ATTR
+      - pattern: |
+          $OBJ = db.get_app($KEY)
+          $OBJ.$ATTR
+    message: >
+      Core Rule 3.7 (Zero-Data No-500): DB query may return None on fresh install.
+      Check 'if $OBJ is None' before accessing attributes.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      core_rule: "3.7"
+
+  # Core Rule 4.5: Code generator output must be verified
+  - id: generated-code-no-ast-verify
+    patterns:
+      - pattern: |
+          $PATH.write_text($CONTENT)
+      - pattern-not: |
+          ast.parse($CONTENT)
+          ...
+          $PATH.write_text($CONTENT)
+      - pattern-not-inside: |
+          def $F(...):
+              ...
+              ast.parse($CONTENT)
+              ...
+    paths:
+      include:
+        - ms-testgen
+    message: >
+      Core Rule 4.5 (Code Generators Tested): Generated Python written to disk
+      without ast.parse() verification first. Silent syntax errors become
+      test suite corruption.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      core_rule: "4.5"
+      bug_history: "ms-testgen produced label_esc NameError — 145 route tests became skips"
+
+  # Core Rule 1.5 + 3.7: Missing None check on DB queries before attribute access
+  - id: none-check-missing-after-db-query
+    patterns:
+      - pattern: |
+          $X = $DB.get_platform()
+          ... 
+          $X.$ATTR
+      - pattern-not: |
+          $X = $DB.get_platform()
+          if $X is None: ...
+          ...
+          $X.$ATTR
+    message: >
+      Core Rule 3.7 (Zero-Data No-500) + Core Rule 1.5 (Fail Loud):
+      get_platform() returns None on fresh install. Accessing attributes
+      without a None check causes AttributeError -> 500 response.
+      Add: if platform is None: raise HTTPException(503, "Platform not configured")
+    languages: [python]
+    severity: WARNING
+    metadata:
+      core_rule: "3.7"
+      bug_history: "Multiple endpoints returned 500 on fresh DB due to missing None checks"
+
+  # Core Rule 2.7 + 3.3: Test paths must come from config, not hardcoded strings
+  - id: test-hardcodes-data-path
+    patterns:
+      - pattern: REPO / "data" / ...
+      - pattern-inside: |
+          def $FUNC(...):
+            ...
+    paths:
+      include:
+        - ms-test.py
+        - tests/
+    message: >
+      Core Rule 2.7 (Verify Against Implementation) + 3.3 (Content Contracts):
+      Hardcoded REPO/"data"/... in a test. Production code writes to
+      config.data_dir/..., which may differ from the repo directory.
+      Use COMPOSE_DIR, DB_PATH, or DATA_DIR (derived from config in test setup).
+    languages: [python]
+    severity: ERROR
+    metadata:
+      core_rule: "2.7"
+      bug_history: "ms-test Q3 checked REPO/data/compose but infra providers write to config.data_dir/compose — false pass for 62 runs"
+
+  # Core Rule 3.3: Test assertions must verify the same location production code writes to
+  - id: test-path-not-from-config
+    patterns:
+      - pattern: pathlib.Path("/srv/mediastack/data/...")
+      - pattern: pathlib.Path("/data/mediastack/...")
+    message: >
+      Core Rule 3.3 (Content Contracts): Hardcoded absolute path in test.
+      Use config.data_dir or the COMPOSE_DIR/DB_PATH constants derived from it.
+    languages: [python]
+    severity: ERROR
+    metadata:
+      core_rule: "3.3"
+
+  # Core Rule 3.3 + 2.7: Table names must be constants, not string literals in tests
+  - id: test-hardcodes-table-name
+    patterns:
+      - pattern: |
+          $DB.execute("SELECT ... FROM infra_tunnel_providers ...")
+      - pattern: |
+          $DB.execute("SELECT ... FROM tunnel_providers ...")
+    message: >
+      Core Rule 2.7 (Verify Against Implementation): Hardcoded table name 'infra_tunnel_providers'
+      or 'tunnel_providers' in test. Import TABLE_TUNNEL_PROVIDERS from backend.core.state instead.
+      The Q3 bug used 'tunnel_providers' (wrong) for 62 runs — structural constant prevents this.
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - ms-test.py
+        - tests/
+    metadata:
+      core_rule: "2.7"
+      bug_history: "ms-test Q3 used tunnel_providers (wrong table) → infra_tunnel_providers (correct)"
+
+
+  # Core Rule 2.9: Tests must declare preconditions via section_requires()
+  - id: test-missing-precondition-guard
+    patterns:
+      - pattern: |
+          if ($PATH / ...).exists():
+            ...
+      - pattern-not: |
+          if section_requires(...):
+            ...
+            if ($PATH / ...).exists():
+              ...
+      - pattern-not: |
+          if plat_status == "ready":
+            ...
+    paths:
+      include:
+        - ms-test.py
+    message: >
+      Core Rule 2.9 (Precondition Guard): file existence check without section_requires().
+      File existence depends on platform state (pending vs ready). Without a precondition
+      guard, this test false-passes in pending state. Use section_requires("platform_status", "ready").
+    languages: [python]
+    severity: WARNING
+    metadata:
+      core_rule: "2.9"
+      bug_history: "Q3 checked compose fragments in pending state for 66 runs — silently false-passing"
+
+  # Core Rule 2.9: DB queries checking count without precondition
+  - id: test-db-count-without-precondition
+    patterns:
+      - pattern: |
+          $CONN.execute("SELECT COUNT(*) FROM ...")
+      - pattern-not: |
+          if ctx(...):
+            ...
+          if section_requires(...):
+            ...
+    paths:
+      include:
+        - ms-test.py
+    message: >
+      Core Rule 2.9: DB count query without precondition. Row counts depend on
+      whether the platform has been configured and whether operations have been run.
+      Use ctx("has_health_history") or section_requires() to guard this check.
+    languages: [python]
+    severity: WARNING
+    metadata:
+      core_rule: "2.9"
+
+  # Core Rule: Python >50 lines must be in .py files, not shell heredocs
+  - id: python-in-shell-heredoc
+    patterns:
+      - pattern: |
+          python3 ... << '$HEREDOC_VAR'
+          ...
+          $HEREDOC_VAR
+    message: >
+      Python code in shell heredoc is invisible to Ruff, Bandit, Semgrep, and mutation testing.
+      Extract to backend/scripts/*.py and call it from the shell script instead.
+      The ms-update heredoc (268 lines) had string key mismatches invisible for months.
+    languages: [bash]
+    severity: WARNING
+    metadata:
+      core_rule: "5.14"
+

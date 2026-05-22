@@ -1,0 +1,446 @@
+#!/usr/bin/env python3
+"""ms-keploy — Mediastack Traffic Recording & Regression Capture
+
+Records real API traffic from live sessions and auto-generates regression
+tests. Every unique request/response pair becomes a test that can be
+replayed to detect regressions.
+
+Core Rule: 2.4 (proactive not reactive) — captures bugs from real sessions
+before they're reported. Session sequences (multi-step wizard, health cycle,
+app install → status check) are hard to synthesize but easy to capture.
+
+Modes:
+  record  — start recording (auto-stops after idle timeout or Ctrl+C)
+  replay  — replay recorded sessions as regression tests
+  export  — convert recordings to pytest test file
+  status  — show recorded session count and latest captures
+
+Usage:
+  ms-keploy record              # record live traffic (runs until stopped)
+  ms-keploy record --timeout 60 # auto-stop after 60s idle
+  ms-keploy replay              # replay all recordings as tests
+  ms-keploy export              # write tests/test_keploy_regression.py
+  ms-keploy status              # show recording inventory
+
+The server must be running. Recordings saved to data/keploy/
+
+Install: sudo ln -sf /srv/mediastack/ms-keploy /usr/local/bin/ms-keploy
+"""
+from __future__ import annotations
+
+import ast
+import json
+import os
+import subprocess
+import sys
+import time
+# ── Output style — matches ms-update canonical design ─────────────────────
+_RESET = "\033[0m"; _BOLD = "\033[1m"; _DIM  = "\033[2m"
+_GREEN = "\033[0;32m"; _YELLOW = "\033[1;33m"; _RED = "\033[0;31m"; _CYAN = "\033[0;36m"
+
+def G(s): return f"{_GREEN}{s}{_RESET}"
+def R(s): return f"{_RED}{s}{_RESET}"
+def Y(s): return f"{_YELLOW}{s}{_RESET}"
+def D(s): return f"{_DIM}{s}{_RESET}"
+def B(s): return f"{_BOLD}{s}{_RESET}"
+def C(s): return f"{_CYAN}{s}{_RESET}"
+
+def ok(msg):   print(f'  {G(chr(10003))} {msg}')
+def fail(msg): print(f'  {R(chr(10007))} {msg}')
+def warn(msg): print(f'  {Y("!")} {msg}')
+def info(msg): print(f'  {C(chr(8594))} {msg}')
+
+_SEP = chr(9472) * 60
+
+def header(title: str) -> None:
+    import time as _t
+    ts = _t.strftime("%H:%M  %Y-%m-%d")
+    print(f'\n  {_SEP}\n  {title}  {D(ts)}\n  {_SEP}')
+
+def sect(title: str) -> None:
+    print(f'\n  {B(title)}')
+from datetime import datetime
+from pathlib import Path
+
+REPO       = Path(__file__).resolve().parent
+DATA       = REPO / "data" / "keploy"
+EXPORT_OUT = REPO / "tests" / "test_keploy_regression.py"
+
+_RESET = "\033[0m"; _BOLD = "\033[1m"; _DIM = "\033[2m"
+_GREEN = "\033[32m"; _RED = "\033[31m"; _YELLOW = "\033[33m"; _CYAN = "\033[36m"
+
+def G(s): return f"{_GREEN}{s}{_RESET}"
+def R(s): return f"{_RED}{s}{_RESET}"
+def D(s): return f"{_DIM}{s}{_RESET}"
+
+
+# Endpoints worth recording (excludes health cycle noise)
+RECORD_INCLUDE = [
+    "/api/platform",
+    "/api/apps",
+    "/api/catalog",
+    "/api/settings",
+    "/api/health",
+    "/api/infra",
+    "/api/routing",
+]
+
+RECORD_EXCLUDE = [
+    "/api/health/scheduler/status",  # too frequent
+    "/api/platform/prereqs",          # too frequent
+]
+
+
+def _keploy_available() -> bool:
+    try:
+        r = subprocess.run(["keploy", "--version"], capture_output=True, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _python_keploy_available() -> bool:
+    try:
+        import keploy
+        return True
+    except ImportError:
+        return False
+
+
+def record_traffic(base_url: str = "http://localhost:8080",
+                   idle_timeout: int = 120) -> None:
+    """Record API traffic by intercepting requests via keploy SDK."""
+    DATA.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n  Mediastack Traffic Recording")
+    print(f"  {D('Capturing real API sessions for regression tests')}\n")
+
+    # Try native keploy first
+    if _keploy_available():
+        print(f"  → Starting keploy record mode (idle timeout: {idle_timeout}s)…")
+        print(f"  → Make API calls or use the UI at {base_url}")
+        print(f"  → Ctrl+C to stop recording\n")
+
+        try:
+            subprocess.run(
+                ["keploy", "record",
+                 "--path", str(DATA),
+                 "--port", "8080",
+                 "--proxyPort", "16789",
+                 "--delay", "10",
+                 "--passThroughPorts", "5432,6379"],
+                timeout=idle_timeout * 2,
+            )
+        except KeyboardInterrupt:
+            print(f"\n  {G('Recording stopped.')}")
+        except subprocess.TimeoutExpired:
+            print(f"\n  Recording auto-stopped after idle timeout.")
+
+    else:
+        # Fallback: lightweight proxy-based recorder using Python
+        print(f"  → Native keploy not found. Using Python proxy recorder…")
+        _python_record(base_url, idle_timeout)
+
+
+def _python_record(base_url: str, idle_timeout: int) -> None:
+    """Simple HTTP proxy that records request/response pairs."""
+    import http.server
+    import urllib.request
+    import urllib.error
+    import threading
+
+    sessions = []
+    last_activity = time.time()
+
+    class RecordingProxy(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args): pass  # suppress default logging
+
+        def do_ANY(self):
+            nonlocal last_activity
+            path = self.path
+            method = self.command
+
+            # Skip excluded paths
+            if any(ex in path for ex in RECORD_EXCLUDE):
+                self._proxy()
+                return
+
+            # Only record included paths
+            if not any(inc in path for inc in RECORD_INCLUDE):
+                self._proxy()
+                return
+
+            # Read request body
+            length = int(self.headers.get("Content-Length", 0))
+            req_body = self.rfile.read(length).decode("utf-8", errors="replace") if length else ""
+
+            # Forward to real server
+            try:
+                real_url = f"{base_url}{path}"
+                req = urllib.request.Request(
+                    real_url,
+                    data=req_body.encode() if req_body else None,
+                    method=method,
+                    headers={k: v for k, v in self.headers.items()
+                             if k.lower() not in ("host", "content-length")},
+                )
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp_body = resp.read().decode("utf-8", errors="replace")
+                    status = resp.status
+
+                    # Record this interaction
+                    sessions.append({
+                        "timestamp": datetime.now().isoformat(),
+                        "method": method,
+                        "path": path,
+                        "request_body": req_body,
+                        "response_status": status,
+                        "response_body": resp_body[:2000],  # cap at 2KB
+                    })
+                    last_activity = time.time()
+
+                    # Forward response to client
+                    self.send_response(status)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(resp_body.encode())
+
+            except Exception as e:
+                self.send_response(502)
+                self.end_headers()
+                self.wfile.write(f"Proxy error: {e}".encode())
+
+        def _proxy(self):
+            """Pass through without recording."""
+            try:
+                real_url = f"{base_url}{self.path}"
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length) if length else None
+                req = urllib.request.Request(real_url, data=body, method=self.command)
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    self.send_response(resp.status)
+                    self.end_headers()
+                    self.wfile.write(resp.read())
+            except Exception:
+                self.send_response(502)
+                self.end_headers()
+
+        do_GET = do_ANY
+        do_POST = do_ANY
+        do_PUT = do_ANY
+        do_PATCH = do_ANY
+        do_DELETE = do_ANY
+
+    proxy_port = 18080
+    server = http.server.HTTPServer(("0.0.0.0", proxy_port), RecordingProxy)
+    server.timeout = 1
+
+    print(f"  → Proxy recording on port {proxy_port}")
+    print(f"  → Point your browser/client at http://localhost:{proxy_port}")
+    print(f"  → Auto-stops after {idle_timeout}s idle or Ctrl+C\n")
+
+    try:
+        while True:
+            server.handle_request()
+            if time.time() - last_activity > idle_timeout and sessions:
+                print(f"\n  {D('Idle timeout reached.')}")
+                break
+    except KeyboardInterrupt:
+        pass
+
+    if sessions:
+        session_file = DATA / f"session_{int(time.time())}.json"
+        session_file.write_text(json.dumps(sessions, indent=2))
+        print(f"\n  {G('✓')} Recorded {len(sessions)} interactions → {session_file}")
+        export_sessions()
+    else:
+        print(f"\n  {D('No interactions recorded.')}")
+
+
+def replay_sessions() -> None:
+    """Replay recorded sessions as regression tests."""
+    sessions = list(DATA.glob("session_*.json"))
+    if not sessions:
+        print(R("No recordings found. Run: ms-keploy record first."))
+        return
+
+    print(f"\n  Replaying {len(sessions)} session(s)…\n")
+    failures = []
+
+    for sf in sorted(sessions):
+        interactions = json.loads(sf.read_text())
+        print(f"  {D(sf.name)} ({len(interactions)} interactions)")
+
+        import urllib.request
+        base = "http://localhost:8080"
+        for ix in interactions:
+            try:
+                req = urllib.request.Request(
+                    f"{base}{ix['path']}",
+                    data=ix["request_body"].encode() if ix["request_body"] else None,
+                    method=ix["method"],
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    if resp.status != ix["response_status"]:
+                        failures.append({
+                            "path": ix["path"],
+                            "expected": ix["response_status"],
+                            "actual": resp.status,
+                        })
+            except Exception as e:
+                failures.append({"path": ix["path"], "error": str(e)})
+
+    # Write replay results for LLM ingestion
+    import time as _t
+    replay_report = {
+        "tool": "keploy",
+        "generated_at": int(_t.time()),
+        "total_replayed": sum(
+            len(json.loads(sf.read_text())) for sf in sorted(sessions)
+        ),
+        "regressions": len(failures),
+        "passed": len(failures) == 0,
+        "findings": [
+            {
+                "path": f.get("path", "?"),
+                "method": "GET",
+                "expected_status": f.get("expected", "?"),
+                "actual_status": f.get("actual", "error"),
+                "error": f.get("error", ""),
+            }
+            for f in failures[:20]
+        ],
+    }
+    REPORT_FILE = DATA.parent / "data" / "keploy_replay_report.json"
+    REPORT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    REPORT_FILE.write_text(json.dumps(replay_report, indent=2))
+
+    if failures:
+        print(f"\n  {R(f'✗ {len(failures)} regressions found:')}")
+        for f in failures[:10]:
+            print(f"  {f}")
+        print(f"  Findings → {REPORT_FILE}")
+    else:
+        print(f"\n  {G('✓ All recorded sessions replay correctly — no regressions')}")
+
+
+def export_sessions() -> None:
+    """Convert recorded sessions to a pytest test file."""
+    sessions = list(DATA.glob("session_*.json"))
+    if not sessions:
+        print(R("No recordings to export."))
+        return
+
+    all_interactions = []
+    for sf in sorted(sessions)[-5:]:  # last 5 sessions only
+        all_interactions.extend(json.loads(sf.read_text()))
+
+    # Deduplicate by path+method
+    seen = set()
+    unique = []
+    for ix in all_interactions:
+        key = f"{ix['method']}:{ix['path']}"
+        if key not in seen:
+            seen.add(key)
+            unique.append(ix)
+
+    lines = [
+        '"""tests/test_keploy_regression.py',
+        '',
+        'AUTO-GENERATED by ms-keploy export.',
+        'Regression tests from recorded real API sessions.',
+        'DO NOT EDIT — re-run ms-keploy export to regenerate.',
+        '',
+        f'Generated: {datetime.now().isoformat()}',
+        f'Sessions: {len(sessions)} recorded, {len(unique)} unique interactions',
+        '"""',
+        'import pytest',
+        'import urllib.request',
+        '',
+        '',
+        '@pytest.fixture(scope="module")',
+        'def _live_server():',
+        '    """Skip if server not running."""',
+        '    try:',
+        '        urllib.request.urlopen("http://localhost:8080/api/platform/status", timeout=3)',
+        '    except Exception:',
+        '        pytest.skip("Keploy regression tests require live server")',
+        '',
+        '',
+        'class TestKeployRegressions:',
+        '    """Replayed from real API sessions. Each test proves a real flow still works."""',
+        '',
+    ]
+
+    for i, ix in enumerate(unique[:50]):  # cap at 50 tests
+        safe_name = ix["path"].replace("/", "_").replace("-", "_").strip("_")[:40]
+        method = ix["method"].lower()
+        lines += [
+            f'    def test_{method}_{safe_name}_{i:03d}(self, _live_server):',
+            f'        """Recorded: {ix["method"]} {ix["path"]} → {ix["response_status"]}"""',
+            f'        req = urllib.request.Request(',
+            f'            "http://localhost:8080{ix["path"]}",',
+            f'            method="{ix["method"]}",',
+            f'        )',
+            f'        try:',
+            f'            with urllib.request.urlopen(req, timeout=10) as resp:',
+            f'                assert resp.status == {ix["response_status"]}, (',
+            f'                    f"Regression: {ix["method"]} {ix["path"]} expected '
+            f'{ix["response_status"]} got {{resp.status}}"',
+            f'                )',
+            f'        except urllib.error.HTTPError as e:',
+            f'            assert e.code == {ix["response_status"]}',
+            '',
+        ]
+
+    content = "\n".join(lines)
+    ast.parse(content)  # verify syntax
+    EXPORT_OUT.write_text(content)
+    print(f"  {G('✓')} Exported {len(unique)} regression tests → {EXPORT_OUT}")
+
+
+def show_status() -> None:
+    """Show recording inventory."""
+    DATA.mkdir(parents=True, exist_ok=True)
+    sessions = list(DATA.glob("session_*.json"))
+    print(f"\n  Keploy Recording Status")
+    print(f"  {'─'*40}")
+    print(f"  Sessions recorded: {len(sessions)}")
+
+    if sessions:
+        total = sum(len(json.loads(s.read_text())) for s in sessions)
+        print(f"  Total interactions: {total}")
+        latest = max(sessions, key=lambda s: s.stat().st_mtime)
+        age = int(time.time() - latest.stat().st_mtime)
+        print(f"  Latest: {latest.name} ({age}s ago)")
+
+    export_exists = EXPORT_OUT.exists()
+    print(f"  Regression tests: {'yes — ' + str(EXPORT_OUT) if export_exists else 'none yet'}")
+    print()
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    mode = args[0] if args else "record"
+
+    idle_timeout = 120
+    if "--timeout" in args:
+        idx = args.index("--timeout")
+        idle_timeout = int(args[idx + 1]) if idx + 1 < len(args) else 120
+
+    if mode == "record":
+        record_traffic(idle_timeout=idle_timeout)
+    elif mode == "replay":
+        replay_sessions()
+    elif mode == "export":
+        export_sessions()
+    elif mode == "status":
+        show_status()
+    else:
+        print(f"Unknown mode: {mode}. Use: record | replay | export | status")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

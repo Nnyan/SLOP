@@ -1,0 +1,492 @@
+#!/usr/bin/env python3
+"""ms-rule-contract — Rule-Addition Contract Verifier
+
+When a Core Rule is added to docs/CORE_RULES.md or ms-coverage, this tool
+verifies that all required companion changes are present in the same commit.
+
+Design: docs/adr/0012-rule-addition-contract.md
+
+Checks (C1–C5) for each newly-added numeric rule id (format N.NN):
+  C1  CORE_RULES.md heading and ms-coverage RULES entry agree title (hard block)
+  C2  Version history row added to Section 8 with today's date (hard block)
+  C3  coverage_map.json contains a node for the new rule (hard block)
+  C4  Snapshot 'N total' matches rule count in coverage_map.json (hard block)
+  C5  test_fn named in RULES entry exists in test_file (warn only)
+
+Audit invariants (--audit, full repo):
+  1  Every ### N.NN heading has a matching RULES entry
+  2  Every numeric RULES entry has a matching heading (orphan check)
+  3  coverage_map.json has a node for every numeric RULES entry
+  4  Snapshot count matches coverage_map rule count
+  5  Every test_fn in RULES list is defined in its test_file
+  6  Every numeric rule has a version history row in Section 8
+
+Usage:
+  ms-rule-contract --check   # staged-diff check (pre-commit hook)
+  ms-rule-contract --audit   # full repo audit (CI / release gate)
+
+Install: sudo ln -sf /srv/mediastack/ms-rule-contract /usr/local/bin/ms-rule-contract
+"""
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from datetime import date
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent
+
+_RESET = "\033[0m"; _BOLD = "\033[1m"; _DIM = "\033[2m"
+_GREEN = "\033[0;32m"; _YELLOW = "\033[1;33m"; _RED = "\033[0;31m"; _CYAN = "\033[0;36m"
+
+
+def G(s: str) -> str: return f"{_GREEN}{s}{_RESET}"
+def R(s: str) -> str: return f"{_RED}{s}{_RESET}"
+def Y(s: str) -> str: return f"{_YELLOW}{s}{_RESET}"
+def D(s: str) -> str: return f"{_DIM}{s}{_RESET}"
+def B(s: str) -> str: return f"{_BOLD}{s}{_RESET}"
+def C(s: str) -> str: return f"{_CYAN}{s}{_RESET}"
+
+
+def ok(msg: str)   -> None: print(f"  {G(chr(10003))} {msg}")
+def fail(msg: str) -> None: print(f"  {R(chr(10007))} {msg}")
+def warn(msg: str) -> None: print(f"  {Y('!')} {msg}")
+def info(msg: str) -> None: print(f"  {C(chr(8594))} {msg}")
+
+_SEP = chr(9472) * 60
+
+CORE_RULES  = "docs/CORE_RULES.md"
+MS_COVERAGE = "ms-coverage"
+MAP_PATH    = "data/coverage_map.json"
+SNAP_PATH   = "tests/__snapshots__/test_cli_snapshots.ambr"
+
+# Regex patterns
+HEADING_RE    = re.compile(r"^### (\d+\.\d+) (.+)$", re.MULTILINE)
+RULE_ID_RE    = re.compile(r'"id":\s*"(\d+\.\d+)"')
+LABEL_RE      = re.compile(r'"label":\s*"([^"]+)"')
+SEC8_ROW_RE   = re.compile(r'^\|\s*(\d{4}-\d{2}-\d{2})\s*\|\s*(.+?)\s*\|')
+SNAP_COUNT_RE = re.compile(r'Active Core Rules \((\d+) total\)')
+SNAP_LABEL_RE = re.compile(r'\s+[✓✗]\s+\[\w{4}\]\s+(.+)')
+TODAY         = date.today().isoformat()
+
+
+# ── Git helpers ──────────────────────────────────────────────────────────────
+
+def _staged_diff(path: str) -> str:
+    r = subprocess.run(
+        ["git", "diff", "--cached", "--", path],
+        capture_output=True, text=True, cwd=str(REPO)
+    )
+    return r.stdout
+
+
+def _staged_content(path: str) -> str:
+    """Staged (index) content; falls back to disk if file is unmodified."""
+    r = subprocess.run(
+        ["git", "show", f":0:{path}"],
+        capture_output=True, text=True, cwd=str(REPO)
+    )
+    if r.returncode == 0:
+        return r.stdout
+    p = REPO / path
+    return p.read_text(errors="replace") if p.exists() else ""
+
+
+def _live_content(path: str) -> str:
+    p = REPO / path
+    return p.read_text(errors="replace") if p.exists() else ""
+
+
+# ── Parsers ──────────────────────────────────────────────────────────────────
+
+def added_heading_ids(diff: str) -> dict[str, str]:
+    """Return {rule_id: title} for genuinely new ### N.NN headings in diff.
+
+    An ID is 'new' only when it appears in + lines but not in - lines.
+    This avoids false positives when a rule's title text is edited in place
+    (which produces a paired +/- for the same ID) or when a rule is renumbered
+    (old ID in -, new ID in + -- the new ID is a real addition; the old ID
+    deletion is out of scope per ADR 0012).
+    """
+    added: dict[str, str] = {}
+    deleted_ids: set[str] = set()
+    for line in diff.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+"):
+            m = HEADING_RE.match(line[1:])
+            if m:
+                added[m.group(1)] = m.group(2).strip()
+        elif line.startswith("-"):
+            m = HEADING_RE.match(line[1:])
+            if m:
+                deleted_ids.add(m.group(1))
+    return {rid: title for rid, title in added.items() if rid not in deleted_ids}
+
+
+def added_rules_ids(diff: str) -> set[str]:
+    """Return set of numeric rule IDs from added RULES list lines in diff."""
+    ids: set[str] = set()
+    for line in diff.splitlines():
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        m = RULE_ID_RE.search(line[1:])
+        if m:
+            ids.add(m.group(1))
+    return ids
+
+
+def all_heading_ids(content: str) -> dict[str, str]:
+    """Return {rule_id: title} for all ### N.NN headings in file."""
+    return {m.group(1): m.group(2).strip() for m in HEADING_RE.finditer(content)}
+
+
+def all_rules_list_ids(content: str) -> dict[str, str]:
+    """Return {rule_id: label} for all numeric-ID RULES entries in ms-coverage."""
+    result: dict[str, str] = {}
+    for m in RULE_ID_RE.finditer(content):
+        rule_id = m.group(1)
+        # Look for the label field following this id within the same entry block
+        search_start = m.end()
+        nearby = content[search_start:search_start + 400]
+        lm = LABEL_RE.search(nearby)
+        result[rule_id] = lm.group(1) if lm else ""
+    return result
+
+
+def section8_rows(content: str) -> list[tuple[str, str]]:
+    """Return [(date_str, row_text)] from Section 8 version history table."""
+    match = re.search(r"## Section 8", content)
+    if not match:
+        return []
+    section = content[match.start():]
+    rows = []
+    for line in section.splitlines():
+        m = SEC8_ROW_RE.match(line)
+        if m:
+            rows.append((m.group(1), m.group(2)))
+    return rows
+
+
+def coverage_map_rule_count(content: str) -> int:
+    """Return count of rule-kind nodes in coverage_map.json content."""
+    try:
+        data = json.loads(content)
+        return sum(1 for n in data.get("nodes", []) if n.get("kind") == "rule")
+    except (json.JSONDecodeError, KeyError):
+        return -1
+
+
+def coverage_map_rule_node_ids(content: str) -> set[str]:
+    """Return set of node IDs (e.g. 'rule:5.25') from coverage_map.json."""
+    try:
+        data = json.loads(content)
+        return {n["id"] for n in data.get("nodes", []) if n.get("kind") == "rule"}
+    except (json.JSONDecodeError, KeyError):
+        return set()
+
+
+def snapshot_rule_count(content: str) -> int:
+    """Return the 'N total' count from the list-rules snapshot."""
+    m = SNAP_COUNT_RE.search(content)
+    return int(m.group(1)) if m else -1
+
+
+def snapshot_rule_labels(content: str) -> list[str]:
+    """Return rule label lines from snapshot (truncated at 65 chars)."""
+    labels = []
+    for line in content.splitlines():
+        m = SNAP_LABEL_RE.match(line)
+        if m:
+            labels.append(m.group(1).strip())
+    return labels
+
+
+def test_fn_exists(test_fn: str, test_file: str) -> bool:
+    """Return True if test_fn is defined (any signature) in test_file."""
+    p = REPO / test_file
+    if not p.exists():
+        return False
+    return f"def {test_fn}" in p.read_text(errors="replace")
+
+
+def find_rule_test_info(rule_id: str, content: str) -> tuple[str, str]:
+    """Return (test_fn, test_file) for a numeric rule_id in ms-coverage content."""
+    m = re.search(
+        r'"id":\s*"' + re.escape(rule_id) + r'"(.+?)"test_fn":\s*"([^"]+)"(.+?)"test_file":\s*"([^"]+)"',
+        content, re.DOTALL
+    )
+    if m:
+        return m.group(2), m.group(4)
+    return "", ""
+
+
+# ── Core check logic ─────────────────────────────────────────────────────────
+
+def run_companion_checks(
+    rule_ids: set[str],
+    cr_content: str,
+    cov_content: str,
+    map_content: str,
+    snap_content: str,
+) -> tuple[list[str], list[str]]:
+    """Run C1–C5 for each rule_id. Returns (errors, warnings)."""
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    heading_map   = all_heading_ids(cr_content)
+    rules_map     = all_rules_list_ids(cov_content)
+    s8_rows       = section8_rows(cr_content)
+    map_node_ids  = coverage_map_rule_node_ids(map_content)
+    map_count     = coverage_map_rule_count(map_content)
+    snap_count    = snapshot_rule_count(snap_content)
+    snap_labels   = snapshot_rule_labels(snap_content)
+
+    # Collision detection — side effect of C1
+    heading_counts: dict[str, int] = {}
+    for m in HEADING_RE.finditer(cr_content):
+        heading_counts[m.group(1)] = heading_counts.get(m.group(1), 0) + 1
+    for hid, cnt in heading_counts.items():
+        if cnt > 1:
+            errors.append(f"C1 COLLISION [{hid}]: id appears {cnt}x in {CORE_RULES}")
+
+    entry_counts: dict[str, int] = {}
+    for m in RULE_ID_RE.finditer(cov_content):
+        eid = m.group(1)
+        entry_counts[eid] = entry_counts.get(eid, 0) + 1
+    for eid, cnt in entry_counts.items():
+        if cnt > 1:
+            errors.append(f"C1 COLLISION [{eid}]: id appears {cnt}x in {MS_COVERAGE} RULES list")
+
+    for rule_id in sorted(rule_ids):
+
+        # C1: heading and RULES entry both exist and agree on title
+        has_heading = rule_id in heading_map
+        has_entry   = rule_id in rules_map
+        if not has_heading:
+            errors.append(f"C1 [{rule_id}]: no '### {rule_id}' heading in {CORE_RULES}")
+        if not has_entry:
+            errors.append(f"C1 [{rule_id}]: no RULES entry with id '{rule_id}' in {MS_COVERAGE}")
+        if has_heading and has_entry:
+            h_title = heading_map[rule_id]
+            e_label = rules_map[rule_id]
+            if h_title.strip() != e_label.strip():
+                errors.append(
+                    f"C1 [{rule_id}]: title mismatch\n"
+                    f"    heading: '{h_title}'\n"
+                    f"    label:   '{e_label}'"
+                )
+
+        # C2: Section 8 has today's row referencing this rule id
+        matched = any(
+            rule_id in row_text and date_str == TODAY
+            for date_str, row_text in s8_rows
+        )
+        if not matched:
+            errors.append(
+                f"C2 [{rule_id}]: Section 8 in {CORE_RULES} needs a row dated {TODAY} "
+                f"referencing rule {rule_id}"
+            )
+
+        # C3: coverage_map.json has a node for this rule
+        expected_node = f"rule:{rule_id}"
+        if expected_node not in map_node_ids:
+            errors.append(
+                f"C3 [{rule_id}]: node '{expected_node}' missing from {MAP_PATH} — "
+                f"regenerate with: python3 ms-coverage"
+            )
+
+    # C4: snapshot count matches coverage_map count
+    if map_count >= 0 and snap_count >= 0:
+        if snap_count != map_count:
+            errors.append(
+                f"C4: snapshot shows {snap_count} rules but {MAP_PATH} has {map_count} — "
+                f"update snapshot with: python3 -m pytest tests/test_cli_snapshots.py --snapshot-update"
+            )
+
+    # C4 (label check): each new rule label appears in snapshot
+    for rule_id in sorted(rule_ids):
+        if rule_id in rules_map and rules_map[rule_id]:
+            label = rules_map[rule_id]
+            prefix = label[:60]
+            if not any(prefix in snap_line for snap_line in snap_labels):
+                errors.append(
+                    f"C4 [{rule_id}]: label '{label[:50]}' not found in snapshot — "
+                    f"update snapshot with: python3 -m pytest tests/test_cli_snapshots.py --snapshot-update"
+                )
+
+    # C5: test_fn exists in test_file (warn only)
+    for rule_id in sorted(rule_ids):
+        test_fn, test_file = find_rule_test_info(rule_id, cov_content)
+        if test_fn and test_file:
+            if not test_fn_exists(test_fn, test_file):
+                warnings.append(
+                    f"C5 [{rule_id}]: test_fn '{test_fn}' not defined in {test_file} — "
+                    f"add a stub before next release"
+                )
+        elif rule_id in rules_map:
+            warnings.append(
+                f"C5 [{rule_id}]: RULES entry missing test_fn/test_file fields"
+            )
+
+    return errors, warnings
+
+
+# ── Commands ─────────────────────────────────────────────────────────────────
+
+def cmd_check() -> None:
+    """--check: staged-diff check for pre-commit hook."""
+    print(f"\n  {_SEP}")
+    print(f"  {B('Rule-Addition Contract Check')} (staged changes)")
+    print(f"  {_SEP}\n")
+
+    cr_diff  = _staged_diff(CORE_RULES)
+    cov_diff = _staged_diff(MS_COVERAGE)
+
+    from_headings = added_heading_ids(cr_diff)
+    from_rules    = added_rules_ids(cov_diff)
+    all_new_ids   = set(from_headings) | from_rules
+
+    if not all_new_ids:
+        ok("No Core Rule additions detected — contract satisfied")
+        print()
+        return
+
+    info(f"New rule id(s) detected: {', '.join(sorted(all_new_ids))}")
+    print()
+
+    cr_content   = _staged_content(CORE_RULES)
+    cov_content  = _staged_content(MS_COVERAGE)
+    map_content  = _staged_content(MAP_PATH)
+    snap_content = _staged_content(SNAP_PATH)
+
+    errors, warnings = run_companion_checks(
+        all_new_ids, cr_content, cov_content, map_content, snap_content
+    )
+
+    for w in warnings:
+        warn(w)
+
+    if errors:
+        for e in errors:
+            fail(e)
+        print()
+        print(f"  {Y('!')} Commit blocked — fix the above before committing.")
+        print(f"  {D('See docs/adr/0012-rule-addition-contract.md for the full checklist.')}")
+        print()
+        sys.exit(1)
+
+    ok(f"All companion checks passed for: {', '.join(sorted(all_new_ids))}")
+    if warnings:
+        warn(f"{len(warnings)} C5 warning(s) — add test stubs before release")
+    print()
+
+
+def cmd_audit() -> None:
+    """--audit: full repo state audit (CI / release gate)."""
+    print(f"\n  {_SEP}")
+    print(f"  {B('Rule-Addition Contract Audit')} (full repo)")
+    print(f"  {_SEP}\n")
+
+    cr_content   = _live_content(CORE_RULES)
+    cov_content  = _live_content(MS_COVERAGE)
+    map_content  = _live_content(MAP_PATH)
+    snap_content = _live_content(SNAP_PATH)
+
+    if not cr_content:
+        fail(f"{CORE_RULES} not found")
+        sys.exit(1)
+    if not cov_content:
+        fail(f"{MS_COVERAGE} not found")
+        sys.exit(1)
+
+    heading_map   = all_heading_ids(cr_content)
+    rules_map     = all_rules_list_ids(cov_content)
+    s8_rows       = section8_rows(cr_content)
+    map_node_ids  = coverage_map_rule_node_ids(map_content)
+    map_count     = coverage_map_rule_count(map_content)
+    snap_count    = snapshot_rule_count(snap_content)
+
+    findings: list[str] = []
+
+    # heading→entry enforcement (original INV-1) is handled at commit time by C1
+    # in --check. Audit only checks consistency for numeric-ID RULES entries.
+
+    # Invariant 1: every numeric RULES entry has a heading (orphan check)
+    for rule_id in sorted(rules_map):
+        if rule_id not in heading_map:
+            findings.append(
+                f"INV-1 [{rule_id}]: RULES entry '{rule_id}' has no matching heading "
+                f"in {CORE_RULES}"
+            )
+
+    # Invariant 2: coverage_map.json has a node for every numeric RULES entry
+    for rule_id in sorted(rules_map):
+        expected_node = f"rule:{rule_id}"
+        if expected_node not in map_node_ids:
+            findings.append(
+                f"INV-2 [{rule_id}]: node '{expected_node}' missing from {MAP_PATH}"
+            )
+
+    # Invariant 3: snapshot count matches coverage_map count
+    if map_count >= 0 and snap_count >= 0 and snap_count != map_count:
+        findings.append(
+            f"INV-3: snapshot shows {snap_count} rules but {MAP_PATH} has {map_count}"
+        )
+
+    # Invariant 4: every test_fn in RULES list is defined in its test_file
+    for rule_id in sorted(rules_map):
+        test_fn, test_file = find_rule_test_info(rule_id, cov_content)
+        if test_fn and test_file:
+            if not test_fn_exists(test_fn, test_file):
+                findings.append(
+                    f"INV-4 [{rule_id}]: test_fn '{test_fn}' not defined in {test_file}"
+                )
+
+    # Invariant 5: every numeric rule has a version history row in Section 8
+    for rule_id in sorted(rules_map):
+        has_row = any(rule_id in row_text for _, row_text in s8_rows)
+        if not has_row:
+            findings.append(
+                f"INV-5 [{rule_id}]: no Section 8 row in {CORE_RULES} references rule {rule_id}"
+            )
+
+    if not findings:
+        ok(f"Audit clean — {len(rules_map)} numeric rule(s) verified across all 5 invariants")
+        if not rules_map:
+            info("No numeric-ID RULES entries found — contract has no rules to audit yet")
+        print()
+        sys.exit(0)
+
+    for f in findings:
+        fail(f)
+    print()
+    print(f"  {Y('!')} {len(findings)} invariant violation(s) — audit failed")
+    print(f"  {D('See docs/adr/0012-rule-addition-contract.md for remediation guidance.')}")
+    print()
+    sys.exit(1)
+
+
+# ── Entry point ──────────────────────────────────────────────────────────────
+
+def main() -> None:
+    args = sys.argv[1:]
+    if not args or "--help" in args or "-h" in args:
+        print("Usage:")
+        print("  ms-rule-contract --check   # staged-diff check (pre-commit)")
+        print("  ms-rule-contract --audit   # full repo audit (CI / release gate)")
+        sys.exit(0)
+
+    if "--check" in args:
+        cmd_check()
+    elif "--audit" in args:
+        cmd_audit()
+    else:
+        print(f"Unknown argument: {args[0]}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

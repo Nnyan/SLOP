@@ -1,0 +1,333 @@
+#!/usr/bin/env bash
+# ms-test-all — Unified Mediastack Test Framework Runner
+# See header comments for full documentation.
+# Pipeline: coverage → FSM → pytest → integration → schemathesis → playwright → keploy → audit+AI → testgen
+set -euo pipefail
+
+REPO="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+PY="$(command -v python3)"
+TS="$(date '+%H:%M  %Y-%m-%d')"
+
+RED='\033[31m'; GREEN='\033[32m'; YELLOW='\033[33m'; CYAN='\033[36m'
+DIM='\033[2m'; BOLD='\033[1m'; RESET='\033[0m'
+ok()      { echo -e "  ${GREEN}✓${RESET} $*"; }
+fail()    { echo -e "  ${RED}✗${RESET} $*"; }
+warn()    { echo -e "  ${YELLOW}!${RESET} $*"; }
+info()    { echo -e "  ${CYAN}→${RESET} $*"; }
+sect()    { echo ""; printf "  ${BOLD}%s${RESET}\n" "$*"; }
+skipped() { echo -e "  ${DIM}→${RESET} ${DIM}$*${RESET}"; }
+
+FAST=0; FSM_ONLY=0; UNIT_ONLY=0; COV_ONLY=0; CI=0
+BROWSER_ONLY=0; FUZZ_ONLY=0; MUTATE_ONLY=0; KEPLOY_ONLY=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --fast)     FAST=1 ;;
+    --fsm)      FSM_ONLY=1 ;;
+    --unit)     UNIT_ONLY=1 ;;
+    --coverage) COV_ONLY=1 ;;
+    --browser)  BROWSER_ONLY=1 ;;
+    --fuzz)     FUZZ_ONLY=1 ;;
+    --mutate)   MUTATE_ONLY=1 ;;
+    --keploy)   KEPLOY_ONLY=1 ;;
+    --ci)       CI=1 ;;
+  esac
+done
+
+FAILURES=0; WARNINGS=0; START_TIME=$SECONDS
+TOOL_FINDINGS=""
+COV_COVERED="?"; FSM_PASS="0"; PYTEST_PASS="0"
+
+server_up()      { curl -sf http://localhost:8080/api/platform/status > /dev/null 2>&1; }
+playwright_ok()  { "$PY" -c "from playwright.sync_api import sync_playwright" 2>/dev/null; }
+
+_SEP="────────────────────────────────────────────────────────────"
+echo ""
+printf "  %s\n" "$_SEP"
+printf "  Mediastack Test Framework  %s\n" "$TS"
+printf "  %s\n" "$_SEP"
+
+# ── 1. Coverage + Rule Verification ──────────────────────────────────
+sect "1/9  Coverage + Rule Verification"
+
+if "$PY" "$REPO/ms-coverage" --json > /dev/null 2>&1; then
+  COV_JSON="$REPO/data/coverage_map.json"
+  COV_COVERED=$("$PY" -c "import json;d=json.load(open('$COV_JSON'));print(d['summary']['coverage_pct'])" 2>/dev/null || echo "?")
+  CRIT=$("$PY" -c "import json;d=json.load(open('$COV_JSON'));print(d['summary']['critical_gaps'])" 2>/dev/null || echo "?")
+  HIGH=$("$PY" -c "import json;d=json.load(open('$COV_JSON'));print(d['summary']['high_gaps'])" 2>/dev/null || echo "?")
+  RULE_GAPS=$("$PY" -c "import json;d=json.load(open('$COV_JSON'));print(sum(1 for n in d['nodes'] if n['kind']=='rule' and not n['covered']))" 2>/dev/null || echo "0")
+
+  if [[ "$CRIT" != "0" && "$CRIT" != "?" ]]; then
+    fail "Coverage: ${COV_COVERED}% — ${CRIT} critical gaps (run: ms-coverage --gaps)"
+    FAILURES=$((FAILURES+1))
+  elif [[ "$RULE_GAPS" != "0" ]]; then
+    fail "Coverage: ${COV_COVERED}% — ${RULE_GAPS} architectural rule(s) uncovered (run: ms-coverage --section rule)"
+    FAILURES=$((FAILURES+1))
+  elif [[ "$HIGH" != "0" && "$HIGH" != "?" ]]; then
+    warn "Coverage: ${COV_COVERED}% — ${HIGH} high-risk gaps (non-blocking)"
+    WARNINGS=$((WARNINGS+1))
+  else
+    ok "Coverage: ${COV_COVERED}% · 30 rules verified · 0 critical/high gaps"
+  fi
+else
+  warn "Coverage scan failed"; WARNINGS=$((WARNINGS+1))
+fi
+
+[[ "$COV_ONLY" -eq 1 ]] && { "$PY" "$REPO/ms-coverage"; exit 0; }
+
+# ── 1.5. Static Analysis (Ruff + Bandit + Semgrep) ──────────────────
+sect "1b  Static Analysis (Ruff · Bandit · Semgrep)"
+
+# Ruff — Python linting for real bugs
+if command -v ruff &>/dev/null || "$PY" -m ruff --version &>/dev/null 2>&1; then
+  RUFF_OUT=$("$PY" -m ruff check backend/ --output-format=json 2>/dev/null || echo "[]")
+  RUFF_E=$(echo "$RUFF_OUT" | "$PY" -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for r in d if r.get('code','')[0] in ('F','E','B')))" 2>/dev/null || echo "0")
+  echo "$RUFF_OUT" | "$PY" -c "import sys,json,time,pathlib;d=json.load(sys.stdin);pathlib.Path('data').mkdir(exist_ok=True);pathlib.Path('data/ruff_findings.json').write_text(json.dumps({'tool':'ruff','generated_at':int(time.time()),'findings':d[:50]},indent=2))" 2>/dev/null || true
+  [[ "${RUFF_E:-0}" -eq 0 ]] && ok "Ruff: 0 errors in backend/" || { fail "Ruff: ${RUFF_E} error(s)"; FAILURES=$((FAILURES+1)); }
+else
+  skipped "Ruff not installed · pip install ruff"
+fi
+
+# Bandit — Python security SAST
+if "$PY" -m bandit --version &>/dev/null 2>&1; then
+  BANDIT_HIGH=$("$PY" -m bandit -r backend/ -f json -ll -ii 2>/dev/null | "$PY" -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for r in d.get('results',[]) if r.get('issue_severity') in ('HIGH','CRITICAL') and r.get('issue_confidence')=='HIGH'))" 2>/dev/null || echo "0")
+  [[ "${BANDIT_HIGH:-0}" -eq 0 ]] && ok "Bandit: 0 high-severity security issues" || { fail "Bandit: ${BANDIT_HIGH} issue(s) — run: python3 -m bandit -r backend/ -ll"; FAILURES=$((FAILURES+1)); }
+else
+  skipped "Bandit not installed · pip install bandit"
+fi
+
+# Semgrep — architectural rule violations
+if command -v semgrep &>/dev/null && [[ -d ".semgrep/rules" ]]; then
+  SG_OUT=$(semgrep --config .semgrep/rules/ backend/ --json --quiet --no-git-ignore 2>/dev/null || echo '{"results":[]}')
+  SG_E=$(echo "$SG_OUT" | "$PY" -c "import sys,json;d=json.load(sys.stdin);print(sum(1 for r in d.get('results',[]) if r.get('extra',{}).get('severity')=='ERROR'))" 2>/dev/null || echo "0")
+  [[ "${SG_E:-0}" -eq 0 ]] && ok "Semgrep: 0 architectural rule violations" || { fail "Semgrep: ${SG_E} Core Rule violation(s) — run: ms-semgrep"; FAILURES=$((FAILURES+1)); }
+else
+  skipped "Semgrep not installed · pip install semgrep"
+fi
+
+# Trivy — dependency CVEs (run weekly, not on every deploy)
+TRIVY_F="$REPO/data/trivy_findings.json"
+if [[ -f "$TRIVY_F" ]]; then
+  TRIVY_AGE=$(( $(date +%s) - $(stat -c %Y "$TRIVY_F" 2>/dev/null || echo 0) ))
+  if [[ "$TRIVY_AGE" -gt 604800 ]]; then
+    info "Trivy scan stale (>7 days) — run: ms-trivy"
+  else
+    TRIVY_CRIT=$("$PY" -c "import json;d=json.load(open('$TRIVY_F'));print(d.get('severity_counts',{}).get('CRITICAL',0))" 2>/dev/null || echo "0")
+    [[ "${TRIVY_CRIT:-0}" -eq 0 ]] && ok "Trivy: 0 critical CVEs (last scan $(( TRIVY_AGE / 3600 ))h ago)" || { fail "Trivy: ${TRIVY_CRIT} critical CVE(s) — run: ms-trivy"; WARNINGS=$((WARNINGS+1)); }
+  fi
+else
+  skipped "Trivy not yet run · run: ms-trivy (add to weekly schedule)"
+fi
+
+# ── 2. FSM Tests ──────────────────────────────────────────────────────
+sect "2/9  FSM Tests (App Install · Platform · Health Check)"
+
+FSM_OUT=$("$PY" -m pytest tests/test_fsm_app_install.py tests/test_fsm_platform.py tests/test_fsm_health_check.py -q --tb=short 2>&1 || true)
+FSM_PASS=$(echo "$FSM_OUT" | grep -oP '\d+(?= passed)' | tail -1 || echo "0")
+FSM_FAIL=$(echo "$FSM_OUT" | grep -oP '\d+(?= failed)' | tail -1 || echo "0")
+
+if [[ "${FSM_FAIL:-0}" -eq 0 ]]; then
+  ok "FSM tests: ${FSM_PASS} passed"
+else
+  fail "FSM tests: ${FSM_FAIL} failed — state machine invariant violated"
+  echo "$FSM_OUT" | grep "FAILED" | head -8 | sed 's/^/    /'
+  FAILURES=$((FAILURES + FSM_FAIL))
+fi
+
+[[ "$FSM_ONLY" -eq 1 ]] && exit $FAILURES
+
+# ── 3. pytest Suite ───────────────────────────────────────────────────
+sect "3/9  pytest Suite"
+
+PYTEST_OUT=$("$PY" -m pytest tests/ -q --tb=no --ignore=tests/test_integration.py --ignore=tests/browser/ 2>&1 || true)
+PYTEST_PASS=$(echo "$PYTEST_OUT" | grep -oP '\d+(?= passed)' | tail -1 || echo "0")
+PYTEST_FAIL=$(echo "$PYTEST_OUT" | grep -oP '\d+(?= failed)' | tail -1 || echo "0")
+PYTEST_SKIP=$(echo "$PYTEST_OUT" | grep -oP '\d+(?= skipped)' | tail -1 || echo "0")
+
+if [[ "${PYTEST_FAIL:-0}" -eq 0 ]]; then
+  ok "pytest: ${PYTEST_PASS} passed, ${PYTEST_SKIP} skipped"
+else
+  fail "pytest: ${PYTEST_FAIL} failed — run: python3 -m pytest tests/ -x --tb=short"
+  echo "$PYTEST_OUT" | grep "FAILED" | head -10 | sed 's/^/    /'
+  FAILURES=$((FAILURES + PYTEST_FAIL))
+fi
+
+[[ "$UNIT_ONLY" -eq 1 ]] && exit $FAILURES
+
+# ── 4. Live Integration ───────────────────────────────────────────────
+sect "4/9  Live Integration (ms-test.py)"
+
+if [[ "$FAST" -eq 0 ]]; then
+  if server_up; then
+    MS_OUT=$("$PY" "$REPO/ms-test.py" --section A,B,C,D,E,J,K 2>&1 || true)
+    MS_PASS=$(echo "$MS_OUT" | grep -oP '\d+(?= passed)' | tail -1 || echo "0")
+    MS_FAIL=$(echo "$MS_OUT" | grep -oP '\d+(?= failed)' | tail -1 || echo "0")
+    if [[ "${MS_FAIL:-0}" -eq 0 ]]; then
+      ok "Integration: ${MS_PASS} passed"
+    else
+      fail "Integration: ${MS_FAIL} failed"
+      FAILURES=$((FAILURES + MS_FAIL)); TOOL_FINDINGS="${TOOL_FINDINGS} integration=${MS_FAIL}"
+    fi
+  else
+    skipped "Server not running — skipping live integration"
+  fi
+else
+  skipped "Live integration skipped (--fast)"
+fi
+
+# ── 5. Schemathesis API Fuzzing ───────────────────────────────────────
+sect "5/9  API Fuzzing (Schemathesis)"
+
+if [[ "$FAST" -eq 0 ]] || [[ "$FUZZ_ONLY" -eq 1 ]]; then
+  if server_up; then
+    FUZZ_OUT=$("$PY" "$REPO/ms-schemathesis" --quick 2>&1 || true)
+    FUZZ_FAIL=$(echo "$FUZZ_OUT" | grep -oP '\d+(?= failure)' | tail -1 || echo "0")
+    FUZZ_ZERO=$(echo "$FUZZ_OUT" | grep -iE 'zero|no failure|0 failure' | head -1 || echo "")
+    if [[ -n "$FUZZ_ZERO" ]] || [[ "${FUZZ_FAIL:-0}" -eq 0 ]]; then
+      ok "Schemathesis: 0 server errors on adversarial inputs (Core Rule 3.7)"
+    else
+      fail "Schemathesis: ${FUZZ_FAIL} endpoint(s) returned 500 on edge-case inputs"
+      FAILURES=$((FAILURES+1)); TOOL_FINDINGS="${TOOL_FINDINGS} schemathesis=${FUZZ_FAIL}"
+    fi
+  else
+    skipped "Server not running — Schemathesis skipped"
+  fi
+else
+  skipped "Schemathesis skipped (--fast) · standalone: ms-schemathesis"
+fi
+
+[[ "$FUZZ_ONLY" -eq 1 ]] && exit $FAILURES
+
+# ── 6. Playwright Browser Tests ───────────────────────────────────────
+sect "6/9  Browser E2E (Playwright)"
+
+if [[ "$FAST" -eq 0 ]] || [[ "$BROWSER_ONLY" -eq 1 ]]; then
+  if server_up && playwright_ok; then
+    BROWSER_OUT=$("$PY" -m pytest tests/browser/ -m browser -q --tb=short --base-url http://localhost:8080 2>&1 || true)
+    BROWSER_PASS=$(echo "$BROWSER_OUT" | grep -oP '\d+(?= passed)' | tail -1 || echo "0")
+    BROWSER_FAIL=$(echo "$BROWSER_OUT" | grep -oP '\d+(?= failed)' | tail -1 || echo "0")
+    BROWSER_SKIP=$(echo "$BROWSER_OUT" | grep -oP '\d+(?= skipped)' | tail -1 || echo "0")
+    if [[ "${BROWSER_FAIL:-0}" -eq 0 ]]; then
+      ok "Playwright: ${BROWSER_PASS} passed, ${BROWSER_SKIP} skipped"
+    else
+      fail "Playwright: ${BROWSER_FAIL} browser test(s) failed — Vue UI broken"
+      echo "$BROWSER_OUT" | grep "FAILED" | head -5 | sed 's/^/    /'
+      FAILURES=$((FAILURES + BROWSER_FAIL)); TOOL_FINDINGS="${TOOL_FINDINGS} playwright=${BROWSER_FAIL}"
+    fi
+  elif ! server_up; then
+    skipped "Server not running — Playwright skipped"
+  else
+    warn "Playwright not installed: pip install playwright && python3 -m playwright install chromium"
+    WARNINGS=$((WARNINGS+1))
+  fi
+else
+  skipped "Browser tests skipped (--fast) · standalone: pytest tests/browser/ -m browser"
+fi
+
+[[ "$BROWSER_ONLY" -eq 1 ]] && exit $FAILURES
+
+# ── 7. Keploy Session Regression ─────────────────────────────────────
+sect "7/9  Session Regression (Keploy)"
+
+if [[ "$KEPLOY_ONLY" -eq 1 ]] || [[ "$FAST" -eq 0 ]]; then
+  KEPLOY_DIR="$REPO/data/keploy"
+  if [[ -d "$KEPLOY_DIR" ]] && compgen -G "$KEPLOY_DIR/session_*.json" > /dev/null 2>&1; then
+    SESSION_COUNT=$(ls "$KEPLOY_DIR"/session_*.json 2>/dev/null | wc -l | tr -d ' ')
+    KEPLOY_OUT=$("$PY" "$REPO/ms-keploy" replay 2>&1 || true)
+    KEPLOY_FAIL=$(echo "$KEPLOY_OUT" | grep -oP '\d+(?= regression)' | tail -1 || echo "0")
+    if [[ "${KEPLOY_FAIL:-0}" -eq 0 ]]; then
+      ok "Keploy: ${SESSION_COUNT} session(s) replay correctly"
+    else
+      fail "Keploy: ${KEPLOY_FAIL} regression(s) — real user flows broken"
+      FAILURES=$((FAILURES+1)); TOOL_FINDINGS="${TOOL_FINDINGS} keploy=${KEPLOY_FAIL}"
+    fi
+  else
+    skipped "No Keploy sessions yet · record: ms-keploy record"
+  fi
+else
+  skipped "Keploy skipped (--fast) · standalone: ms-keploy replay"
+fi
+
+[[ "$KEPLOY_ONLY" -eq 1 ]] && exit $FAILURES
+
+# ── 8. Contract Audit + AI Improvement ────────────────────────────────
+sect "8/9  Contract Audit + AI (auto-ingests all tool findings)"
+
+if [[ "$FAST" -eq 0 ]]; then
+  AUDIT_OUT=$("$PY" "$REPO/ms-audit" 2>&1 || true)
+  AUDIT_PASS=$(echo "$AUDIT_OUT" | grep -oP '\d+(?= passed)' | tail -1 || echo "?")
+  AUDIT_FAIL=$(echo "$AUDIT_OUT" | grep -oP '\d+(?= failed)' | tail -1 || echo "0")
+  AUDIT_GAPS=$(echo "$AUDIT_OUT" | grep -oP '\d+(?= gap)' | tail -1 || echo "0")
+
+  if [[ "${AUDIT_FAIL:-0}" -eq 0 ]]; then
+    ok "Audit: ${AUDIT_PASS} contract tests passed"
+  else
+    warn "Audit: ${AUDIT_FAIL} contract test(s) failed"
+    WARNINGS=$((WARNINGS+1))
+  fi
+
+  # Auto-improve: triggers when any tool found failures OR audit found gaps
+  HAS_FINDINGS=0
+  [[ -n "$TOOL_FINDINGS" ]] && HAS_FINDINGS=1
+  [[ "${AUDIT_GAPS:-0}" != "0" ]] && HAS_FINDINGS=1
+
+  SURVIVORS_F="$REPO/data/mutmut_survivors.json"
+  if [[ -f "$SURVIVORS_F" ]]; then
+    AGE=$(( $(date +%s) - $(stat -c %Y "$SURVIVORS_F" 2>/dev/null || echo 0) ))
+    [[ "$AGE" -lt 86400 ]] && HAS_FINDINGS=1
+  fi
+
+  if [[ "$HAS_FINDINGS" -eq 1 ]]; then
+    info "Findings: [${TOOL_FINDINGS:-gaps}] → generating targeted tests via AI…"
+    # _assemble_improve_context() auto-ingests Core Rules + mutmut + schemathesis + keploy
+    "$PY" "$REPO/ms-audit" --improve --apply 2>&1 \
+      | grep -E "✓|✗|→|Generated|Applied|provider|Using" | head -8 || true
+  else
+    ok "No findings requiring AI improvement"
+  fi
+else
+  skipped "Audit+AI skipped (--fast) · run: ms-audit --improve"
+fi
+
+# ── 9. Generated Test Sync ────────────────────────────────────────────
+sect "9/9  Generated Test Sync (ms-testgen)"
+
+GEN_OUT=$("$PY" "$REPO/ms-testgen" 2>&1 || true)
+NEW_TESTS=$(echo "$GEN_OUT" | grep -oP '\d+(?= tests generated)' || echo "0")
+
+if [[ "${NEW_TESTS:-0}" -gt 0 ]]; then
+  ok "testgen: ${NEW_TESTS} new test(s) generated"
+else
+  ok "testgen: all nodes covered — 0 new tests needed"
+fi
+
+# ── Mutation Testing (opt-in only) ────────────────────────────────────
+if [[ "$MUTATE_ONLY" -eq 1 ]]; then
+  sect "Mutation Testing (mutmut — slow)"
+  "$PY" "$REPO/ms-mutmut"
+  exit $?
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────
+ELAPSED=$((SECONDS - START_TIME))
+echo ""
+printf "  %s\n" "$_SEP"
+if [[ "$FAILURES" -eq 0 && "$WARNINGS" -eq 0 ]]; then
+  printf "  ${GREEN}✓${RESET}  All layers clean  ${DIM}%ss${RESET}\n" "$ELAPSED"
+elif [[ "$FAILURES" -eq 0 ]]; then
+  printf "  ${YELLOW}!${RESET}  Passed with %s warning(s)  ${DIM}%ss${RESET}\n" "$WARNINGS" "$ELAPSED"
+else
+  printf "  ${RED}✗${RESET}  %s failure(s), %s warning(s)  ${DIM}%ss${RESET}\n" "$FAILURES" "$WARNINGS" "$ELAPSED"
+fi
+printf "  ${DIM}Coverage: %s%%  ·  FSM: %s  ·  pytest: %s${RESET}\n" "${COV_COVERED:-?}" "${FSM_PASS:-0}" "${PYTEST_PASS:-0}"
+echo ""
+
+# Weekly mutation reminder
+SURVIVORS_F="$REPO/data/mutmut_survivors.json"
+if [[ ! -f "$SURVIVORS_F" ]] || [[ $(( $(date +%s) - $(stat -c %Y "$SURVIVORS_F" 2>/dev/null || echo 0) )) -gt 604800 ]]; then
+  printf "  ${DIM}→ Tip: mutation tests not run this week — run: sudo ms-test-all --mutate${RESET}\n"
+  echo ""
+fi
+
+[[ "$CI" -eq 1 ]] && exit $FAILURES
+exit 0

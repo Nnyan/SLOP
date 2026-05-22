@@ -1,0 +1,115 @@
+# Test Independence Verifier (step 1.5)
+#
+# Two jobs, distinct enforcement levels:
+#
+#   1. order-stable-mandatory — runs ONLY the files known to be
+#      ordering-clean (Phase 1 + 1b of step 1.5 fixed these). New
+#      ordering bugs in these files block CI. As more files are
+#      cleaned up, append them to the file list.
+#
+#   2. random-full-suite-informational — runs the full backend test
+#      suite under random order with `continue-on-error: true`. Used
+#      as a tripwire — any DELTA vs the previous run's failure list
+#      surfaces a new ordering bug somewhere outside the order-stable
+#      subset. Treat the diff, not the absolute count.
+#
+# Core Rule 4.16 (Test Independence Discipline) is enforced by job 1.
+# Job 2 informs the test-independence backlog file at
+# docs/TODO_2026_05_08_test_independence_backlog.md.
+name: Tests (Random Order)
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  order-stable-mandatory:
+    name: Order-stable subset (mandatory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run order-stable test files under 3 distinct random seeds
+        # The list grows as more files get the autouse-reset / fixture
+        # treatment. Each must pass under arbitrary order — that's the
+        # whole point of Core Rule 4.16.
+        #
+        # Step 2.6 closure (2026-05-08): always-fail count reached zero,
+        # so the previous TestSPARouteOrder / TestBug_TraefikDeployRaises /
+        # TestBug_ResultSterrNameError deselects are gone — those bugs
+        # are fixed in production code.
+        run: |
+          for seed in 1 2 ${GITHUB_RUN_ID}; do
+            echo "=== Random order, seed=$seed ==="
+            pytest \
+              tests/test_fsm_app_install.py \
+              tests/test_runtime_bugs.py \
+              tests/test_deploy_tooling.py \
+              tests/test_llm_diagnose_refactor.py \
+              tests/test_context_assembler.py \
+              tests/test_checker_refactor.py \
+              tests/test_install_inner_refactor.py \
+              tests/test_scheduler_refactor.py \
+              tests/test_logging.py \
+              tests/test_rate_limiting.py \
+              tests/test_snapshots.py \
+              tests/test_adr_discipline.py \
+              tests/test_mock_discipline.py \
+              tests/test_complexity_thresholds.py \
+              --randomly-seed=$seed --timeout=30 \
+              --tb=short --no-header -q
+          done
+        env:
+          PYTHONPATH: .
+
+  random-full-suite-mandatory:
+    name: Full suite under random order (mandatory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Step 2.6 closure: was `continue-on-error: true` (informational
+    # tripwire) — flipped to mandatory once the always-fail count
+    # reached zero on 2026-05-08. The full suite must pass under
+    # random ordering for any commit on main / dev.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run full suite under random order (seed = run id)
+        # Tripwire only — pre-existing always-fail tests outside the
+        # order-stable subset will fail here. The signal is the DELTA
+        # from one CI run to the next, not the absolute failure count.
+        run: |
+          pytest tests/ \
+            --randomly-seed=${GITHUB_RUN_ID} \
+            --timeout=30 \
+            --tb=line --no-header -q \
+            --ignore=tests/test_session_a.py \
+            --ignore=tests/integration \
+            --ignore=tests/browser \
+            --ignore=tests/proposed \
+            -m "not slow and not mutation"
+        env:
+          PYTHONPATH: .

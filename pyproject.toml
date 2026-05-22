@@ -1,0 +1,54 @@
+# ────────────────────────────────────────────────────────────────────────────
+# vulture — dead-code detection (step 3.1)
+# ────────────────────────────────────────────────────────────────────────────
+# Heuristic, so kept as a `warning` not a block in CI. The ignores below
+# cover dynamic-dispatch patterns vulture can't see:
+#   - FastAPI route handlers (decorator-registered, called by Starlette)
+#   - Wizard step functions (registered in run_wizard's STEP_FNS list)
+#   - ms-coverage check functions (registered in tools/ms-coverage)
+#   - Pydantic validators / dataclass fields (used via __init__)
+#   - test_* / Test* (pytest collection)
+[tool.vulture]
+paths = ["backend"]
+exclude = ["backend/scripts/", "backend/__pycache__/"]
+min_confidence = 80
+sort_by_size = true
+# Decorator-registered handlers are invisible to vulture (called by
+# the framework, not the codebase). Whitelist them by decorator name.
+ignore_decorators = [
+    "@app.*", "@router.*", "@limiter.*",
+    "@register",      # backend/infra registry
+    "@pytest.fixture",
+    "@property", "@cached_property", "@staticmethod", "@classmethod",
+]
+ignore_names = [
+    # ms-enforce / ms-coverage check_* registry (called via getattr)
+    "check_*",
+    # pytest collection — vulture misses pytest's auto-collection
+    "test_*", "Test*",
+    # Context manager dunder positional-only args
+    "exc_tb", "exc_val", "exc_type",
+    # FastAPI/Pydantic validator hook
+    "__context",
+    # SPA fallback: FastAPI requires the path param even if unused
+    "full_path",
+    # evaluate_model_compatibility — public API; system_ram_gb is
+    # informational, kept for caller compatibility (see api/models.py)
+    "system_ram_gb",
+]
+
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: memory-intensive integration tests (deselect with -m 'not slow')",
+    "browser: requires live Mediastack server + Chromium (deselect with -m 'not browser')",
+    "docker: requires live Docker socket (deselect with -m 'not docker')",
+    "mutation: mutation testing integration (slow, deselect with -m 'not mutation')",
+    "real_smoke_test: opt out of conftest's autouse `_fast_smoke_test` fixture (run the real TCP-poll smoke test)",
+]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "strict"
+addopts = "--basetemp=/srv/tmp/pytest-base"
+tmp_path_retention_policy = "all"
+timeout = 30   # pytest-timeout (requirements-dev.txt): kill any test that hangs

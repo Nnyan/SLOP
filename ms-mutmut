@@ -1,0 +1,455 @@
+#!/usr/bin/env python3
+"""ms-mutmut — Mediastack Mutation Testing
+
+Runs mutmut against the highest-value modules, surfaces surviving mutants
+(tests that don't catch real bugs), and feeds survivors to the LLM via
+ms-audit --improve to auto-generate killing tests.
+
+Core Rule: 2.2 (test correctness not presence), 4.3 (behavioral coverage)
+A test that passes while code is wrong is not a test — it is noise.
+
+Usage:
+  ms-mutmut                    # run mutations on all critical modules
+  ms-mutmut --module executor  # single module
+  ms-mutmut --quick            # only previously-surviving mutants
+  ms-mutmut --show             # show current survivors without re-running
+  ms-mutmut --kill             # pipe survivors to ms-audit --improve
+
+Modules (in priority order — highest historical bug density first):
+  executor  backend/manifests/executor.py   (most bugs historically)
+  state     backend/core/state.py           (DB layer — all data flows through)
+  wizard    backend/platform/wizard.py      (critical path — platform setup)
+  checker   backend/health/checker.py       (health FSM)
+  compose   backend/core/compose.py         (fragment builder)
+  apps_api  backend/api/apps.py             (install paths)
+
+Install: sudo ln -sf /srv/mediastack/ms-mutmut /usr/local/bin/ms-mutmut
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent
+DATA = REPO / "data"
+SURVIVORS_FILE = DATA / "mutmut_survivors.json"
+
+# ── Output style — matches ms-update canonical design ─────────────────────
+_RESET = "\033[0m"; _BOLD = "\033[1m"; _DIM  = "\033[2m"
+_GREEN = "\033[0;32m"; _YELLOW = "\033[1;33m"; _RED = "\033[0;31m"; _CYAN = "\033[0;36m"
+
+def G(s): return f"{_GREEN}{s}{_RESET}"
+def R(s): return f"{_RED}{s}{_RESET}"
+def Y(s): return f"{_YELLOW}{s}{_RESET}"
+def D(s): return f"{_DIM}{s}{_RESET}"
+def B(s): return f"{_BOLD}{s}{_RESET}"
+def C(s): return f"{_CYAN}{s}{_RESET}"
+
+def ok(msg):   print(f"  {G('✓')} {msg}")
+def fail(msg): print(f"  {R('✗')} {msg}")
+def warn(msg): print(f"  {Y('!')} {msg}")
+def info(msg): print(f"  {C('→')} {msg}")
+
+_SEP = "─" * 60
+
+def header(title: str) -> None:
+    import time as _t
+    ts = _t.strftime("%H:%M  %Y-%m-%d")
+    print(f"\n  {_SEP}\n  {title}  {D(ts)}\n  {_SEP}")
+
+def sect(title: str) -> None:
+    print(f"\n  {B(title)}")
+
+# Module → file path and associated test files
+MODULES = {
+    "executor": {
+        "path": "backend/manifests/executor.py",
+        "tests": ["tests/test_executor.py", "tests/test_fsm_app_install.py",
+                  "tests/test_e2e_flows.py", "tests/test_stackbuilder_contracts.py"],
+        "priority": 1,
+        "rationale": "Most bugs historically — compose failure ok=True, else-block status bug",
+    },
+    "state": {
+        "path": "backend/core/state.py",
+        "tests": ["tests/test_state.py", "tests/test_fsm_platform.py",
+                  "tests/test_fsm_app_install.py"],
+        "priority": 2,
+        "rationale": "All data flows through StateDB — mutations in state transitions are silent",
+    },
+    "wizard": {
+        "path": "backend/platform/wizard.py",
+        "tests": ["tests/test_fsm_platform.py", "tests/test_wizard_contracts.py",
+                  "tests/test_e2e_flows.py"],
+        "priority": 3,
+        "rationale": "Critical path — VPN secrets bug, platform status transition bugs",
+    },
+    "checker": {
+        "path": "backend/health/checker.py",
+        "tests": ["tests/test_fsm_health_check.py", "tests/test_health_scheduler.py"],
+        "priority": 4,
+        "rationale": "Health FSM — silent failures in health checks invisible to users",
+    },
+    "compose": {
+        "path": "backend/core/compose.py",
+        "tests": ["tests/test_recommendations.py", "tests/test_comprehensive_contracts.py"],
+        "priority": 5,
+        "rationale": "Fragment builder — wrong Traefik labels mean unreachable services",
+    },
+    "apps_api": {
+        "path": "backend/api/apps.py",
+        "tests": ["tests/test_non_catalog_installs.py", "tests/test_api_coverage.py",
+                  "tests/test_e2e_flows.py"],
+        "priority": 6,
+        "rationale": "Install paths — path traversal, size limit, manifest normalization",
+    },
+}
+
+THRESHOLDS = {
+    "critical": {"executor", "state"},   # >80% kill rate required
+    "high":     {"wizard", "checker"},  # >70% kill rate required
+    "standard": {"compose", "apps_api"}, # >60% kill rate required
+}
+
+REQUIRED_KILL_RATE = {
+    "critical": 80,
+    "high":     70,
+    "standard": 60,
+}
+
+
+def _tier(module: str) -> str:
+    for tier, modules in THRESHOLDS.items():
+        if module in modules:
+            return tier
+    return "standard"
+
+
+def run_mutmut(module_name: str, quick: bool = False) -> dict:
+    """Run mutmut on a single module. Returns results dict."""
+    mod = MODULES[module_name]
+    src_path = REPO / mod["path"]
+    test_paths = " ".join(mod["tests"])
+
+    if not src_path.exists():
+        return {"module": module_name, "error": f"File not found: {mod['path']}"}
+
+    print(f"  → Mutating {D(mod['path'])} (priority {mod['priority']})…", flush=True)
+    start = time.time()
+
+    # Configure mutmut via environment
+    env = {
+        **os.environ,
+        "MUTMUT_PATHS_TO_MUTATE": str(src_path),
+        "MUTMUT_TESTS_DIR": "tests",
+        "MUTMUT_RUNNER": f"python3 -m pytest {' '.join(mod['tests'])} -x -q --tb=no",
+    }
+
+    cmd = ["python3", "-m", "mutmut", "run",
+           "--paths-to-mutate", str(src_path),
+           "--runner", f"python3 -m pytest {' '.join(mod['tests'])} -x -q --tb=no --timeout=30",
+           "--no-progress"]
+
+    if quick:
+        # Only re-test known survivors
+        cmd.append("--rerun-all")
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=str(REPO),
+        env=env,
+        timeout=600,
+    )
+
+    elapsed = time.time() - start
+
+    # Parse results from mutmut
+    results_cmd = subprocess.run(
+        ["python3", "-m", "mutmut", "results"],
+        capture_output=True, text=True, cwd=str(REPO),
+    )
+
+    # Count from output
+    output = results_cmd.stdout + result.stdout
+    killed = output.count("Killed")
+    survived = output.count("Survived") + output.count("survived")
+    total = killed + survived
+
+    kill_rate = int(100 * killed / total) if total else 0
+    required = REQUIRED_KILL_RATE[_tier(module_name)]
+    passed = kill_rate >= required
+
+    # Get surviving mutant details
+    survivors = []
+    junitxml = REPO / ".mutmut-cache" / f"{module_name}_results.xml"
+
+    details_cmd = subprocess.run(
+        ["python3", "-m", "mutmut", "show", "--all"],
+        capture_output=True, text=True, cwd=str(REPO),
+    )
+    survivors_raw = [l for l in details_cmd.stdout.splitlines()
+                     if "Survived" in l or "survived" in l]
+    survivors = survivors_raw[:20]  # cap at 20 for display
+
+    return {
+        "module": module_name,
+        "path": mod["path"],
+        "killed": killed,
+        "survived": survived,
+        "total": total,
+        "kill_rate": kill_rate,
+        "required": required,
+        "passed": passed,
+        "tier": _tier(module_name),
+        "elapsed_s": int(elapsed),
+        "survivors": survivors,
+        "rationale": mod["rationale"],
+    }
+
+
+def show_results(results: list[dict]) -> None:
+    """Print a formatted summary table."""
+    print(f"\n{'─'*64}")
+    print(f"  Mutation Testing Results")
+    print(f"{'─'*64}")
+    print(f"  {'Module':<14} {'Killed':>7} {'Survived':>9} {'Rate':>5}  {'Req':>4}  {'Status'}")
+    print(f"  {'─'*14} {'─'*7} {'─'*9} {'─'*5}  {'─'*4}  {'─'*8}")
+
+    any_failed = False
+    for r in sorted(results, key=lambda x: MODULES.get(x["module"], {}).get("priority", 9)):
+        if "error" in r:
+            print(f"  {r['module']:<14} {R('ERROR: ' + r['error'])}")
+            continue
+        rate_str = (G(f"{r['kill_rate']:>4}%") if r["passed"]
+                    else R(f"{r['kill_rate']:>4}%"))
+        status = G("PASS") if r["passed"] else R("FAIL")
+        print(f"  {r['module']:<14} {r['killed']:>7} {r['survived']:>9} {rate_str}  "
+              f"{r['required']:>3}%  {status}")
+        if not r["passed"]:
+            any_failed = True
+            for s in r["survivors"][:3]:
+                print(f"    {D('→ ' + s[:70])}")
+
+    total_killed = sum(r.get("killed", 0) for r in results)
+    total_survived = sum(r.get("survived", 0) for r in results)
+    total_all = total_killed + total_survived
+    overall_rate = int(100 * total_killed / total_all) if total_all else 0
+    rate_c = G(f"{overall_rate}%") if overall_rate >= 70 else R(f"{overall_rate}%")
+
+    print(f"\n  Overall: {rate_c} kill rate ({total_killed}/{total_all} mutants killed)")
+    if any_failed:
+        print(f"  {R('✗')} Run: ms-mutmut --kill  to auto-generate killing tests via AI")
+    else:
+        print(f"  {G('✓')} All modules meet kill rate thresholds")
+    print(f"{'─'*64}\n")
+
+
+def save_survivors(results: list[dict]) -> None:
+    """Persist survivor data for use by ms-audit --improve."""
+    DATA.mkdir(parents=True, exist_ok=True)
+    survivor_data = {
+        "generated_at": int(time.time()),
+        "results": results,
+        "survivors": [
+            {"module": r["module"], "path": r["path"],
+             "kill_rate": r.get("kill_rate", 0), "survivors": r.get("survivors", [])}
+            for r in results if r.get("survived", 0) > 0
+        ],
+    }
+    SURVIVORS_FILE.write_text(json.dumps(survivor_data, indent=2))
+
+
+def kill_survivors_with_ai() -> None:
+    """Pipe surviving mutants to ms-audit --improve for AI-generated killing tests."""
+    if not SURVIVORS_FILE.exists():
+        print(R("No survivor data. Run ms-mutmut first."))
+        return
+
+    data = json.loads(SURVIVORS_FILE.read_text())
+    survivors = data.get("survivors", [])
+
+    if not survivors:
+        print(G("✓ No surviving mutants to kill."))
+        return
+
+    print(f"  → Piping {len(survivors)} surviving modules to ms-audit --improve…")
+
+    # Build context for LLM
+    context_lines = [
+        "## Mutation Testing — Surviving Mutants",
+        "",
+        "The following mutants survived (tests didn't catch real code changes).",
+        "Generate pytest tests that would KILL each surviving mutant.",
+        "Focus: assert on the specific value/state that changed, not just that no error occurred.",
+        "",
+    ]
+    for s in survivors:
+        context_lines.append(f"### Module: {s['module']} ({s['path']})")
+        context_lines.append(f"Kill rate: {s['kill_rate']}% — {len(s['survivors'])} surviving mutants")
+        for line in s["survivors"][:5]:
+            context_lines.append(f"  Survivor: {line}")
+        context_lines.append("")
+
+    context = "\n".join(context_lines)
+    context_file = DATA / "mutmut_context_for_llm.txt"
+    context_file.write_text(context)
+
+    # Invoke ms-audit --improve with mutation context
+    subprocess.run(
+        [sys.executable, str(REPO / "ms-audit"), "--improve",
+         "--context", str(context_file)],
+        cwd=str(REPO),
+    )
+
+
+
+def manage_schedule(schedule_arg: str) -> None:
+    """Manage systemd timer for scheduled mutation testing.
+
+    Usage:
+      ms-mutmut --schedule "Sun 02:00"  # weekly Sunday 2am
+      ms-mutmut --schedule daily         # every night 3am
+      ms-mutmut --schedule off           # disable
+      ms-mutmut --schedule status        # show current schedule
+    """
+    import subprocess as _sp
+
+    SERVICE_FILE = pathlib.Path("/etc/systemd/system/mediastack-mutate.service")
+    TIMER_FILE   = pathlib.Path("/etc/systemd/system/mediastack-mutate.timer")
+
+    if schedule_arg == "status":
+        result = _sp.run(
+            ["systemctl", "status", "mediastack-mutate.timer", "--no-pager"],
+            capture_output=True, text=True
+        )
+        print(result.stdout or "Timer not installed. Run: ms-mutmut --schedule 'Sun 02:00'")
+        return
+
+    if schedule_arg == "off":
+        for cmd in [
+            ["systemctl", "disable", "--now", "mediastack-mutate.timer"],
+            ["systemctl", "disable", "--now", "mediastack-mutate.service"],
+        ]:
+            _sp.run(cmd, capture_output=True)
+        print(G("✓") + "  Scheduled mutation testing disabled")
+        return
+
+    # Map friendly names to OnCalendar expressions
+    calendar_map = {
+        "daily":   "03:00",
+        "nightly": "03:00",
+        "weekly":  "Sun 02:00",
+    }
+    on_calendar = calendar_map.get(schedule_arg.lower(), schedule_arg)
+
+    # Write service file
+    service_content = f"""[Unit]
+Description=Mediastack Mutation Testing
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={REPO}
+ExecStart={REPO}/ms-test-all --mutate
+User=stack
+StandardOutput=journal
+StandardError=journal
+Environment=HOME=/home/stack
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+    timer_content = f"""[Unit]
+Description=Mediastack Mutation Testing Schedule
+After=network.target
+
+[Timer]
+OnCalendar={on_calendar}
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
+"""
+
+    try:
+        SERVICE_FILE.write_text(service_content)
+        TIMER_FILE.write_text(timer_content)
+        _sp.run(["systemctl", "daemon-reload"], check=True, capture_output=True)
+        _sp.run(["systemctl", "enable", "--now", "mediastack-mutate.timer"],
+                check=True, capture_output=True)
+        print(G("✓") + f"  Mutation testing scheduled: {on_calendar}")
+        print(D(f"  Service: {SERVICE_FILE}"))
+        print(D(f"  Timer:   {TIMER_FILE}"))
+        print(D(f"  Status:  systemctl status mediastack-mutate.timer"))
+        print(D(f"  Logs:    journalctl -u mediastack-mutate.service -f"))
+        print(D(f"  Disable: ms-mutmut --schedule off"))
+    except PermissionError:
+        print(R("✗") + "  Permission denied — run with sudo: sudo ms-mutmut --schedule '...'")
+    except Exception as e:
+        print(R(f"✗  Error: {e}"))
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    show_only     = "--show"     in args
+    quick         = "--quick"    in args
+    kill          = "--kill"     in args
+    schedule_arg  = args[args.index("--schedule") + 1] if "--schedule" in args else None
+    module_arg    = args[args.index("--module") + 1] if "--module" in args else None
+
+    if schedule_arg is not None:
+        manage_schedule(schedule_arg)
+        return
+
+    if show_only:
+        if SURVIVORS_FILE.exists():
+            data = json.loads(SURVIVORS_FILE.read_text())
+            show_results(data.get("results", []))
+        else:
+            print("No results yet. Run ms-mutmut to generate.")
+        return
+
+    if kill:
+        kill_survivors_with_ai()
+        return
+
+    modules_to_run = ([module_arg] if module_arg and module_arg in MODULES
+                      else sorted(MODULES, key=lambda m: MODULES[m]["priority"]))
+
+    print(f"\n  Mediastack Mutation Testing  ·  {len(modules_to_run)} module(s)")
+    print(f"  {D('Proving tests catch real bugs, not just that they run')}\n")
+
+    results = []
+    for mod in modules_to_run:
+        try:
+            r = run_mutmut(mod, quick=quick)
+            results.append(r)
+        except subprocess.TimeoutExpired:
+            results.append({"module": mod, "error": "timeout (>10 min)"})
+        except Exception as e:
+            results.append({"module": mod, "error": str(e)})
+
+    show_results(results)
+    save_survivors(results)
+
+    # Auto-trigger AI if survivors exist and Ollama/API key available
+    has_survivors = any(r.get("survived", 0) > 0 for r in results)
+    has_ai = (os.path.exists("/usr/local/bin/ms-audit") and
+              (subprocess.run(["curl", "-sf", "http://localhost:11434/api/tags"],
+               capture_output=True).returncode == 0
+               or os.environ.get("GROQ_API_KEY")))
+
+    if has_survivors and has_ai:
+        print(f"  → Auto-generating killing tests via AI…")
+        kill_survivors_with_ai()
+
+
+if __name__ == "__main__":
+    main()

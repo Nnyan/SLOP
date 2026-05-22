@@ -1,0 +1,75 @@
+# Mediastack v3 — manager stack
+# This runs the Mediastack manager container.
+# Apps (Sonarr, Radarr, Plex, etc.) are deployed separately by the manager.
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f
+#   docker compose down
+
+name: mediastack
+
+services:
+
+  mediastack:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # OR pull a pre-built image instead of building locally:
+    # image: ghcr.io/nnyan/mediastack:latest
+    container_name: mediastack
+    restart: unless-stopped
+
+    ports:
+      # Web UI and API — change left side to use a different host port
+      - "${MS_PORT:-8080}:8080"
+
+    volumes:
+      # ── Required ─────────────────────────────────────────────────────────
+      # Docker socket — Mediastack creates and manages other containers via this
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+      # State database, compose fragments, and secrets
+      - mediastack_data:/data
+
+      # ── Required: config and media directories must be the same path ──────
+      # inside and outside this container so generated compose files work
+      # correctly when Docker runs them on the host.
+      # Replace these with your actual paths:
+      - ${CONFIG_ROOT:-/srv/mediastack/config}:${CONFIG_ROOT:-/srv/mediastack/config}
+      - ${MEDIA_ROOT:-/mnt/media}:${MEDIA_ROOT:-/mnt/media}
+
+    environment:
+      MS_DATA_DIR: /data
+      MS_PORT: "8080"
+      TZ: ${TZ:-UTC}
+
+    # Secrets file — copy .env.example to .env and fill in values before starting
+    env_file:
+      - .env
+
+    # The managed apps network — Traefik, Sonarr, etc. join this
+    networks:
+      - mediastack
+
+    # Require Docker socket access before starting
+    group_add:
+      # Add the docker group so the container can use the socket without root
+      # Run: stat -c '%g' /var/run/docker.sock  to find your docker GID
+      - "${DOCKER_GID:-999}"
+
+
+# ── Shared infrastructure network ─────────────────────────────────────────
+# This is the network Traefik and all managed apps join.
+# The name must match the network_name you set in the wizard (default: mediastack).
+networks:
+  mediastack:
+    name: mediastack
+    driver: bridge
+
+
+# ── Volumes ────────────────────────────────────────────────────────────────
+volumes:
+  # State database, compose fragments, and secrets (/data inside container)
+  mediastack_data:
+    driver: local

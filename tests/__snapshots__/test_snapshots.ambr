@@ -1,0 +1,46 @@
+# serializer version: 1
+# name: test_health_scheduler_shape
+  list([
+    'last_cycle_at',
+    'last_cycle_summary',
+    'running',
+    'state',
+  ])
+# ---
+# name: test_health_scheduler_summary_shape_when_present
+  list([
+    'apps_checked',
+    'apps_degraded',
+    'apps_healthy',
+    'elapsed_ms',
+    'llm_agent',
+  ])
+# ---
+# name: test_health_summary_shape
+  list([
+    'error',
+    'ok',
+    'unknown',
+    'warning',
+  ])
+# ---
+# name: test_ms_status_json_top_level_shape
+  list([
+    'branch',
+    'dirty_tracked',
+    'head',
+    'next',
+    'steps',
+    'unpushed_count',
+  ])
+# ---
+# name: test_ms_status_step_entry_shape
+  list([
+    'status',
+    'step_id',
+    'sub_count',
+    'sub_done',
+    'tier',
+    'title',
+  ])
+# ---

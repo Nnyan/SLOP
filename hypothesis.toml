@@ -1,0 +1,15 @@
+[hypothesis]
+# Shared hypothesis configuration — tracked in git so failure examples
+# accumulate across runs and are shared with CI.
+# Core Rule 5.17: property-based tests prove invariants for all inputs.
+
+database = "hypothesis_db"
+
+# max_examples per test — balanced for CI speed vs coverage
+max_examples = 100
+
+# suppress slow-path health checks in CI (tests are fast, not slow)
+suppress_health_check = ["too_slow"]
+
+# Verbosity: quiet in CI, normal locally
+# Override per-test with @settings(verbosity=Verbosity.verbose)
