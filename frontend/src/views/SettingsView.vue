@@ -543,7 +543,7 @@
           <div>
             <div class="font-semibold text-sm">System Health</div>
             <div class="text-xs text-slate-400 mt-0.5">
-              Ghost containers, fragments and volumes not tracked by Mediastack
+              Ghost containers, fragments and volumes not tracked by S.L.O.P.
             </div>
           </div>
           <button @click="loadGhosts" :disabled="scanningGhosts" class="btn-secondary btn-sm">

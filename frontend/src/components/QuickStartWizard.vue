@@ -7,7 +7,7 @@
           <div>
             <div class="flex items-center gap-2">
               <span class="text-lg">🚀</span>
-              <h2 class="font-semibold text-slate-900">Welcome to Mediastack</h2>
+              <h2 class="font-semibold text-slate-900">Welcome to S.L.O.P.</h2>
             </div>
             <p class="text-xs text-slate-500 mt-0.5">
               {{ wizard.required_done }} of {{ wizard.total_required }} required steps complete

@@ -12,8 +12,8 @@
             </svg>
           </div>
           <div>
-            <div class="font-semibold text-slate-900 text-sm leading-none">Mediastack</div>
-            <div class="text-xs text-slate-400 mt-0.5">v4</div>
+            <div class="font-semibold text-slate-900 text-sm leading-none">S.L.O.P.</div>
+            <div class="text-xs text-slate-400 mt-0.5">v5</div>
           </div>
         </div>
       </div>

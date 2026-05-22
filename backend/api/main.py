@@ -233,7 +233,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="Mediastack",
     description="Self-hosted media stack manager",
-    version="4.0.0",
+    version="5.0.0",
     lifespan=lifespan,
     docs_url="/api/docs",
     redoc_url=None,
@@ -389,7 +389,7 @@ _mount(audit_router, "audit", "Audit")
 @app.get("/api/ping", tags=["System"])
 @app.get("/api/health", tags=["System"])  # backward-compat alias
 def ping() -> dict[str, Any]:
-    return {"status": "ok", "version": "3.0.0"}
+    return {"status": "ok", "version": "5.0.0"}
 
 
 @app.get("/api/coverage")
