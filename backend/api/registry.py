@@ -71,9 +71,9 @@ def _get_registry_url() -> str:
     try:
         with StateDB() as db:
             url = db.get_setting("registry_url")
-        return url or "https://raw.githubusercontent.com/Nnyan/mediastack/main/catalog/registry.json"
+        return url or "https://raw.githubusercontent.com/Nnyan/SLOP/main/catalog/registry.json"
     except Exception:
-        return "https://raw.githubusercontent.com/Nnyan/mediastack/main/catalog/registry.json"
+        return "https://raw.githubusercontent.com/Nnyan/SLOP/main/catalog/registry.json"
 
 
 def _load_db_registry() -> list[dict[str, Any]]:
@@ -123,7 +123,7 @@ def list_registry() -> list[RegistryEntry]:
                     tier=m.tier,
                     service_type=m.service_type,
                     tags=m.tags[:5],
-                    source_url=f"https://raw.githubusercontent.com/Nnyan/mediastack/main/catalog/apps/{m.key}.yaml",
+                    source_url=f"https://raw.githubusercontent.com/Nnyan/SLOP/main/catalog/apps/{m.key}.yaml",
                     author="official",
                     verified=True,
                     installed=True,  # built-in = always installed
@@ -248,7 +248,7 @@ def get_registry_entry(key: str) -> RegistryEntry:
                     description=m.description, category=m.category,
                     icon=m.icon, tier=m.tier, service_type=m.service_type,
                     tags=m.tags[:5], author="official", verified=True,
-                    source_url=f"https://raw.githubusercontent.com/Nnyan/mediastack/main/catalog/apps/{key}.yaml",
+                    source_url=f"https://raw.githubusercontent.com/Nnyan/SLOP/main/catalog/apps/{key}.yaml",
                     installed=True,
                 )
         except Exception:

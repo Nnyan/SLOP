@@ -352,7 +352,7 @@ async def _call_cloud_provider(client: httpx.AsyncClient, prompt: str,
     _endpoint = f"{_base}/chat/completions"
     hdrs = {
         "Authorization": f"Bearer {api_key}",
-        "HTTP-Referer": "https://github.com/Nnyan/mediastack",
+        "HTTP-Referer": "https://github.com/Nnyan/SLOP",
         "X-Title": "Mediastack Health Agent",
     }
     cloud_model = model or _p_cfg.get("default_model", "")

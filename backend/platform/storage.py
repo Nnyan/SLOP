@@ -127,7 +127,7 @@ def generate_nfs_unit(source: StorageSource) -> MountConfig:
 
 [Unit]
 Description=Mediastack NFS Mount — {source.name}
-Documentation=https://github.com/Nnyan/mediastack
+Documentation=https://github.com/Nnyan/SLOP
 Before=docker.service
 After=network-online.target
 Wants=network-online.target
@@ -198,7 +198,7 @@ def generate_smb_unit(source: StorageSource) -> MountConfig:
 
 [Unit]
 Description=Mediastack SMB Mount — {source.name}
-Documentation=https://github.com/Nnyan/mediastack
+Documentation=https://github.com/Nnyan/SLOP
 Before=docker.service
 After=network-online.target
 Wants=network-online.target

@@ -160,7 +160,7 @@ def _parse_node_version(raw: str) -> tuple[int, int]:
         raise DependencyVersionUnparseableError(
             f"Could not parse nodejs version from output: {raw!r}. "
             "This is unusual; please file a bug at "
-            "https://github.com/Nnyan/mediastack/issues with the full installer log."
+            "https://github.com/Nnyan/SLOP/issues with the full installer log."
         )
 
 

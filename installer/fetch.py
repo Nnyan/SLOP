@@ -13,7 +13,7 @@ from typing import Callable, Optional
 from installer._run import MissingBinaryError, run_required
 from installer.state import STATE_FILE_NAME, read_state_file
 
-_REPO_URL: str = "https://github.com/Nnyan/mediastack.git"
+_REPO_URL: str = "https://github.com/Nnyan/SLOP.git"
 _V5_TAG_RE: re.Pattern = re.compile(r"^v5\.\d+\.\d+(-[\w.]+)?$")
 
 

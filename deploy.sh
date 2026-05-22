@@ -243,7 +243,7 @@ step "6 / 8 — Installing systemd service"
 $SUDO tee "$SERVICE_FILE" > /dev/null << SVCEOF
 [Unit]
 Description=Mediastack v3 — Self-hosted media stack manager
-Documentation=https://github.com/Nnyan/mediastack
+Documentation=https://github.com/Nnyan/SLOP
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service

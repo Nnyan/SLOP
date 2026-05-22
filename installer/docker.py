@@ -135,7 +135,7 @@ def _parse_docker_version(raw: str) -> tuple[int, int]:
         raise DockerVersionUnparseableError(
             f"Could not parse docker engine version from output: {raw!r}. "
             "This is unusual; please file a bug at "
-            "https://github.com/Nnyan/mediastack/issues with the full installer log."
+            "https://github.com/Nnyan/SLOP/issues with the full installer log."
         )
 
 

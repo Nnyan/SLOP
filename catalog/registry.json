@@ -16,7 +16,7 @@
         "productivity",
         "local-first"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/actual_budget.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/actual_budget.yaml",
       "image": "ghcr.io/actualbudget/actual-server",
       "image_tag": "latest"
     },
@@ -33,7 +33,7 @@
         "privacy",
         "monitoring"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/adguard_home.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/adguard_home.yaml",
       "image": "adguard/adguardhome",
       "image_tag": "latest"
     },
@@ -52,7 +52,7 @@
         "collaboration",
         "notion-alternative"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/affine.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/affine.yaml",
       "image": "ghcr.io/toeverything/affine-graphql",
       "image_tag": "stable"
     },
@@ -69,7 +69,7 @@
         "media-server",
         "mobile"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/audiobookshelf.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/audiobookshelf.yaml",
       "image": "ghcr.io/advplyr/audiobookshelf",
       "image_tag": "latest"
     },
@@ -87,7 +87,7 @@
         "radarr",
         "media"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/bazarr.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/bazarr.yaml",
       "image": "lscr.io/linuxserver/bazarr",
       "image_tag": "latest"
     },
@@ -103,7 +103,7 @@
         "tools",
         "productivity"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/bentopdf.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/bentopdf.yaml",
       "image": "ghcr.io/alam00000/bentopdf",
       "image_tag": "latest"
     },
@@ -121,7 +121,7 @@
         "server",
         "alerts"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/beszel.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/beszel.yaml",
       "image": "ghcr.io/henrygd/beszel",
       "image_tag": "latest"
     },
@@ -141,7 +141,7 @@
         "comics",
         "kobo"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/booklore.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/booklore.yaml",
       "image": "ghcr.io/booklore-app/booklore",
       "image_tag": "latest"
     },
@@ -159,7 +159,7 @@
         "websites",
         "automation"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/changedetection.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/changedetection.yaml",
       "image": "ghcr.io/dgtlmoon/changedetection.io",
       "image_tag": "latest"
     },
@@ -176,7 +176,7 @@
         "ips",
         "threat-intelligence"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/crowdsec.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/crowdsec.yaml",
       "image": "crowdsecurity/crowdsec",
       "image_tag": "latest"
     },
@@ -195,7 +195,7 @@
         "networking",
         "residential"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/ddns_updater.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/ddns_updater.yaml",
       "image": "qmcgaw/ddns-updater",
       "image_tag": "latest"
     },
@@ -215,7 +215,7 @@
         "usenet",
         "streaming"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/decypharr.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/decypharr.yaml",
       "image": "cy01/blackhole",
       "image_tag": "latest"
     },
@@ -233,7 +233,7 @@
         "infrastructure",
         "traefik"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/docker_socket_proxy.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/docker_socket_proxy.yaml",
       "image": "tecnativa/docker-socket-proxy",
       "image_tag": "latest"
     },
@@ -251,7 +251,7 @@
         "management",
         "tools"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/dockge.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/dockge.yaml",
       "image": "louislam/dockge",
       "image_tag": "1"
     },
@@ -270,7 +270,7 @@
         "git",
         "tools"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/dockhand.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/dockhand.yaml",
       "image": "fnsys/dockhand",
       "image_tag": "latest"
     },
@@ -287,7 +287,7 @@
         "productivity",
         "household"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/donetick.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/donetick.yaml",
       "image": "ghcr.io/donetick/donetick",
       "image_tag": "latest"
     },
@@ -304,7 +304,7 @@
         "monitoring",
         "debugging"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/dozzle.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/dozzle.yaml",
       "image": "amir20/dozzle",
       "image_tag": "latest"
     },
@@ -324,7 +324,7 @@
         "all-in-one",
         "streaming"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/dumb.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/dumb.yaml",
       "image": "iampuid0/dumb",
       "image_tag": "latest"
     },
@@ -343,7 +343,7 @@
         "tv",
         "music"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/emby.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/emby.yaml",
       "image": "emby/embyserver",
       "image_tag": "latest"
     },
@@ -361,7 +361,7 @@
         "manager",
         "tools"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/filebrowser.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/filebrowser.yaml",
       "image": "filebrowser/filebrowser",
       "image_tag": "s6"
     },
@@ -379,7 +379,7 @@
         "processing",
         "workflow"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/fileflows.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/fileflows.yaml",
       "image": "revenz/fileflows",
       "image_tag": "latest"
     },
@@ -397,7 +397,7 @@
         "productivity",
         "reader"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/freshrss.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/freshrss.yaml",
       "image": "lscr.io/linuxserver/freshrss",
       "image_tag": "latest"
     },
@@ -415,7 +415,7 @@
         "monitoring",
         "widgets"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/glance.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/glance.yaml",
       "image": "glanceapp/glance",
       "image_tag": "latest"
     },
@@ -431,7 +431,7 @@
         "media",
         "self-hosted"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/immich.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/immich.yaml",
       "image": "ghcr.io/immich-app/immich-server",
       "image_tag": "release"
     },
@@ -451,7 +451,7 @@
         "music",
         "open-source"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/jellyfin.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/jellyfin.yaml",
       "image": "jellyfin/jellyfin",
       "image_tag": "latest"
     },
@@ -470,7 +470,7 @@
         "library",
         "opds"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/kavita.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/kavita.yaml",
       "image": "jvmilazz0/kavita",
       "image_tag": "latest"
     },
@@ -490,7 +490,7 @@
         "automation",
         "tools"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/komodo.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/komodo.yaml",
       "image": "ghcr.io/moghtech/komodo-core",
       "image_tag": "latest"
     },
@@ -506,7 +506,7 @@
         "music",
         "media-management"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/lidarr.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/lidarr.yaml",
       "image": "lscr.io/linuxserver/lidarr",
       "image_tag": "latest"
     },
@@ -524,7 +524,7 @@
         "local-ai",
         "gguf"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/llamacpp_server.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/llamacpp_server.yaml",
       "image": "ghcr.io/ggerganov/llama.cpp",
       "image_tag": "server"
     },
@@ -542,7 +542,7 @@
         "local-ai",
         "openai-compatible"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/localai.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/localai.yaml",
       "image": "localai/localai",
       "image_tag": "latest"
     },
@@ -559,7 +559,7 @@
         "cooking",
         "productivity"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/mealie.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/mealie.yaml",
       "image": "ghcr.io/mealie-recipes/mealie",
       "image_tag": "latest"
     },
@@ -576,7 +576,7 @@
         "productivity",
         "lightweight"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/memos.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/memos.yaml",
       "image": "neosmemo/memos",
       "image_tag": "stable"
     },
@@ -593,7 +593,7 @@
         "manga",
         "media-management"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/mylar3.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/mylar3.yaml",
       "image": "lscr.io/linuxserver/mylar3",
       "image_tag": "latest"
     },
@@ -610,7 +610,7 @@
         "performance",
         "system"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/netdata.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/netdata.yaml",
       "image": "netdata/netdata",
       "image_tag": "latest"
     },
@@ -627,7 +627,7 @@
         "alerts",
         "tools"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/ntfy.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/ntfy.yaml",
       "image": "binwiederhier/ntfy",
       "image_tag": "latest"
     },
@@ -643,7 +643,7 @@
         "llm",
         "local-ai"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/ollama.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/ollama.yaml",
       "image": "ollama/ollama",
       "image_tag": "latest"
     },
@@ -660,7 +660,7 @@
         "productivity",
         "scan"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/paperless_ngx.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/paperless_ngx.yaml",
       "image": "ghcr.io/paperless-ngx/paperless-ngx",
       "image_tag": "latest"
     },
@@ -679,7 +679,7 @@
         "tv",
         "music"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/plex.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/plex.yaml",
       "image": "plexinc/pms-docker",
       "image_tag": "latest"
     },
@@ -694,7 +694,7 @@
         "arr",
         "indexers"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/prowlarr.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/prowlarr.yaml",
       "image": "lscr.io/linuxserver/prowlarr",
       "image_tag": "latest"
     },
@@ -710,7 +710,7 @@
         "movies",
         "media-management"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/radarr.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/radarr.yaml",
       "image": "lscr.io/linuxserver/radarr",
       "image_tag": "latest"
     },
@@ -728,7 +728,7 @@
         "audiobooks",
         "media-management"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/readarr.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/readarr.yaml",
       "image": "lscr.io/linuxserver/readarr",
       "image_tag": "develop"
     },
@@ -746,7 +746,7 @@
         "storage",
         "hardware"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/scrutiny.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/scrutiny.yaml",
       "image": "ghcr.io/analogj/scrutiny",
       "image_tag": "master-omnibus"
     },
@@ -764,7 +764,7 @@
         "automation",
         "discovery"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/seerr.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/seerr.yaml",
       "image": "ghcr.io/fallenbagel/jellyseerr",
       "image_tag": "latest"
     },
@@ -783,7 +783,7 @@
         "offline-first",
         "lightweight"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/silverbullet.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/silverbullet.yaml",
       "image": "ghcr.io/silverbulletmd/silverbullet",
       "image_tag": "latest"
     },
@@ -801,7 +801,7 @@
         "parity",
         "monitoring"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/snapraid_ui.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/snapraid_ui.yaml",
       "image": "ghcr.io/firsttris/snapraid-ui",
       "image_tag": "latest"
     },
@@ -817,7 +817,7 @@
         "tv",
         "media-management"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/sonarr.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/sonarr.yaml",
       "image": "lscr.io/linuxserver/sonarr",
       "image_tag": "latest"
     },
@@ -835,7 +835,7 @@
         "isp",
         "performance"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/speedtest_tracker.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/speedtest_tracker.yaml",
       "image": "ghcr.io/alexjustesen/speedtest-tracker",
       "image_tag": "latest"
     },
@@ -853,7 +853,7 @@
         "documents",
         "server-side"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/stirling_pdf.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/stirling_pdf.yaml",
       "image": "frooodle/s-pdf",
       "image_tag": "latest"
     },
@@ -871,7 +871,7 @@
         "encrypted",
         "dropbox-alternative"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/syncthing.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/syncthing.yaml",
       "image": "lscr.io/linuxserver/syncthing",
       "image_tag": "latest"
     },
@@ -889,7 +889,7 @@
         "video",
         "arr"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/tdarr.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/tdarr.yaml",
       "image": "ghcr.io/haveagitgat/tdarr",
       "image_tag": "latest"
     },
@@ -907,7 +907,7 @@
         "monitoring",
         "web-analytics"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/umami.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/umami.yaml",
       "image": "ghcr.io/umami-software/umami",
       "image_tag": "postgresql-latest"
     },
@@ -924,7 +924,7 @@
         "bitwarden",
         "productivity"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/vaultwarden.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/vaultwarden.yaml",
       "image": "vaultwarden/server",
       "image_tag": "latest"
     },
@@ -942,7 +942,7 @@
         "productivity",
         "team"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/vikunja.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/vikunja.yaml",
       "image": "vikunja/vikunja",
       "image_tag": "latest"
     },
@@ -958,7 +958,7 @@
         "adult",
         "media-management"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/whisparr.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/whisparr.yaml",
       "image": "ghcr.io/hotio/whisparr",
       "image_tag": "latest"
     },
@@ -976,7 +976,7 @@
         "prowlarr",
         "arr"
       ],
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/zilean.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/zilean.yaml",
       "image": "ghcr.io/iPromKnight/zilean",
       "image_tag": "latest"
     },
@@ -985,7 +985,7 @@
       "display_name": "SABnzbd",
       "description": "Usenet binary newsreader and download manager",
       "category": "downloader",
-      "source_url": "https://github.com/Nnyan/mediastack/blob/main/catalog/apps/sabnzbd.yaml",
+      "source_url": "https://github.com/Nnyan/SLOP/blob/main/catalog/apps/sabnzbd.yaml",
       "image": "ghcr.io/linuxserver/sabnzbd"
     }
   ],

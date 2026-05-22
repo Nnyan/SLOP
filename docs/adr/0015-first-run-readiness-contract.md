@@ -198,7 +198,7 @@ Useful commands:
     Stop the service:  sudo systemctl stop mediastack.service
     Uninstall:         sudo <install_dir>/installer/main.py uninstall
 
-For documentation, see:  https://github.com/Nnyan/mediastack
+For documentation, see:  https://github.com/Nnyan/SLOP
 ```
 
 `<hostname>` is resolved at install time as: the first non-loopback IPv4 address reported by `hostname -I` if available, falling back to `hostname --fqdn`, falling back to the literal `localhost`. The choice is deliberate — a curl|bash operator is most often installing on a host they ssh'd into, where the LAN address is what they want; `localhost` is the right fallback for the dev-VM case where the operator is at the console. Documenting the resolution order in the file itself was considered and rejected as noise; the resolution is internal and the operator just wants the URL.

@@ -20,4 +20,4 @@ Useful commands:
     Stop the service:  sudo systemctl stop mediastack.service
     Uninstall:         sudo <install_dir>/bin/mediastack uninstall
 
-For documentation, see:  https://github.com/Nnyan/mediastack
+For documentation, see:  https://github.com/Nnyan/SLOP

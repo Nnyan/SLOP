@@ -228,13 +228,13 @@ Steps 1–4 are pure read/parse/dispatch. The pipe-mode-without-flag check happe
 Per Direction Decision D9 and V5_INSTALLER_PLAN.md Step 4.3.b:
 
 ```
-curl -fsSL https://raw.githubusercontent.com/Nnyan/mediastack/main/install.sh | sudo bash -s -- --install-docker=yes
+curl -fsSL https://raw.githubusercontent.com/Nnyan/SLOP/main/install.sh | sudo bash -s -- --install-docker=yes
 ```
 
 The advanced path, per the same decision:
 
 ```
-git clone https://github.com/Nnyan/mediastack.git
+git clone https://github.com/Nnyan/SLOP.git
 cd mediastack
 sudo ./install.sh
 ```

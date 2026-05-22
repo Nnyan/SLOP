@@ -1678,7 +1678,7 @@ Provide a thorough diagnosis. Respond ONLY with JSON:
                 resp = await client.post(
                     url,
                     headers={"Authorization": f"Bearer {api_key}",
-                             "HTTP-Referer": "https://github.com/Nnyan/mediastack",
+                             "HTTP-Referer": "https://github.com/Nnyan/SLOP",
                              "X-Title": "Mediastack Health Agent Escalation"},
                     json={"model": model,
                           "messages": [{"role": "user", "content": prompt}],
@@ -1737,7 +1737,7 @@ async def llm_test(req: dict[str, Any]) -> dict[str, Any]:
                 return {"ok": False, "error": f"Unknown provider: {provider}", "latency_ms": 0}
             hdrs = {
                 "Authorization": f"Bearer {api_key}",
-                "HTTP-Referer": "https://github.com/Nnyan/mediastack",
+                "HTTP-Referer": "https://github.com/Nnyan/SLOP",
                 "X-Title": "Mediastack LLM Test",
             }
             if provider == "anthropic":
