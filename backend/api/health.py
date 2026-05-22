@@ -1813,8 +1813,7 @@ def llm_providers() -> dict[str, Any]:
             {"id": "gemini-1.5-flash-8b", "label": "Gemini 1.5 Flash 8B (fastest)", "recommended": False},
         ],
         "anthropic": [
-            {"id": "claude-haiku-4-5", "label": "Claude Haiku 4.5 (fast, affordable)", "recommended": True},
-            {"id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6 (best reasoning)", "recommended": False},
+            {"id": "", "label": "Enter model ID (e.g. claude-haiku-4-5) — see console.anthropic.com/docs", "recommended": True},
         ],
         "openai": [
             {"id": "gpt-4o-mini", "label": "GPT-4o Mini (cost-effective)", "recommended": True},
