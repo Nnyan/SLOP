@@ -3,12 +3,12 @@
 #              install python3 + git, then exec to installer/main.py.
 #
 # curl|bash (headline path):
-#   curl -fsSL https://raw.githubusercontent.com/Nnyan/mediastack/main/install.sh \
+#   curl -fsSL https://raw.githubusercontent.com/Nnyan/SLOP/main/install.sh \
 #     | sudo bash -s -- --install-docker=yes
 #
 # git-clone (inspectable path):
-#   git clone https://github.com/Nnyan/mediastack.git
-#   cd mediastack && sudo ./install.sh
+#   git clone https://github.com/Nnyan/SLOP.git
+#   cd SLOP && sudo ./install.sh
 
 set -euo pipefail
 
@@ -179,7 +179,7 @@ if git -C "$_SCRIPT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
   _REPO_DIR="$_SCRIPT_DIR"
 else
   _REPO_DIR="$(mktemp -d)"
-  git clone --branch "${MS_VERSION_REF:-main}" "https://github.com/Nnyan/mediastack.git" "$_REPO_DIR" --quiet
+  git clone --branch "${MS_VERSION_REF:-main}" "https://github.com/Nnyan/SLOP.git" "$_REPO_DIR" --quiet
 fi
 
 # ── Hand off to the Python installer ─────────────────────────────────────────

@@ -262,7 +262,7 @@ class TestCatalogRegistry:
             assert "key" in entry
             assert "display_name" in entry
             assert "source_url" in entry
-            assert "Nnyan/mediastack" in entry["source_url"]
+            assert "Nnyan/SLOP" in entry["source_url"]
 
     def test_registry_media_apps_marked(self):
         import json

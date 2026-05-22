@@ -473,7 +473,7 @@ class TestDockerSocketProxy:
             None,
         )
         assert proxy is not None
-        assert "Nnyan/mediastack" in proxy["source_url"]
+        assert "Nnyan/SLOP" in proxy["source_url"]
 
 
 # ── Startup grace period ───────────────────────────────────────────────────
