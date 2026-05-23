@@ -619,8 +619,7 @@ def step_write_env(inp: "WizardInput") -> "StepResult":
     """Stage 7: write/update .env with wizard-collected values."""
     import os
     try:
-        candidates = [config.data_dir.parent / ".env", Path("/srv/mediastack/.env")]
-        env_path = next((p for p in candidates if p.parent.exists()), candidates[0])
+        env_path = config.env_file
 
         existing: dict[str, str] = {}
         if env_path.exists():
