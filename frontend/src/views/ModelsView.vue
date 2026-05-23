@@ -68,7 +68,7 @@
                   <span class="text-xs text-slate-500 shrink-0">Run:</span>
                   <code class="text-xs font-mono bg-white border border-amber-200 px-2 py-0.5 rounded select-all flex-1">{{ ping.fix }}</code>
                 </div>
-                <div v-if="installedModels.length" class="pt-1 border-t border-amber-100">
+                <div v-if="ggufImportInstructions" class="pt-1 border-t border-amber-100">
                   <p class="text-xs text-amber-700 font-medium">Or import your downloaded GGUF directly:</p>
                   <code class="block text-xs font-mono bg-white border border-amber-200 px-2 py-1.5 rounded select-all leading-relaxed whitespace-pre-wrap mt-1">{{ ggufImportInstructions }}</code>
                 </div>
@@ -130,8 +130,8 @@
                   <p class="text-xs text-slate-500 font-semibold">Run on your server:</p>
                   <code class="block text-xs font-mono bg-white border border-red-200 px-2 py-1.5 rounded select-all leading-relaxed whitespace-pre-wrap">{{ ping.fix }}</code>
                 </template>
-                <!-- GGUF import hint if models are downloaded -->
-                <div v-if="installedModels.length" class="pt-1 border-t border-red-100">
+                <!-- GGUF import hint if local GGUF models are downloaded -->
+                <div v-if="ggufImportInstructions" class="pt-1 border-t border-red-100">
                   <p class="text-xs text-slate-500 font-semibold">Or import your downloaded model into Ollama:</p>
                   <code class="block text-xs font-mono bg-white border border-red-200 px-2 py-1.5 rounded select-all leading-relaxed whitespace-pre-wrap mt-1">{{ ggufImportInstructions }}</code>
                 </div>
@@ -686,10 +686,15 @@ function providerUrl(p: string): string {
 const toast = useToast()
 
 const ggufImportInstructions = computed(() => {
-  if (!installedModels.value.length) return ''
-  const model = installedModels.value[0]
+  // Only local GGUF files have a filesystem path — skip Ollama-managed models
+  // (those have path: "ollama://..." and can't be imported via Modelfile)
+  const localModels = installedModels.value.filter(m => !m.path.startsWith('ollama://'))
+  if (!localModels.length) return ''
+  const model = localModels[0]
   const safeName = model.filename.replace('.gguf', '').replace(/[^a-z0-9_-]/gi, '-').toLowerCase()
-  const modelPath = `/srv/mediastack/data/models/${model.filename}`
+  // model.path is the full server-side filesystem path returned by the backend
+  // (/api/v1/models/gguf) — e.g. /var/lib/mediastack/models/model.gguf
+  const modelPath = model.path
   return `# Create a Modelfile\necho "FROM ${modelPath}" > /tmp/Modelfile\n# Import into Ollama (creates model named '${safeName}')\nollama create ${safeName} -f /tmp/Modelfile\n# Verify it loaded\nollama list`
 })
 
