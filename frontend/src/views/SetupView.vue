@@ -797,6 +797,12 @@
         </button>
       </div>
 
+      <!-- Continue-blocked hint — shown when Continue is disabled -->
+      <p v-if="!canAdvance && advanceBlockReason"
+        class="text-center text-xs text-amber-600 mt-2 animate-pulse">
+        ⚠ {{ advanceBlockReason }}
+      </p>
+
       <!-- Skip to catalog link -->
       <p v-if="currentStage === 9 && form.llm_provider === 'ollama' && !ollamaSetupJob?.ok"
         class="text-center text-xs text-slate-400 mt-2">
@@ -1102,6 +1108,37 @@ const canAdvance = computed(() => {
     return true  // 'none' — always can advance
   }
   return true
+})
+
+// Human-readable explanation of why Continue is blocked — shown below the button
+const advanceBlockReason = computed((): string => {
+  if (canAdvance.value) return ''
+  if (currentStage.value === 0) {
+    if (prereqChecks.value.length === 0) return 'Run prerequisite checks above before continuing'
+    return 'Fix the failing prerequisite checks before continuing'
+  }
+  if (currentStage.value === 1) return 'Enter your domain name to continue'
+  if (currentStage.value === 2) return 'ZeroSSL requires both EAB Key ID and EAB HMAC Key'
+  if (currentStage.value === 5) {
+    const missing = requiredSecrets.value.filter(
+      s => s.required && !s.auto_generated && !form.secrets[s.key]?.trim()
+    )
+    if (missing.length === 1) return 'Required: ' + missing[0].label
+    if (missing.length > 1) return missing.length + ' required fields are empty: ' + missing.map(s => s.label).join(', ')
+    return ''
+  }
+  if (currentStage.value === 7) return 'Waiting for platform deployment to complete'
+  if (currentStage.value === 8) return 'Waiting for app installations to complete'
+  if (currentStage.value === 9) {
+    if (form.llm_provider === 'ollama') return 'Complete the Ollama install and model download above'
+    if (form.llm_provider === 'groq') return 'Enter your Groq API key above'
+    if (form.llm_provider === 'awan') return 'Enter your Awan API key above'
+    if (form.llm_provider === 'llamacpp') return 'Enter the llama.cpp server URL above'
+    if (form.llm_provider === 'cerebras') return 'Enter your Cerebras API key above'
+    if (form.llm_provider === 'openai') return 'Enter your OpenAI API key above'
+    return ''
+  }
+  return ''
 })
 
 // ── Prerequisites ─────────────────────────────────────────────────────────
