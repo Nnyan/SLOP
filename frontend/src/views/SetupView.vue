@@ -1054,7 +1054,7 @@ async function finish() {
   }
   await platformStore.fetchStatus()
   await new Promise(r => setTimeout(r, 500))
-  router.push('/dashboard')
+  router.push('/')
 }
 
 const canAdvance = computed(() => {
