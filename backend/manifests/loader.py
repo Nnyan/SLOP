@@ -184,6 +184,12 @@ class AppManifest:
     # ── Extra container config (cap_add, devices, etc.) ─────────────────
     extra_config: dict[str, Any] = field(default_factory=dict)
 
+    # ── Auto-generated install secrets ───────────────────────────────────
+    # Each entry: {key: str, length: int} — generated at install time and
+    # written to .env if not already present. Used for app-specific secrets
+    # (session tokens, signing keys) that must exist but need no user input.
+    auto_secrets: list[dict[str, Any]] = field(default_factory=list)
+
     # ── Links / tags ──────────────────────────────────────────────────────
     links: dict[str, str] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
@@ -475,6 +481,7 @@ def parse_manifest(path: Path) -> AppManifest:
         config_schema=list(data.get("config_schema", []) or []),
         post_install=list(data.get("post_install", []) or []),
         config_defaults=dict(data.get("config_defaults", {}) or {}),
+        auto_secrets=list(data.get("auto_secrets", []) or []),
         source_path=path,
         content_hash=_content_hash(raw_text),
     )

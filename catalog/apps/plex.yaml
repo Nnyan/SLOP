@@ -63,7 +63,7 @@ volumes:
 
 env:
   TZ: "${TZ}"
-  PLEX_CLAIM: "${PLEX_CLAIM}"       # get from plex.tv/claim — expires after 4min
+  PLEX_CLAIM: "${PLEX_CLAIM:-}"     # optional — get from plex.tv/claim (expires 4min); blank = start unclaimed
   ADVERTISE_IP: "https://plex.{domain}:443"
 
 traefik:

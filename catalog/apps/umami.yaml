@@ -15,8 +15,12 @@ ports:
 
 env:
   DATABASE_TYPE: postgresql
-  DATABASE_URL: "postgresql://umami:${UMAMI_DB_PASSWORD}@postgres:5432/umami"
+  DATABASE_URL: "postgresql://mediastack:${POSTGRES_PASSWORD}@postgres:5432/umami"
   APP_SECRET: "${UMAMI_APP_SECRET}"
+
+auto_secrets:
+  - key: UMAMI_APP_SECRET
+    length: 32
 
 dependencies:
   postgres: true

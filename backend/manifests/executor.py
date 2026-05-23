@@ -408,6 +408,55 @@ def _install_dependencies(manifest: AppManifest, platform: Any,
     return True
 
 
+def _generate_auto_secrets(
+    manifest: AppManifest,
+    extra_env: dict[str, str] | None,
+) -> dict[str, str]:
+    """Generate and persist any auto_secrets declared in the manifest.
+
+    For each {key, length} entry in manifest.auto_secrets: if the key is not
+    already in .env, generate a random hex value of `length` bytes and write
+    it to .env. Returns the (possibly new) extra_env dict with generated values
+    so they are also passed as env_overrides to the compose builder.
+    """
+    if not manifest.auto_secrets:
+        return extra_env or {}
+
+    import secrets as _secrets
+
+    from backend.core.config import config as _cfg
+    env_path = _cfg.env_file
+
+    existing: dict[str, str] = {}
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            if "=" in line and not line.startswith("#"):
+                k, _, v = line.partition("=")
+                existing[k.strip()] = v.strip()
+
+    generated: dict[str, str] = {}
+    for entry in manifest.auto_secrets:
+        key_name = entry.get("key", "")
+        length = int(entry.get("length", 32))
+        if not key_name:
+            continue
+        if key_name not in existing and (extra_env is None or key_name not in extra_env):
+            generated[key_name] = _secrets.token_hex(length)
+
+    if generated:
+        existing.update(generated)
+        content = "\n".join(f"{k}={v}" for k, v in sorted(existing.items())) + "\n"
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text(content)
+        import os as _os
+        _os.chmod(env_path, 0o600)
+        log.info("auto_secrets: generated %s for %s", list(generated), manifest.key)
+
+    result_env = dict(extra_env or {})
+    result_env.update(generated)
+    return result_env
+
+
 def _ensure_config_dir(platform: Any, key: str,
                        result: ExecutionResult) -> tuple[Path, bool] | None:
     """Create the per-app config dir. Returns (path, created_now) or None on error.
@@ -620,6 +669,8 @@ def _install_inner(
     if cfg is None:
         return
     config_path, dir_created_now = cfg
+
+    extra_env = _generate_auto_secrets(manifest, extra_env)
 
     host_port = _compute_host_port(manifest, host_port_override)
     if not _check_port_conflict(key, host_port, result):

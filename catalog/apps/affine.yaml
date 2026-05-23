@@ -25,7 +25,7 @@ env:
   NODE_ENV: production
   AFFINE_ENV: selfhosted
   AFFINE_SERVER_HTTPS: "true"
-  DATABASE_URL: "postgresql://affine:${AFFINE_DB_PASSWORD}@postgres:5432/affine"
+  DATABASE_URL: "postgresql://mediastack:${POSTGRES_PASSWORD}@postgres:5432/affine"
   REDIS_SERVER_HOST: "valkey"
 
 dependencies:

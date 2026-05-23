@@ -71,7 +71,7 @@ env:
   DECYPHARR_ENABLED: "true"
   ZILEAN_ENABLED: "false"
   # Credentials — set via Mediastack secrets after install
-  RD_API_KEY: "${RD_API_KEY}"
+  RD_API_KEY: "${RD_API_KEY:-}"
   # Plex integration (optional)
   PLEX_REFRESH: "false"
   PLEX_MOUNT_DIR: /mnt/debrid
