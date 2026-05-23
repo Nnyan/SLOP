@@ -142,6 +142,84 @@
     </div><!-- /min-height wrapper -->
 
   </div><!-- /root -->
+
+  <!-- ── Single-app install modal ── -->
+  <Teleport to="body">
+    <div v-if="installTarget" class="fixed inset-0 z-50 flex items-center justify-center">
+      <div class="absolute inset-0 bg-black/30 backdrop-blur-sm" @click="installTarget = null"/>
+      <div class="relative card w-full max-w-md mx-4 card-body">
+
+        <!-- Header -->
+        <div class="flex items-center gap-3 mb-4">
+          <span class="text-2xl">{{ installTarget.icon }}</span>
+          <div>
+            <h3 class="font-semibold text-slate-900">{{ installTarget.display_name }}</h3>
+            <p class="text-xs text-slate-400 capitalize">{{ installTarget.category }}</p>
+          </div>
+        </div>
+
+        <!-- Description -->
+        <p class="text-sm text-slate-500 mb-4 leading-relaxed">{{ installTarget.description }}</p>
+
+        <!-- Options (only when not installing) -->
+        <template v-if="!installing">
+          <div class="space-y-3 mb-4">
+            <div v-if="installTarget.ports?.web">
+              <label class="text-xs font-medium text-slate-600">Host port override <span class="text-slate-400">(optional)</span></label>
+              <input v-model.number="installOpts.host_port" type="number" placeholder="leave blank for default"
+                class="input w-full mt-1 text-sm" />
+            </div>
+          </div>
+
+          <div v-if="installError" class="rounded-lg bg-red-50 border border-red-100 p-3 text-xs text-red-700 mb-4">
+            {{ installError }}
+          </div>
+
+          <div class="flex gap-3">
+            <button @click="installTarget = null" class="btn-secondary flex-1">Cancel</button>
+            <button @click="confirmInstall" class="btn-primary flex-1">Install</button>
+          </div>
+        </template>
+
+        <!-- Progress (while installing) -->
+        <template v-else>
+          <div class="mb-3">
+            <div class="flex items-center justify-between text-xs text-slate-500 mb-1">
+              <span>{{ installTimeLabel }}</span>
+              <span>{{ installProgress }}%</span>
+            </div>
+            <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div class="h-full bg-orange-500 rounded-full transition-all duration-300"
+                   :style="{ width: installProgress + '%' }" />
+            </div>
+          </div>
+
+          <div v-if="installSteps.length" class="space-y-1 max-h-40 overflow-y-auto mb-3">
+            <div v-for="step in installSteps" :key="step.name"
+              class="flex items-center gap-2 text-xs text-slate-500">
+              <span :class="[
+                'status-dot',
+                step.status === 'ok' ? 'bg-green-500' :
+                step.status === 'warning' ? 'bg-amber-400' :
+                step.status === 'error' ? 'bg-red-500' :
+                step.status === 'skipped' ? 'bg-slate-300' : 'bg-blue-400'
+              ]"/>
+              {{ step.message || step.name }}
+            </div>
+          </div>
+
+          <div v-if="installError" class="rounded-lg bg-red-50 border border-red-100 p-3 text-xs text-red-700 mb-3">
+            {{ installError }}
+            <button @click="installTarget = null" class="block mt-2 text-red-500 hover:text-red-700 font-medium">Dismiss</button>
+          </div>
+
+          <p v-else class="text-xs text-slate-400 text-center">Installing — please wait…</p>
+        </template>
+
+      </div>
+    </div>
+  </Teleport>
+
 </template>
 
 <script setup lang="ts">
