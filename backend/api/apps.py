@@ -35,6 +35,19 @@ log = get_logger(__name__)
 router = APIRouter()
 
 
+# ── SLOP-managed env vars (always written to .env by the wizard) ──────────
+# These are excluded from missing_vars in the linter and variable scanner
+# because SLOP owns their values — they should never be left for the user
+# to fill in manually (the platform sets them from the wizard's DB record).
+_SLOP_MANAGED_VARS: frozenset[str] = frozenset({
+    "PUID", "PGID", "TZ", "DOMAIN", "CONFIG_ROOT", "MEDIA_ROOT",
+    "CF_TUNNEL_TOKEN", "CF_DNS_API_TOKEN", "TAILSCALE_AUTH_KEY",
+    "TINYAUTH_USERNAME", "TINYAUTH_PASSWORD", "TINYAUTH_AUTH_USERS",
+    "VPN_TYPE", "VPN_SERVICE_PROVIDER", "WIREGUARD_PRIVATE_KEY",
+    "OPENVPN_USER", "OPENVPN_PASSWORD",
+})
+
+
 # ── Request / Response models ─────────────────────────────────────────────
 
 
@@ -816,16 +829,8 @@ def lint_compose_yaml(payload: dict[str, Any]) -> LintResult:
     import re as _re
     required_refs = set(_re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}', raw))
     known_keys = _read_env_keys()
-    # SLOP always writes these during wizard setup — never flag as missing
-    _slop_managed: set[str] = {
-        "PUID", "PGID", "TZ", "DOMAIN", "CONFIG_ROOT", "MEDIA_ROOT",
-        "CF_TUNNEL_TOKEN", "CF_DNS_API_TOKEN", "TAILSCALE_AUTH_KEY",
-        "TINYAUTH_USERNAME", "TINYAUTH_PASSWORD", "TINYAUTH_AUTH_USERS",
-        "VPN_TYPE", "VPN_SERVICE_PROVIDER", "WIREGUARD_PRIVATE_KEY",
-        "OPENVPN_USER", "OPENVPN_PASSWORD",
-    }
     missing_vars = sorted(v for v in required_refs
-                          if v not in known_keys and v not in _slop_managed)
+                          if v not in known_keys and v not in _SLOP_MANAGED_VARS)
 
     if missing_vars:
         warnings.append(
@@ -918,6 +923,19 @@ def _save_community_manifest(
     }
     if source_url:
         normalized["source_url"] = source_url
+
+    # ── Preserve app-specific env vars ───────────────────────────────────
+    # Copy env vars from the custom manifest, excluding SLOP-managed vars
+    # (PUID, PGID, TZ, DOMAIN, etc.) which are always set from the platform
+    # DB at install time — the user should never need to override them.
+    # These non-managed vars are written to the compose fragment's environment
+    # block so custom apps receive their required config at runtime, even if
+    # the user left them blank in the variable-discovery form.
+    _raw_env = manifest_data.get("env") or {}
+    _app_env = {str(k): str(v) for k, v in _raw_env.items()
+                if k not in _SLOP_MANAGED_VARS}
+    if _app_env:
+        normalized["env"] = _app_env
 
     # Validate category against the loader's enum
     from backend.manifests.loader import VALID_CATEGORIES
@@ -1067,15 +1085,8 @@ def install_from_github(req: GitHubManifestRequest) -> dict[str, Any]:
         env_values_str += " " + str(_val)
     required_refs = set(_re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}', env_values_str))
     known_keys = _read_env_keys()
-    _slop_managed: set[str] = {
-        "PUID", "PGID", "TZ", "DOMAIN", "CONFIG_ROOT", "MEDIA_ROOT",
-        "CF_TUNNEL_TOKEN", "CF_DNS_API_TOKEN", "TAILSCALE_AUTH_KEY",
-        "TINYAUTH_USERNAME", "TINYAUTH_PASSWORD", "TINYAUTH_AUTH_USERS",
-        "VPN_TYPE", "VPN_SERVICE_PROVIDER", "WIREGUARD_PRIVATE_KEY",
-        "OPENVPN_USER", "OPENVPN_PASSWORD",
-    }
     missing_vars = sorted(v for v in required_refs
-                          if v not in known_keys and v not in _slop_managed)
+                          if v not in known_keys and v not in _SLOP_MANAGED_VARS)
     result["missing_vars"] = missing_vars
 
     return result
