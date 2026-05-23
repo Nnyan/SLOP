@@ -331,7 +331,8 @@ def _frag_volumes(config_path: str, media_root: str | None,
         volumes.append(f"{media_root}:/data")
     if extra_volumes:
         for vol in extra_volumes:
-            volumes.append(f"{vol['host']}:{vol['container']}")
+            ro = ":ro" if vol.get("readonly") else ""
+            volumes.append(f"{vol['host']}:{vol['container']}{ro}")
     return volumes
 
 

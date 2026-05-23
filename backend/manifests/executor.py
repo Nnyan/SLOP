@@ -542,7 +542,8 @@ def _build_compose_service(manifest: AppManifest, key: str, platform: Any,
     )
     extra_vols = [
         {"host": _expand_path(v.host_path, platform),
-         "container": v.container_path}
+         "container": v.container_path,
+         "readonly": v.readonly}
         for v in manifest.custom_volumes
     ]
     service_fragment = build_service_fragment(
@@ -1091,9 +1092,14 @@ def _deploy_companions(manifest: AppManifest, platform: Any) -> dict[str, str]:
             for v in vols:
                 host = _expand_path(v["host"], platform)
                 container = v["container"]
-                os.makedirs(host, exist_ok=True)
-                os.chmod(host, 0o777)
-                expanded.append(f"{host}:{container}")
+                ro = ":ro" if v.get("readonly") else ""
+                if not os.path.exists(host):
+                    os.makedirs(host, exist_ok=True)
+                    os.chmod(host, 0o777)
+                elif os.path.isdir(host):
+                    os.chmod(host, 0o777)
+                # socket/device paths: leave permissions as-is
+                expanded.append(f"{host}:{container}{ro}")
             frag["volumes"] = expanded
 
         env = companion.get("env", {})

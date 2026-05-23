@@ -20,7 +20,7 @@ volumes:
       container: /var/cache/ntfy
 
 env:
-  NTFY_BASE_URL: "https://ntfy.{domain}"
+  NTFY_BASE_URL: "https://ntfy.${DOMAIN}"
   NTFY_BEHIND_PROXY: "true"
   NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
   NTFY_AUTH_FILE: /etc/ntfy/auth.db

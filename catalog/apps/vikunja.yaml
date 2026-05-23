@@ -17,7 +17,7 @@ volumes:
   config: /app/vikunja/files
 
 env:
-  VIKUNJA_SERVICE_FRONTENDURL: "https://vikunja.{domain}"
+  VIKUNJA_SERVICE_FRONTENDURL: "https://vikunja.${DOMAIN}"
   VIKUNJA_DATABASE_TYPE: postgres
 
 dependencies:

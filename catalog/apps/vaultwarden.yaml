@@ -19,7 +19,7 @@ volumes:
 env:
   WEBSOCKET_ENABLED: "true"
   SIGNUPS_ALLOWED: "false"
-  DOMAIN: "https://vaultwarden.{domain}"
+  DOMAIN: "https://vaultwarden.${DOMAIN}"
 
 traefik:
   enabled: true

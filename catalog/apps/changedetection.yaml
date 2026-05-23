@@ -20,7 +20,7 @@ env:
   PUID: "${PUID}"
   PGID: "${PGID}"
   TZ: "${TZ}"
-  BASE_URL: "https://changedetection.{domain}"
+  BASE_URL: "https://changedetection.${DOMAIN}"
 
 traefik:
   enabled: true

@@ -46,7 +46,7 @@ volumes:
 
 env:
   TZ: "${TZ}"
-  JELLYFIN_PublishedServerUrl: "https://jellyfin.{domain}"
+  JELLYFIN_PublishedServerUrl: "https://jellyfin.${DOMAIN}"
 
 traefik:
   enabled: true
