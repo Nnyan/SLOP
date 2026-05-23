@@ -1204,7 +1204,7 @@ const requiredSecrets = computed(() => {
     secrets.push({ key: 'OPENVPN_PASSWORD', label: 'VPN Password', required: false,
       placeholder: 'Not required for Mullvad. Required for most other OpenVPN providers.',
       note: 'Leave blank for Mullvad or WireGuard.' })
-    secrets.push({ key: 'WIREGUARD_PRIVATE_KEY', label: 'WireGuard Private Key', required: false,
+    secrets.push({ key: 'WIREGUARD_PRIVATE_KEY', label: 'WireGuard Private Key', required: form.secrets['VPN_TYPE'] === 'wireguard',
       type: 'text', placeholder: 'base64-encoded key from your VPN provider',
       note: 'Required only for WireGuard protocol. Get from your provider dashboard.' })
     secrets.push({ key: 'SERVER_COUNTRIES', label: 'Server Country (optional)', required: false,
