@@ -326,6 +326,26 @@
                 <p v-if="secret.note" class="text-xs text-slate-400">{{ secret.note }}</p>
               </div>
             </div>
+
+            <!-- Secrets validation feedback -->
+            <div v-if="secretsValidating" class="flex items-center gap-2 text-sm text-slate-500 mt-3">
+              <div class="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin shrink-0"/>
+              Validating credentials…
+            </div>
+            <div v-if="secretsValidationResult && secretsValidationResult.errors && secretsValidationResult.errors.length"
+              class="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 space-y-1">
+              <p class="text-xs font-medium text-red-800">Validation failed — fix these errors before continuing:</p>
+              <ul class="text-xs text-red-700 list-disc list-inside space-y-0.5">
+                <li v-for="err in secretsValidationResult.errors" :key="err">{{ err }}</li>
+              </ul>
+            </div>
+            <div v-if="secretsValidationResult && secretsValidationResult.warnings && secretsValidationResult.warnings.length
+              && !(secretsValidationResult.errors && secretsValidationResult.errors.length)"
+              class="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <ul class="text-xs text-amber-700 list-disc list-inside space-y-0.5">
+                <li v-for="warn in secretsValidationResult.warnings" :key="warn">{{ warn }}</li>
+              </ul>
+            </div>
           </template>
 
           <!-- Stage 6: Review -->
