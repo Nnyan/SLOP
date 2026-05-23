@@ -184,8 +184,15 @@ def container_logs(name: str, tail: int = 100) -> str:
 
 def _container_info(c: Any) -> ContainerInfo:
     attrs = c.attrs or {}
-    state = attrs.get("State", {}) or {}
+
+    # containers.list() returns State as a string ("running", "exited", …).
+    # containers.get() / inspect returns State as a dict with Health etc.
+    # Handle both so this function is safe for both call paths.
+    raw_state = attrs.get("State", {})
+    state: dict = raw_state if isinstance(raw_state, dict) else {}
+
     health = (state.get("Health") or {}).get("Status", "none")
+
     created_str = attrs.get("Created", "")
     import datetime
     try:
@@ -194,10 +201,17 @@ def _container_info(c: Any) -> ContainerInfo:
         ).timestamp())
     except (ValueError, TypeError, AttributeError):
         created = 0
+
+    # Use attrs["Image"] (the image ref string already present in the list/inspect
+    # response) instead of c.image.tags — accessing c.image.tags triggers a separate
+    # Docker API image-load call for every container, which is the root cause of the
+    # ~1s latency on /api/v1/apps with 18 containers.
+    image = attrs.get("Image", "") or getattr(c, "short_id", "")
+
     return ContainerInfo(
         id=c.id[:12],
         name=c.name,
-        image=c.image.tags[0] if c.image.tags else c.image.short_id,
+        image=image,
         status=c.status,
         state=state.get("Status", c.status),
         health=health,
