@@ -3,6 +3,14 @@
     <div class="mb-6">
       <h1 class="page-title">Platform Setup</h1>
       <p class="page-subtitle">Configure your platform before installing apps.</p>
+      <div v-if="hasDraft"
+        class="mt-2 flex items-center gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded px-3 py-1.5">
+        <span>📋 Progress restored from your last session.</span>
+        <button @click="clearDraftAndReset"
+          class="underline hover:no-underline font-medium shrink-0">
+          Start fresh
+        </button>
+      </div>
     </div>
 
     <!-- Already configured -->
@@ -1367,6 +1375,54 @@ watch(currentStage, async () => {
   }
 })
 
+// ── Wizard draft persistence (localStorage) ───────────────────────────────
+// Saves form + stage on every change so a refresh or sidebar nav restores
+// the user to where they were. Cleared automatically on successful deploy.
+const WIZARD_DRAFT_KEY = 'slop-wizard-draft'
+const hasDraft = ref(false)
+
+function saveDraft() {
+  try {
+    localStorage.setItem(WIZARD_DRAFT_KEY, JSON.stringify({
+      form: JSON.parse(JSON.stringify(form)),
+      stage: currentStage.value,
+      maxStage: maxReachedStage.value,
+    }))
+  } catch {}
+}
+
+function clearDraft() {
+  try { localStorage.removeItem(WIZARD_DRAFT_KEY) } catch {}
+  hasDraft.value = false
+}
+
+function clearDraftAndReset() {
+  clearDraft()
+  // Reload so the component starts fresh with no draft
+  window.location.reload()
+}
+
+function restoreDraft() {
+  try {
+    const raw = localStorage.getItem(WIZARD_DRAFT_KEY)
+    if (!raw) return
+    const draft = JSON.parse(raw)
+    if (draft.form && typeof draft.form === 'object') {
+      Object.assign(form, draft.form)
+    }
+    if (draft.stage != null && Number.isFinite(draft.stage)) {
+      currentStage.value = draft.stage
+    }
+    if (draft.maxStage != null && Number.isFinite(draft.maxStage)) {
+      maxReachedStage.value = draft.maxStage
+    }
+    hasDraft.value = true
+  } catch {}
+}
+
+watch(form, saveDraft, { deep: true })
+watch(maxReachedStage, saveDraft)
+
 function regenerateSecret(key: string) {
   form.secrets[key] = hex(32)
 }
@@ -1493,6 +1549,7 @@ async function runWizard() {
 
     if (result.platform_ready) {
       setupSuccess.value = true
+      clearDraft()  // wizard complete — no need to restore on next visit
       forceSetup.value = true  // prevent isReady from switching to configured screen
       // Start polling cert status
       pollCertStatus()
@@ -1875,6 +1932,7 @@ async function doReset() {
 }
 
 onMounted(async () => {
+  restoreDraft()  // restore before prereq checks (may change currentStage)
   await runPrereqChecks()
   // Load system profile for AI stage recommendations
   try {
