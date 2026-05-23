@@ -688,42 +688,13 @@ class StateDB:
         message: str,
         detail: str = "",
     ) -> None:
-        """Persist a single operation step for real-time progress polling.
-
-        When a __done__ sentinel is written, prunes steps for completed
-        operations older than the 3 most-recent per app key to prevent
-        unbounded table growth.
-        """
+        """Persist a single operation step for real-time progress polling."""
         self._c.execute(
             """INSERT INTO operation_steps (op_key, step_name, status, message, detail)
                VALUES (?, ?, ?, ?, ?)""",
             (op_key, step_name, status, message, detail),
         )
         self._c.commit()
-
-        # Prune old completed operations when a __done__ is written
-        if step_name == "__done__":
-            try:
-                # Keep rows for the 3 most recent completed cycles per key
-                # (identified by the id of the last __done__ per cycle)
-                self._c.execute(
-                    """DELETE FROM operation_steps
-                       WHERE op_key = ?
-                         AND id < (
-                             SELECT COALESCE(MIN(cutoff_id), 0)
-                             FROM (
-                                 SELECT id AS cutoff_id
-                                 FROM operation_steps
-                                 WHERE op_key = ? AND step_name = '__done__'
-                                 ORDER BY id DESC
-                                 LIMIT 3
-                             )
-                         )""",
-                    (op_key, op_key),
-                )
-                self._c.commit()
-            except Exception:
-                pass  # pruning is best-effort — never break a write
 
     def get_op_steps(self, op_key: str) -> list[dict[str, Any]]:
         """Return all steps for an operation, oldest first."""
