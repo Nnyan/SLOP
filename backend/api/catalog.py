@@ -31,6 +31,8 @@ class CatalogEntry(BaseModel):
     tags: list[str]
     links: dict[str, str]
     has_gpu: bool
+    gpu_optional: bool | None = None
+    hardware_note: str | None = None
     start_grace_s: int = 60
     dependencies: dict[str, Any]
 
