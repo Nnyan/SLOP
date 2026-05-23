@@ -1622,16 +1622,24 @@ def enhance_custom_app(key: str, req: EnhanceRequest) -> dict[str, Any]:
         },
     }
 
-    # Write to custom catalog directory
-    custom_dir = cfg.catalog_dir / "custom"
-    custom_dir.mkdir(exist_ok=True)
-    manifest_path = custom_dir / f"{key}.yaml"
+    # Write to the community catalog directory — the same location that
+    # _save_community_manifest() uses, so load_manifest() and the health
+    # cycle can find the updated manifest immediately.
+    # (Previously wrote to catalog/custom/, which load_manifest() never scanned.)
+    community_dir = cfg.catalog_dir / "community"
+    community_dir.mkdir(exist_ok=True)
+    manifest_path = community_dir / f"{key}.yaml"
 
     try:
         with open(manifest_path, "w") as f:
             _yaml.dump(manifest_content, f, default_flow_style=False, allow_unicode=True)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not write manifest: {e}")
+
+    # Invalidate the manifest cache so the health cycle picks up the new
+    # health checks on the next run rather than using the 5-minute-old cache.
+    from backend.manifests.loader import clear_cache as _clear_manifest_cache
+    _clear_manifest_cache()
 
     # Update app record
     with StateDB() as db:

@@ -77,9 +77,54 @@
       <div class="lg:col-span-2 space-y-4">
         <!-- Health checks -->
         <div class="card">
-          <div class="card-header"><span class="font-semibold text-sm">Health Checks</span></div>
-          <div class="card-body">
-            <div v-if="!health.length" class="text-sm text-slate-400">No health data yet.</div>
+          <div class="card-header flex items-center justify-between">
+            <span class="font-semibold text-sm">Health Checks</span>
+            <span v-if="healthConfig?.is_community" class="badge badge-yellow text-xs">custom app</span>
+          </div>
+          <div class="card-body space-y-3">
+            <!-- Catalog app or community app with no data yet (non-custom case) -->
+            <div v-if="!health.length && !healthConfig?.is_community"
+              class="text-sm text-slate-400">No health data yet.</div>
+
+            <!-- Community app: checks configured, waiting for first cycle -->
+            <div v-if="healthConfig?.is_community && (healthConfig.checks_defined ?? 0) > 0 && !health.length"
+              class="flex items-center gap-2 text-sm text-slate-400">
+              <span class="inline-block w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
+              Waiting for first health check (~60s)…
+            </div>
+
+            <!-- Community app: no checks — show configure panel -->
+            <div v-if="healthConfig?.is_community && (healthConfig.checks_defined ?? 0) === 0"
+              class="space-y-3">
+              <p class="text-xs bg-amber-50 text-amber-700 rounded-lg px-3 py-2">
+                ⚠ No health monitoring configured for this custom app.
+              </p>
+              <template v-if="app?.host_port">
+                <div class="flex gap-2 items-center">
+                  <label class="text-xs text-slate-500 w-20 shrink-0">Health path</label>
+                  <input v-model="enhanceForm.health_path" type="text"
+                    class="input text-xs flex-1" placeholder="/health" />
+                  <button @click="autoDetectHealth" :disabled="detectingHealth"
+                    class="btn-secondary btn-sm text-xs shrink-0">
+                    {{ detectingHealth ? '…' : 'Auto-detect' }}
+                  </button>
+                </div>
+                <div v-if="enhanceResult" :class="[
+                  'text-xs rounded px-2 py-1.5',
+                  enhanceResult.ok ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
+                ]">{{ enhanceResult.message }}</div>
+                <button @click="saveEnhancement" :disabled="savingEnhancement"
+                  class="btn-primary btn-sm text-xs">
+                  {{ savingEnhancement ? 'Saving…' : 'Enable health monitoring' }}
+                </button>
+              </template>
+              <p v-else class="text-xs text-slate-400">
+                App has no mapped host port — health checks require a port binding.
+                Reinstall with a host port to enable monitoring.
+              </p>
+            </div>
+
+            <!-- Health check results (catalog and community alike) -->
             <div v-for="check in health" :key="check.check_name"
               class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
               <div class="flex items-center gap-2">
@@ -259,6 +304,15 @@ const configDirty = ref(false)
 const savingConfig = ref(false)
 const configSaved = ref(false)
 
+const healthConfig = ref<{
+  key: string
+  has_manifest: boolean
+  is_community: boolean
+  checks_defined: number
+  checks: Array<{ name: string; type: string; path: string; expect_status: number; interval: number }>
+  current_status: Array<{ check_name: string; status: string; summary: string }>
+} | null>(null)
+
 const completedSteps = computed(() => postInstallSteps.value.filter(s => s._done).length)
 
 const statusBadge = computed(() => {
@@ -348,6 +402,13 @@ async function loadPostInstallSteps() {
       const steps = await r.json()
       postInstallSteps.value = steps.map((s: any) => ({ ...s, _done: false }))
     }
+  } catch {}
+}
+
+async function loadHealthConfig() {
+  try {
+    const r = await fetch(`/api/v1/apps/${key}/health-config`)
+    if (r.ok) healthConfig.value = await r.json()
   } catch {}
 }
 
@@ -518,7 +579,10 @@ async function saveEnhancement() {
     })
     const d = await r.json()
     enhanceResult.value = { ok: r.ok, message: d.message || (r.ok ? 'Monitoring enhanced.' : 'Failed.') }
-    if (r.ok) await loadApp()
+    if (r.ok) {
+      await loadApp()
+      await loadHealthConfig()
+    }
   } catch (e) {
     enhanceResult.value = { ok: false, message: String(e) }
   } finally {
@@ -547,5 +611,6 @@ onMounted(async () => {
   await fetchLogs()
   await loadConfig()
   await loadPostInstallSteps()
+  await loadHealthConfig()
 })
 </script>
