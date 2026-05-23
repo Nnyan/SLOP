@@ -536,7 +536,7 @@
                 <div v-if="form.llm_provider === 'ollama'" class="mt-3 ml-7 space-y-2">
                   <div class="flex items-center gap-2">
                     <label class="text-xs text-slate-500 w-14 shrink-0">Server:</label>
-                    <select v-model="form.ollama_server" class="input text-xs w-40 shrink-0">
+                    <select v-model="form.ollama_server" class="input text-xs w-52 shrink-0">
                       <option value="local">This server (install now)</option>
                       <option value="remote">Remote Ollama server</option>
                     </select>
@@ -609,7 +609,7 @@
                   <div class="flex items-center gap-2">
                     <label class="text-xs text-slate-500 w-20 shrink-0">Server URL:</label>
                     <input v-model="form.llamacpp_url" type="text"
-                      placeholder="http://localhost:8080" class="input text-xs flex-1 font-mono" />
+                      placeholder="http://localhost:8081" class="input text-xs flex-1 font-mono" />
                   </div>
                   <div class="flex items-center gap-2">
                     <label class="text-xs text-slate-500 w-20 shrink-0">Model name:</label>
@@ -618,7 +618,7 @@
                   </div>
                   <p class="text-xs text-slate-400">
                     Runs any GGUF model. Start with:
-                    <code class="bg-slate-100 px-1 rounded">docker run -p 8080:8080 ghcr.io/ggerganov/llama.cpp:server -m your-model.gguf</code>
+                    <code class="bg-slate-100 px-1 rounded">docker run -p 8081:8080 ghcr.io/ggerganov/llama.cpp:server -m your-model.gguf</code>
                   </p>
                 </div>
               </div>
@@ -943,7 +943,7 @@ const form = reactive({
   cerebras_model: 'llama-3.3-70b',
   openai_api_key: '',
   openai_model: 'gpt-4o-mini',
-  llamacpp_url: 'http://localhost:8080',
+  llamacpp_url: 'http://localhost:8081',
   llamacpp_model: 'phi-4-mini',
   awan_api_key: '',
   ollama_model: 'phi4-mini',

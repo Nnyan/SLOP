@@ -465,7 +465,7 @@
     ports:
       - 8080:8080
     volumes:
-      - /srv/mediastack/config/myapp:/config"
+      - /path/to/config/myapp:/config"
               @input="lintCustomYaml" />
             <div v-if="customLintResult" class="space-y-1.5">
               <div v-for="err in customLintResult.errors" :key="err"
