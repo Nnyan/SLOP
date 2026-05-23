@@ -232,6 +232,16 @@ def run_install_pipeline(
         resolved_version = fetch_repo(install_dir_path, version_ref=version_ref)
         if _smoke_check("fetch_repo"):
             return 0
+        # Pre-create catalog/community/ with mediastack ownership so the running
+        # service can write custom app manifests without needing a post-install step.
+        # The clone does not create this directory (git omits empty dirs).
+        # mediastack user exists at this point — user_install ran at step [3/8].
+        community_dir = install_dir_path / "catalog" / "community"
+        community_dir.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["chown", "mediastack:mediastack", str(community_dir)],
+            check=False,
+        )
         print("[6/8] Installing Python dependencies (this may take a minute)...", flush=True)
         backend_setup(install_dir_path)
         if _smoke_check("backend_setup"):
