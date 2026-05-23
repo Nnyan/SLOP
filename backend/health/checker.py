@@ -1322,7 +1322,8 @@ async def _check_app_inner(
     """Real check_app body — wrapped by check_app() above for timing."""
     results: list[CheckResult] = []
 
-    manifest = _load_manifest_or_skip(app_key)
+    import asyncio as _aio
+    manifest = await _aio.to_thread(_load_manifest_or_skip, app_key)
     if manifest is None:
         return results
 
@@ -1340,9 +1341,15 @@ async def _check_app_inner(
 
     container_name = (app.container_name or app_key) if app else app_key
     grace_s = int(getattr(manifest, "start_grace_s", 0) or _DOCKER_DEFAULT_GRACE_S)
-    in_grace, container_age = _in_startup_grace(container_name, grace_s)
+    # Run blocking subprocess/Docker calls in a thread pool so the event loop
+    # is not stalled while waiting for 'docker inspect'.  Previously these ran
+    # directly on the event loop thread, blocking all API responses during the
+    # health cycle (14 apps × 2 subprocess calls × ~100ms = ~2.8s of stall).
+    in_grace, container_age = await _aio.to_thread(
+        _in_startup_grace, container_name, grace_s
+    )
 
-    runtime_state = _container_runtime_state(container_name)
+    runtime_state = await _aio.to_thread(_container_runtime_state, container_name)
     runtime_state["config_disk_pct"] = _config_disk_pct(
         getattr(app, "config_path", None) if app else None
     )

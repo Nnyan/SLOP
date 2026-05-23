@@ -10,6 +10,7 @@ Design rules:
 """
 from __future__ import annotations
 
+import time as _time
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -56,16 +57,27 @@ class NetworkInfo:
 
 
 _client: docker.DockerClient | None = None
+_last_ping_at: float = 0.0
+_PING_INTERVAL: float = 30.0  # seconds between liveness pings
 
 
 def client() -> docker.DockerClient:
-    """Return the Docker client, reconnecting if the socket was lost."""
-    global _client
+    """Return the Docker client, reconnecting if the socket was lost.
+
+    Pings Docker at most once per _PING_INTERVAL seconds (default 30s).
+    Previously pinged on every call, which added a full Docker API roundtrip
+    to every operation and caused the event loop to block during health cycles.
+    """
+    global _client, _last_ping_at
+    now = _time.monotonic()
     if _client is None:
         _client = _connect()
-    else:
+        _last_ping_at = now
+    elif now - _last_ping_at > _PING_INTERVAL:
+        # Periodic liveness check — not on every call
         try:
             _client.ping()
+            _last_ping_at = now
         except Exception:
             log.warning("Docker socket lost — reconnecting")
             try:
@@ -73,6 +85,7 @@ def client() -> docker.DockerClient:
             except Exception:
                 pass
             _client = _connect()
+            _last_ping_at = now
     return _client
 
 
