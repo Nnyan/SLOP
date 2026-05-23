@@ -1402,7 +1402,16 @@ async def run_health_cycle(
         )
 
     with StateDB() as db:
-        apps = db.get_all_apps(status="running")
+        running_apps = db.get_all_apps(status="running")
+        running_keys = {a.key for a in running_apps}
+        # Tier-0 infra apps (cloudflared, tailscale, etc.) may have status="failed"
+        # if they were never installed by SLOP — still need container-state checks.
+        tier0_extras = [
+            a for a in db.get_all_apps()
+            if a.tier == 0 and a.key not in running_keys
+            and a.status not in ("disabled", "removing")
+        ]
+        apps = running_apps + tier0_extras
 
     run.apps_checked = len(apps)
 
