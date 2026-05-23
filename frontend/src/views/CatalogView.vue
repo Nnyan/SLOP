@@ -108,9 +108,11 @@
             <div class="flex items-center gap-2 shrink-0" @click.stop>
               <RouterLink v-if="isInstalled(app.key)" :to="`/apps/${app.key}`"
                 class="text-xs text-slate-400 hover:text-slate-600">Manage</RouterLink>
+
+              <!-- Reinstall / Install button -->
               <button v-if="isInstalled(app.key)"
                 class="text-xs px-2.5 py-0.5 rounded border border-slate-200 text-slate-500 hover:border-slate-300 transition-colors"
-                :disabled="installing === app.key"
+                :disabled="installing === app.key || removing === app.key"
                 @click="singleInstall(app)">
                 <span v-if="installing === app.key" class="flex items-center gap-1">
                   <span class="inline-block w-2.5 h-2.5 border border-slate-400 border-t-transparent rounded-full animate-spin"/>
@@ -129,6 +131,39 @@
                 </span>
                 <span v-else>Install</span>
               </button>
+
+              <!-- Remove button / inline confirm -->
+              <template v-if="isInstalled(app.key)">
+                <!-- Normal remove trigger -->
+                <button v-if="removeTarget !== app.key && removing !== app.key"
+                  class="text-xs px-2.5 py-0.5 rounded border border-slate-200 text-slate-400 hover:border-red-300 hover:text-red-500 transition-colors"
+                  title="Remove this app"
+                  @click="removeTarget = app.key; removeDelConfig = false">
+                  Remove
+                </button>
+                <!-- Spinner while removing -->
+                <span v-else-if="removing === app.key"
+                  class="flex items-center gap-1 text-xs text-red-400">
+                  <span class="inline-block w-2.5 h-2.5 border border-red-300 border-t-transparent rounded-full animate-spin"/>
+                  Removing…
+                </span>
+                <!-- Inline confirm -->
+                <div v-else-if="removeTarget === app.key"
+                  class="flex items-center gap-1.5">
+                  <label class="flex items-center gap-1 text-xs text-slate-500 cursor-pointer" title="Also delete config folder on disk">
+                    <input v-model="removeDelConfig" type="checkbox" class="w-3 h-3" />
+                    <span>+cfg</span>
+                  </label>
+                  <button @click="removeTarget = null"
+                    class="text-xs px-2 py-0.5 rounded border border-slate-200 text-slate-400 hover:border-slate-300">
+                    Cancel
+                  </button>
+                  <button @click="doRemove"
+                    class="text-xs px-2 py-0.5 rounded border border-red-300 text-red-500 hover:bg-red-500 hover:text-white transition-colors">
+                    Confirm
+                  </button>
+                </div>
+              </template>
             </div>
           </div>
         </div>
@@ -275,6 +310,29 @@ const activeCats = ref<Set<string>>(new Set())
 // Active interval/timer refs for cleanup
 let _activePoll: ReturnType<typeof setInterval> | null = null
 let _lintTimer: ReturnType<typeof setTimeout> | null = null
+
+// Uninstall (inline confirmation)
+const removeTarget = ref<string | null>(null)   // key waiting for confirm
+const removing = ref<string | null>(null)        // key currently being removed
+const removeDelConfig = ref(false)               // "also delete config folder" option
+
+async function doRemove() {
+  const key = removeTarget.value
+  if (!key) return
+  removeTarget.value = null
+  removing.value = key
+  try {
+    await appsApi.remove(key, removeDelConfig.value)
+    installedKeys.value.delete(key)
+    installedKeys.value = new Set(installedKeys.value) // trigger reactivity
+    toast.success(`${key} removed.`)
+  } catch (e) {
+    toast.error(`Could not remove ${key}.`, e instanceof Error ? e.message : String(e))
+  } finally {
+    removing.value = null
+    removeDelConfig.value = false
+  }
+}
 
 // Single install
 const installing = ref<string | null>(null)
