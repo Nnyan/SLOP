@@ -112,7 +112,14 @@
 
           <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
             <span class="text-xs text-slate-400">
-              {{ app.host_port ? `Port ${app.host_port}` : 'No port' }}
+              <a v-if="app.host_port"
+                 :href="`http://${appHostname}:${app.host_port}`"
+                 target="_blank" rel="noopener noreferrer"
+                 class="hover:text-blue-500 hover:underline"
+                 @click.stop>
+                Port {{ app.host_port }} ↗
+              </a>
+              <span v-else>No port</span>
             </span>
             <span class="text-xs" :class="criticalityColor(app.criticality)">
               {{ app.criticality }}
@@ -150,6 +157,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+const appHostname = window.location.hostname
 import { appsCache, healthCache, setAppsCache, setHealthCache } from '../appCache'
 import QuickStartWizard from '@/components/QuickStartWizard.vue'
 import { RouterLink } from 'vue-router'

@@ -101,14 +101,19 @@ async def _check_http(
             resp = await client.get(url)
         elapsed_ms = (time.monotonic() - start) * 1000
         ok = resp.status_code == expect_status
+        if ok:
+            _msg = f"HTTP {resp.status_code}"
+        elif resp.status_code == 401:
+            _msg = "API authentication required — open the app to complete setup"
+        elif resp.status_code == 403:
+            _msg = "Access forbidden (403) — check app authentication settings"
+        else:
+            _msg = f"Expected {expect_status}, got {resp.status_code}"
         return CheckResult(
             app_key=app_key,
             check_name=check_name,
             ok=ok,
-            message=(
-                f"HTTP {resp.status_code}" if ok
-                else f"Expected {expect_status}, got {resp.status_code}"
-            ),
+            message=_msg,
             response_time_ms=elapsed_ms,
         )
     except httpx.TimeoutException:
@@ -899,29 +904,30 @@ async def _container_net_reachability(
 # ── check_app helpers — split for complexity discipline (Core Rule 8.1) ─────
 
 
-def _check_infra_app(app_key: str) -> None:
-    """Tier-0 (infra) app fallback — docker-inspect health check.
+def _check_infra_app(app_key: str, app_record: Any | None = None) -> None:
+    """Tier-0 (infra) app fallback — docker SDK health check.
 
     Writes results directly to DB; returns nothing. Used when the app
     record exists in the DB but has no catalog manifest (e.g. tunnel
     providers, auth proxy).
     """
-    import subprocess as _sp, time as _itime
+    import time as _itime
+    from backend.core import docker_client as _dc
+    # Use stored container_name (may differ from app_key for infra providers)
+    if app_record is not None:
+        _cname = getattr(app_record, "container_name", None) or app_key
+    else:
+        with StateDB() as _idb:
+            _app_rec = _idb.get_app(app_key)
+        _cname = (getattr(_app_rec, "container_name", None) or app_key) if _app_rec else app_key
     try:
-        _r = _sp.run(
-            ["docker", "inspect", "--format",
-             "{{.State.Status}}|{{.State.Health.Status}}|{{.State.StartedAt}}",
-             app_key],
-            capture_output=True, text=True, timeout=5,
-        )
-        if _r.returncode == 0:
-            _parts = _r.stdout.strip().split("|")
-            _cstate  = _parts[0] if _parts else "unknown"
-            _hstate  = _parts[1] if len(_parts) > 1 else ""
-            _ok = _cstate == "running" and _hstate not in ("unhealthy",)
+        _info = _dc.get_container(_cname)
+        if _info is not None:
+            _ok = _info.status == "running" and _info.health not in ("unhealthy",)
             _status = "ok" if _ok else "error"
-            _msg = (f"Container {_cstate}"
-                    + (f" (health: {_hstate})" if _hstate and _hstate != "none" else ""))
+            _msg = (f"Container {_info.status}"
+                    + (f" (health: {_info.health})"
+                       if _info.health and _info.health != "none" else ""))
             with StateDB() as _idb:
                 _idb.upsert_health_check(
                     "app", app_key, "container_state",
@@ -957,7 +963,7 @@ def _load_manifest_or_skip(app_key: str) -> Any | None:
             _tier_app = _tdb.get_app(app_key)
         if not _tier_app or getattr(_tier_app, "tier", 1) != 0:
             return None  # truly unmanaged
-        _check_infra_app(app_key)
+        _check_infra_app(app_key, _tier_app)
         return None
 
 
