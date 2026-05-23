@@ -545,12 +545,18 @@ def load_all_manifests(force_reload: bool = False) -> dict[str, AppManifest]:
     global _cache_loaded_at
     import time as _time
 
-    # Bust the cache if it's older than the TTL (default 5 min).
-    # This ensures new community manifests are picked up without a restart.
     now = _time.monotonic()
-    if _cache and (now - _cache_loaded_at) > _CACHE_TTL:
+
+    # Fast path: cache is warm and the caller didn't force a reload.
+    # Previously the cache was populated but load_all_manifests always re-scanned
+    # the YAML files, making every catalog API call take ~350 ms.
+    if _cache and not force_reload and (now - _cache_loaded_at) <= _CACHE_TTL:
+        return dict(_cache)
+
+    # Cache miss or expired — clear and rebuild from disk.
+    if _cache:
         log.debug("Manifest cache expired (%.0fs old) — reloading", now - _cache_loaded_at)
-        _cache.clear()
+    _cache.clear()
 
     result: dict[str, AppManifest] = {}
 

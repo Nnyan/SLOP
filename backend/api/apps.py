@@ -136,10 +136,34 @@ def _app_with_container(app: Any) -> AppOut:
 
 @router.get("", response_model=list[AppOut])
 def list_apps() -> list[AppOut]:
-    """List all apps known to Mediastack (installed or previously installed)."""
+    """List all apps known to Mediastack (installed or previously installed).
+
+    Uses a single Docker API call (containers.list) to fetch live status for
+    all apps instead of one call per app, avoiding the N+1 Docker API pattern
+    that caused ~100ms-per-app latency on the dashboard load.
+    """
     with StateDB() as db:
         apps = db.get_all_apps()
-    return [_app_with_container(a) for a in apps]
+    # Batch-fetch container info once rather than N separate get_container() calls
+    containers = docker_client.get_containers_by_name([a.key for a in apps])
+    return [
+        AppOut(
+            key=a.key,
+            display_name=a.display_name,
+            category=a.category,
+            status=a.status,
+            image=a.image,
+            image_tag=a.image_tag,
+            web_port=a.web_port,
+            host_port=a.host_port,
+            config_path=a.config_path,
+            installed_at=a.installed_at,
+            last_healthy_at=a.last_healthy_at,
+            container_status=containers[a.key].status if a.key in containers else None,
+            container_health=containers[a.key].health if a.key in containers else None,
+        )
+        for a in apps
+    ]
 
 
 @router.get("/{key}", response_model=AppOut)

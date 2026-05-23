@@ -113,6 +113,29 @@ def get_container(name: str) -> ContainerInfo | None:
         raise DockerError(f"Could not get container '{name}': {e}")
 
 
+def get_containers_by_name(names: list[str]) -> dict[str, ContainerInfo]:
+    """Fetch container info for a list of names in a single Docker API call.
+
+    Returns {name: ContainerInfo} for containers that exist.  Missing names
+    are omitted (not None) — callers should use .get(name) with a fallback.
+
+    Use this instead of calling get_container() in a loop to avoid N+1 Docker
+    API calls when enriching a list of apps with live container status.
+    """
+    if not names:
+        return {}
+    try:
+        all_containers = client().containers.list(all=True)
+        name_set = set(names)
+        return {
+            c.name: _container_info(c)
+            for c in all_containers
+            if c.name in name_set
+        }
+    except (DockerError, Exception):
+        return {}  # Docker unavailable — callers fall back to DB status
+
+
 def container_logs(name: str, tail: int = 100) -> str:
     try:
         c = client().containers.get(name)
