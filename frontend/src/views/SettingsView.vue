@@ -821,6 +821,89 @@
             </div>
           </section>
         </div>
+        <!-- Quick Stacks management -->
+        <section class="card mb-3">
+          <div class="card-body">
+            <div class="flex items-center justify-between mb-3">
+              <div>
+                <div class="text-sm font-medium text-slate-800">Quick Stacks</div>
+                <div class="text-xs text-slate-400">Customise bundles shown in the setup wizard. Changes take effect on next wizard visit.</div>
+              </div>
+              <button @click="stackAddMode = !stackAddMode" class="btn-secondary btn-sm text-xs shrink-0">
+                {{ stackAddMode ? 'Cancel' : '+ New stack' }}
+              </button>
+            </div>
+
+            <!-- Add stack form -->
+            <div v-if="stackAddMode" class="rounded-lg border border-sky-200 bg-sky-50 p-3 mb-3 space-y-2">
+              <div class="text-xs font-medium text-sky-700 mb-1">New custom stack</div>
+              <div class="flex gap-2">
+                <input v-model="stackAddForm.label" type="text" class="input input-sm text-xs flex-1" placeholder="Stack label (e.g. My Media Stack)" />
+                <input v-model="stackAddForm.ram_note" type="text" class="input input-sm text-xs w-28" placeholder="~2GB RAM" />
+              </div>
+              <input v-model="stackAddForm.app_keys" type="text" class="input input-sm text-xs w-full font-mono"
+                placeholder="App keys, comma-separated (e.g. sonarr, radarr, prowlarr)" />
+              <div class="text-xs text-slate-400">Use catalog slugs: sonarr, radarr, jellyfin, immich, vaultwarden, etc.</div>
+              <div class="flex gap-2 mt-1">
+                <button @click="addStack" :disabled="stackSaving || !stackAddForm.label.trim() || !stackAddForm.app_keys.trim()"
+                  class="btn-primary btn-sm text-xs">
+                  {{ stackSaving ? 'Saving…' : 'Create stack' }}
+                </button>
+                <button @click="stackAddMode = false; stackAddForm = { label: '', app_keys: '', ram_note: '' }" class="btn-secondary btn-sm text-xs">Cancel</button>
+              </div>
+            </div>
+
+            <!-- Stacks list -->
+            <div class="space-y-2">
+              <div v-for="stack in stacksList" :key="stack.id"
+                class="rounded-lg border border-slate-200 overflow-hidden">
+                <!-- Row header -->
+                <div class="flex items-center gap-2.5 px-3 py-2">
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-baseline gap-2">
+                      <span class="text-sm font-medium text-slate-800">{{ stack.label }}</span>
+                      <span v-if="stack.is_custom && !stack.is_default_override" class="text-xs text-sky-500">custom</span>
+                      <span v-if="stack.is_default_override" class="text-xs text-amber-500">modified</span>
+                      <span class="text-xs text-slate-400">{{ stack.ram_note }}</span>
+                    </div>
+                    <div class="text-xs text-slate-400 font-mono truncate">{{ (stack.app_keys || []).join(', ') }}</div>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <button @click="editStack(stack)" class="btn-secondary btn-sm text-xs px-2">Edit</button>
+                    <button v-if="stack.is_custom || stack.is_default_override"
+                      @click="restoreStack(stack.id)" class="btn-secondary btn-sm text-xs px-2 text-amber-600"
+                      :title="stack.is_default_override ? 'Reset to default' : 'Delete'">
+                      {{ stack.is_default_override ? 'Reset' : '' }}
+                    </button>
+                    <button @click="deleteStack(stack.id)"
+                      class="btn-secondary btn-sm text-xs px-2 text-red-500 hover:text-red-600">
+                      {{ stack.is_custom && !stack.is_default_override ? 'Delete' : 'Hide' }}
+                    </button>
+                  </div>
+                </div>
+                <!-- Inline edit form -->
+                <div v-if="stackEditId === stack.id" class="border-t border-slate-100 bg-slate-50 p-3 space-y-2">
+                  <div class="flex gap-2">
+                    <input v-model="stackEditForm.label" type="text" class="input input-sm text-xs flex-1" placeholder="Stack label" />
+                    <input v-model="stackEditForm.ram_note" type="text" class="input input-sm text-xs w-28" placeholder="~2GB RAM" />
+                  </div>
+                  <input v-model="stackEditForm.app_keys" type="text" class="input input-sm text-xs w-full font-mono"
+                    placeholder="App keys, comma-separated" />
+                  <div class="flex gap-2">
+                    <button @click="saveStack(stack.id)" :disabled="stackSaving" class="btn-primary btn-sm text-xs">
+                      {{ stackSaving ? 'Saving…' : 'Save' }}
+                    </button>
+                    <button @click="stackEditId = null" class="btn-secondary btn-sm text-xs">Cancel</button>
+                  </div>
+                </div>
+              </div>
+              <div v-if="!stacksList.length" class="text-xs text-slate-400 text-center py-2">
+                No stacks — all defaults are hidden. Use "+ New stack" to add one.
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- Save settings -->
         <section class="card">
           <div class="card-body flex items-center gap-4">
@@ -1525,5 +1608,94 @@ async function loadProfile() {
   finally { loadingProfile.value = false }
 }
 
-onMounted(load)
+// ── Quick Stacks management ───────────────────────────────────────────────
+const stacksList = ref<any[]>([])
+const stackEditId = ref<string | null>(null)
+const stackEditForm = ref<{label: string; app_keys: string; ram_note: string}>({ label: '', app_keys: '', ram_note: '' })
+const stackAddMode = ref(false)
+const stackAddForm = ref<{label: string; app_keys: string; ram_note: string}>({ label: '', app_keys: '', ram_note: '' })
+const stackSaving = ref(false)
+
+async function loadStacks() {
+  try {
+    const r = await fetch('/api/v1/platform/stacks')
+    const d = await r.json()
+    stacksList.value = d.stacks || []
+  } catch {}
+}
+
+function editStack(stack: any) {
+  stackEditId.value = stack.id
+  stackEditForm.value = {
+    label: stack.label,
+    app_keys: (stack.app_keys || []).join(', '),
+    ram_note: stack.ram_note || '',
+  }
+}
+
+async function saveStack(stackId: string) {
+  stackSaving.value = true
+  try {
+    const keys = stackEditForm.value.app_keys.split(',').map((k: string) => k.trim()).filter(Boolean)
+    const r = await fetch(`/api/v1/platform/stacks/${stackId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: stackEditForm.value.label, app_keys: keys, ram_note: stackEditForm.value.ram_note }),
+    })
+    if (r.ok) {
+      toast.success('Stack updated.')
+      stackEditId.value = null
+      await loadStacks()
+    } else {
+      const err = await r.json()
+      toast.error('Update failed.', err.detail ?? String(err))
+    }
+  } catch (e) { toast.error('Update failed.', String(e)) }
+  finally { stackSaving.value = false }
+}
+
+async function deleteStack(stackId: string) {
+  try {
+    const r = await fetch(`/api/v1/platform/stacks/${stackId}`, { method: 'DELETE' })
+    if (r.ok) {
+      const d = await r.json()
+      toast.success(d.action === 'hidden' ? 'Stack hidden from wizard.' : 'Stack deleted.')
+      await loadStacks()
+    }
+  } catch (e) { toast.error('Delete failed.', String(e)) }
+}
+
+async function restoreStack(stackId: string) {
+  try {
+    const r = await fetch(`/api/v1/platform/stacks/${stackId}/restore`, { method: 'POST' })
+    if (r.ok) {
+      toast.success('Stack restored to default.')
+      await loadStacks()
+    }
+  } catch (e) { toast.error('Restore failed.', String(e)) }
+}
+
+async function addStack() {
+  stackSaving.value = true
+  try {
+    const keys = stackAddForm.value.app_keys.split(',').map((k: string) => k.trim()).filter(Boolean)
+    const r = await fetch('/api/v1/platform/stacks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: stackAddForm.value.label, app_keys: keys, ram_note: stackAddForm.value.ram_note }),
+    })
+    if (r.ok) {
+      toast.success('Custom stack created.')
+      stackAddMode.value = false
+      stackAddForm.value = { label: '', app_keys: '', ram_note: '' }
+      await loadStacks()
+    } else {
+      const err = await r.json()
+      toast.error('Create failed.', err.detail ?? String(err))
+    }
+  } catch (e) { toast.error('Create failed.', String(e)) }
+  finally { stackSaving.value = false }
+}
+
+onMounted(async () => { await load(); await loadStacks() })
 </script>

@@ -246,11 +246,11 @@
           <template v-if="currentStage === 4">
             <p class="text-xs text-slate-500">Select pre-configured app bundles or search for individual apps below.</p>
             <div class="space-y-2">
-              <div v-for="stack in QUICK_STACKS_CONFIG" :key="stack.id"
+              <div v-for="stack in allStacks" :key="stack.id"
                 :class="['border rounded-lg px-3 py-2 cursor-pointer transition-all flex items-center gap-2.5',
                   form.selectedStacks.includes(stack.id)
                     ? 'border-sky-300 bg-sky-50'
-                    : systemProfile && (systemProfile.ram_gb || 0) < (STACK_MIN_RAM[stack.id] || 0)
+                    : systemProfile && (systemProfile.ram_gb || 0) < (stack.ram_gb || 0)
                       ? 'border-amber-200 bg-amber-50 opacity-75'
                       : 'border-slate-200 hover:border-slate-300']"
                 @click="toggleStack(stack.id)">
@@ -259,13 +259,14 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex items-baseline gap-2">
                     <span class="text-sm font-medium text-slate-800">{{ stack.label }}</span>
-                    <span :class="['text-xs', systemProfile && (systemProfile.ram_gb || 99) < (STACK_MIN_RAM[stack.id] || 0)
+                    <span v-if="stack.is_custom" class="text-xs text-sky-500 font-medium">custom</span>
+                    <span :class="['text-xs', systemProfile && (systemProfile.ram_gb || 99) < (stack.ram_gb || 0)
                       ? 'text-amber-600 font-medium' : 'text-slate-400']">
                       {{ stack.ram_note }}
-                      {{ systemProfile && (systemProfile.ram_gb || 99) < (STACK_MIN_RAM[stack.id] || 0) ? '⚠ low RAM' : '' }}
+                      {{ systemProfile && (systemProfile.ram_gb || 99) < (stack.ram_gb || 0) ? '⚠ low RAM' : '' }}
                     </span>
                   </div>
-                  <div class="text-xs text-slate-500 truncate">{{ stack.apps.join(' · ') }}</div>
+                  <div class="text-xs text-slate-500 truncate">{{ stack.app_keys.join(' · ') }}</div>
                 </div>
               </div>
             </div>
@@ -374,7 +375,7 @@
                   <span class="text-slate-500">Infra</span>
                   <span>{{ Object.entries(form.infra).filter(([,v]) => v && v !== 'none').map(([k,v]) => v).join(', ') || 'Traefik only' }}</span>
                   <span class="text-slate-500">Quick stacks</span>
-                  <span>{{ form.selectedStacks.length ? form.selectedStacks.map(id => QUICK_STACKS_CONFIG.find(s => s.id === id)?.label ?? id).join(', ') : 'None selected' }}</span>
+                  <span>{{ form.selectedStacks.length ? form.selectedStacks.map(id => allStacks.find(s => s.id === id)?.label ?? id).join(', ') : 'None selected' }}</span>
                   <span class="text-slate-500">Notifications</span>
                   <span>{{ form.ntfy_enabled ? 'ntfy on ' + (form.ntfy_url || 'http://ntfy:80') + ' → ' + form.ntfy_topic : 'Will enable after installing ntfy from Catalog' }}</span>
                 </div>
@@ -418,7 +419,7 @@
                 <div v-for="id in form.selectedStacks" :key="id"
                   class="flex items-center gap-2 text-sky-600">
                   <span class="shrink-0">›</span>
-                  <span>{{ QUICK_STACKS_CONFIG.find(s => s.id === id)?.label ?? id }}</span>
+                  <span>{{ allStacks.find(s => s.id === id)?.label ?? id }}</span>
                 </div>
               </div>
               <div class="text-xs text-amber-700 rounded-lg bg-amber-50 border border-amber-100 p-2">
@@ -976,18 +977,9 @@ const INFRA_SLOTS = [
     options: [{ value: 'none', label: 'None' }, { value: 'dockge', label: 'Dockge' }, { value: 'portainer', label: 'Portainer' }, { value: 'dockhand', label: 'Dockhand' }, { value: 'komodo', label: 'Komodo' }] },
 ]
 
-// RAM needed per stack in GB for warning thresholds
-const STACK_MIN_RAM: Record<string, number> = {
-  arr_basic: 2, debrid: 1, media_server: 4, immich: 8, monitoring: 1, productivity: 2,
-}
-const QUICK_STACKS_CONFIG = [
-  { id: 'arr_basic', label: 'Arr Stack', apps: ['Sonarr', 'Radarr', 'Prowlarr', 'SABnzbd'], ram_note: '~2GB RAM' },
-  { id: 'debrid', label: 'Debrid Stack', apps: ['Decypharr', 'Zilean', 'DUMB'], ram_note: '~1GB RAM · Real-Debrid / TorBox / AllDebrid' },
-  { id: 'media_server', label: 'Jellyfin Media Server', apps: ['Jellyfin', 'Jellyseerr'], ram_note: '~4GB RAM' },
-  { id: 'immich', label: 'Photo Management (Immich)', apps: ['Immich', 'PostgreSQL', 'Redis'], ram_note: '~8GB RAM' },
-  { id: 'monitoring', label: 'Monitoring Stack', apps: ['Dozzle', 'Beszel', 'Scrutiny'], ram_note: '~1GB RAM' },
-  { id: 'productivity', label: 'Productivity', apps: ['Vaultwarden', 'Paperless-ngx', 'Mealie'], ram_note: '~2GB RAM' },
-]
+// Quick stacks — loaded from /api/v1/platform/stacks on mount (includes custom + defaults).
+// Each entry: { id, label, app_keys, ram_note, ram_gb, is_custom, is_default_override }
+const allStacks = ref<any[]>([])
 
 // ── Form state ─────────────────────────────────────────────────────────────
 const form = reactive({
@@ -1449,8 +1441,8 @@ const appInstallError = reactive<Record<string, string>>({})
 const stackAppsToInstall = computed(() => {
   const apps: string[] = []
   for (const stackId of form.selectedStacks) {
-    const stack = QUICK_STACKS_CONFIG.find(s => s.id === stackId)
-    if (stack) apps.push(...stack.apps.map((a: string) => a.toLowerCase().replace(/ /g, '_')))
+    const stack = allStacks.value.find(s => s.id === stackId)
+    if (stack) apps.push(...(stack.app_keys as string[]))
   }
   return [...new Set([...apps, ...form.individualApps])]
 })
@@ -1937,6 +1929,14 @@ async function doReset() {
   await runPrereqChecks()
 }
 
+async function loadStacks() {
+  try {
+    const r = await fetch('/api/v1/platform/stacks')
+    const d = await r.json()
+    allStacks.value = d.stacks || []
+  } catch {}
+}
+
 onMounted(async () => {
   restoreDraft()  // restore before prereq checks (may change currentStage)
   await runPrereqChecks()
@@ -1966,5 +1966,7 @@ onMounted(async () => {
     const d = await r.json()
     timezones.value = d.timezones || []
   } catch {}
+  // Load quick stacks (defaults + custom) from backend
+  await loadStacks()
 })
 </script>

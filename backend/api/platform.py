@@ -25,6 +25,153 @@ log = get_logger(__name__)
 router = APIRouter()
 
 
+# ── Quick Stacks defaults ─────────────────────────────────────────────────
+# Single source of truth for default stacks.  Each entry has:
+#   id       — stable slug used as form value and storage key
+#   label    — display name shown in UI
+#   app_keys — catalog app slugs to install (lowercased, underscored)
+#   ram_note — human-readable RAM hint string
+#   ram_gb   — numeric RAM threshold for the low-RAM warning
+_DEFAULT_STACKS: list[dict] = [
+    {"id": "arr_basic",    "label": "Arr Stack",                 "app_keys": ["sonarr", "radarr", "prowlarr", "sabnzbd"],    "ram_note": "~2GB RAM",                                "ram_gb": 2},
+    {"id": "debrid",       "label": "Debrid Stack",              "app_keys": ["decypharr", "zilean", "dumb"],                "ram_note": "~1GB RAM · Real-Debrid / TorBox / AllDebrid", "ram_gb": 1},
+    {"id": "media_server", "label": "Jellyfin Media Server",     "app_keys": ["jellyfin", "seerr"],                         "ram_note": "~4GB RAM",                                "ram_gb": 4},
+    {"id": "immich",       "label": "Photo Management (Immich)", "app_keys": ["immich"],                                    "ram_note": "~8GB RAM",                                "ram_gb": 8},
+    {"id": "monitoring",   "label": "Monitoring Stack",          "app_keys": ["dozzle", "beszel", "scrutiny"],              "ram_note": "~1GB RAM",                                "ram_gb": 1},
+    {"id": "productivity", "label": "Productivity",              "app_keys": ["vaultwarden", "paperless_ngx", "mealie"],    "ram_note": "~2GB RAM",                                "ram_gb": 2},
+]
+
+
+def _load_stacks_from_db(db: "StateDB") -> tuple[list[dict], list[str]]:
+    """Return (custom_stacks, hidden_default_ids) from the settings table."""
+    import json as _json
+    raw_custom = db.get_setting("custom_stacks")
+    raw_hidden = db.get_setting("hidden_stacks")
+    custom: list[dict] = _json.loads(raw_custom) if raw_custom else []
+    hidden: list[str] = _json.loads(raw_hidden) if raw_hidden else []
+    return custom, hidden
+
+
+def _save_custom_stacks(db: "StateDB", stacks: list[dict]) -> None:
+    import json as _json
+    db.set_setting("custom_stacks", _json.dumps(stacks))
+
+
+def _save_hidden_stacks(db: "StateDB", hidden: list[str]) -> None:
+    import json as _json
+    db.set_setting("hidden_stacks", _json.dumps(hidden))
+
+
+def _build_stacks_response(custom: list[dict], hidden: list[str]) -> list[dict]:
+    """Merge defaults + custom into the full stacks list for the API."""
+    result: list[dict] = []
+    # Defaults come first (unless hidden); a custom entry with the same id overrides the default
+    custom_ids = {s["id"] for s in custom}
+    for s in _DEFAULT_STACKS:
+        if s["id"] in hidden:
+            continue
+        if s["id"] in custom_ids:
+            # Use the custom override (label/app_keys/ram_note may differ)
+            override = next(c for c in custom if c["id"] == s["id"])
+            result.append({**override, "is_custom": True, "is_default_override": True, "ram_gb": override.get("ram_gb", 0)})
+        else:
+            result.append({**s, "is_custom": False, "is_default_override": False})
+    # Custom stacks that are not default overrides come after
+    for s in custom:
+        if s["id"] not in {d["id"] for d in _DEFAULT_STACKS}:
+            result.append({**s, "is_custom": True, "is_default_override": False, "ram_gb": s.get("ram_gb", 0)})
+    return result
+
+
+# ── Quick Stacks endpoints ────────────────────────────────────────────────
+
+@router.get("/stacks")
+def list_stacks() -> dict[str, Any]:
+    """Return all quick stacks: visible defaults (may be overridden) + pure custom."""
+    with StateDB() as db:
+        custom, hidden = _load_stacks_from_db(db)
+    return {"stacks": _build_stacks_response(custom, hidden)}
+
+
+@router.post("/stacks")
+def create_stack(req: dict[str, Any]) -> dict[str, Any]:
+    """Create a new custom quick stack."""
+    label = (req.get("label") or "").strip()
+    app_keys = req.get("app_keys") or []
+    ram_note = (req.get("ram_note") or "").strip()
+    ram_gb = int(req.get("ram_gb") or 0)
+    if not label:
+        raise HTTPException(status_code=422, detail="label is required")
+    if not isinstance(app_keys, list) or not app_keys:
+        raise HTTPException(status_code=422, detail="app_keys must be a non-empty list")
+    import time as _time
+    stack_id = f"custom_{int(_time.time())}"
+    new_stack: dict = {"id": stack_id, "label": label, "app_keys": app_keys, "ram_note": ram_note, "ram_gb": ram_gb}
+    with StateDB() as db:
+        custom, hidden = _load_stacks_from_db(db)
+        custom.append(new_stack)
+        _save_custom_stacks(db, custom)
+    return {"ok": True, "stack": {**new_stack, "is_custom": True, "is_default_override": False}}
+
+
+@router.put("/stacks/{stack_id}")
+def update_stack(stack_id: str, req: dict[str, Any]) -> dict[str, Any]:
+    """Update label, app_keys, ram_note, or ram_gb for any stack.
+    Editing a default stack creates a custom override entry."""
+    with StateDB() as db:
+        custom, hidden = _load_stacks_from_db(db)
+        existing_idx = next((i for i, s in enumerate(custom) if s["id"] == stack_id), None)
+        if existing_idx is not None:
+            for field in ("label", "app_keys", "ram_note", "ram_gb"):
+                if field in req:
+                    custom[existing_idx][field] = req[field]
+        else:
+            default = next((s for s in _DEFAULT_STACKS if s["id"] == stack_id), None)
+            if not default:
+                raise HTTPException(status_code=404, detail=f"Stack '{stack_id}' not found")
+            override = {
+                "id": stack_id,
+                "label": req.get("label", default["label"]),
+                "app_keys": req.get("app_keys", default["app_keys"]),
+                "ram_note": req.get("ram_note", default["ram_note"]),
+                "ram_gb": req.get("ram_gb", default["ram_gb"]),
+            }
+            custom.append(override)
+        _save_custom_stacks(db, custom)
+    return {"ok": True}
+
+
+@router.delete("/stacks/{stack_id}")
+def delete_stack(stack_id: str) -> dict[str, Any]:
+    """Delete a custom stack, or hide a default stack."""
+    with StateDB() as db:
+        custom, hidden = _load_stacks_from_db(db)
+        new_custom = [s for s in custom if s["id"] != stack_id]
+        if len(new_custom) < len(custom):
+            _save_custom_stacks(db, new_custom)
+            return {"ok": True, "action": "deleted"}
+        if any(s["id"] == stack_id for s in _DEFAULT_STACKS):
+            if stack_id not in hidden:
+                hidden.append(stack_id)
+            _save_hidden_stacks(db, hidden)
+            return {"ok": True, "action": "hidden"}
+        raise HTTPException(status_code=404, detail=f"Stack '{stack_id}' not found")
+
+
+@router.post("/stacks/{stack_id}/restore")
+def restore_stack(stack_id: str) -> dict[str, Any]:
+    """Un-hide a default stack and remove any custom override for it."""
+    if not any(s["id"] == stack_id for s in _DEFAULT_STACKS):
+        raise HTTPException(status_code=404, detail=f"'{stack_id}' is not a default stack")
+    with StateDB() as db:
+        custom, hidden = _load_stacks_from_db(db)
+        hidden = [h for h in hidden if h != stack_id]
+        custom = [s for s in custom if s["id"] != stack_id]
+        _save_custom_stacks(db, custom)
+        _save_hidden_stacks(db, hidden)
+    return {"ok": True}
+
+
 # ── Request / Response models ─────────────────────────────────────────────
 
 
@@ -1542,23 +1689,18 @@ async def wizard_install_stacks(req: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("/wizard/stack-app-keys")
 def wizard_stack_app_keys(stack_ids: str = "") -> dict[str, Any]:
-    """Return catalog keys for the given quick stack IDs (comma-separated)."""
+    """Return catalog keys for the given quick stack IDs (comma-separated).
+    Uses _DEFAULT_STACKS + custom DB stacks so customised stacks are respected."""
     with StateDB() as _db:
         _plat = _db.get_platform()
         if not _plat or _plat.status not in ("ready", "pending"):
             raise HTTPException(status_code=409, detail="Platform setup not complete")
-    STACK_APPS = {
-        "arr_basic":    ["sonarr", "radarr", "prowlarr", "sabnzbd"],
-        "debrid":       ["decypharr", "zilean", "dumb"],
-        "media_server": ["jellyfin", "seerr"],
-        "immich":       ["immich"],
-        "monitoring":   ["dozzle", "beszel", "scrutiny"],
-        "productivity": ["vaultwarden", "paperless_ngx", "mealie"],
-        "ai_local":     ["ollama"],
-    }
+        custom, hidden = _load_stacks_from_db(_db)
+    all_stacks = _build_stacks_response(custom, hidden)
+    stack_map = {s["id"]: s["app_keys"] for s in all_stacks}
     keys: list[str] = []
     for stack_id in (stack_ids.split(",") if stack_ids else []):
-        keys.extend(STACK_APPS.get(stack_id.strip(), []))
+        keys.extend(stack_map.get(stack_id.strip(), []))
     return {"keys": list(dict.fromkeys(keys))}  # deduplicated, order preserved
 @router.post("/wizard/save-llm")
 def wizard_save_llm(req: dict[str, Any]) -> dict[str, Any]:
