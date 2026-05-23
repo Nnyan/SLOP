@@ -286,7 +286,7 @@ CREATE TABLE IF NOT EXISTS platform (
     domain          TEXT,           -- e.g. nyrdalyrt.com
     wildcard_domain TEXT,           -- e.g. *.nyrdalyrt.com
     network_name    TEXT NOT NULL DEFAULT 'mediastack',
-    config_root     TEXT NOT NULL DEFAULT '/srv/mediastack/config',
+    config_root     TEXT NOT NULL DEFAULT '/var/lib/mediastack/config',
     media_root      TEXT NOT NULL DEFAULT '/mnt/media',
     puid            INTEGER NOT NULL DEFAULT 1000,
     pgid            INTEGER NOT NULL DEFAULT 1000,

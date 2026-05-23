@@ -917,7 +917,7 @@ const QUICK_STACKS_CONFIG = [
 // ── Form state ─────────────────────────────────────────────────────────────
 const form = reactive({
   domain: '',
-  config_root: '/srv/mediastack/config',
+  config_root: '/var/lib/mediastack/config',
   media_root: '/mnt/media',
   puid: 1000,
   pgid: 1000,

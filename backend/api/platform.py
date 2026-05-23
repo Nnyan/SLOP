@@ -41,7 +41,7 @@ class WizardRequest(BaseModel):
     llm_provider: str = Field("none", description="LLM provider: ollama|groq|cerebras|none")
     groq_api_key: str = Field("", description="Groq API key if provider=groq")
     config_root: str = Field(
-        "/srv/mediastack/config",
+        "/var/lib/mediastack/config",
         description="Absolute path for app config folders",
     )
     media_root: str = Field(
