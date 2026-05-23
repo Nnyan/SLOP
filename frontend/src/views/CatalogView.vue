@@ -107,7 +107,7 @@
             <!-- Actions -->
             <div class="flex items-center gap-2 shrink-0" @click.stop>
               <RouterLink v-if="isInstalled(app.key)" :to="`/apps/${app.key}`"
-                class="text-xs text-slate-400 hover:text-slate-600">details</RouterLink>
+                class="text-xs text-slate-400 hover:text-slate-600">Manage</RouterLink>
               <button v-if="isInstalled(app.key)"
                 class="text-xs px-2.5 py-0.5 rounded border border-slate-200 text-slate-500 hover:border-slate-300 transition-colors"
                 :disabled="installing === app.key"
