@@ -485,13 +485,37 @@
               <p class="text-xs font-medium text-slate-600 mb-2">Preview</p>
               <div class="grid grid-cols-3 gap-x-4 gap-y-1 text-xs">
                 <template v-for="(val, key) in customLintResult.manifest_preview" :key="key">
-                  <span class="text-slate-400 font-mono truncate">{{ key }}</span>
-                  <span class="text-slate-700 col-span-2 truncate">{{ val ?? '—' }}</span>
+                  <!-- Skip 'env' dict — shown in the missing-vars section below -->
+                  <template v-if="key !== 'env' && typeof val !== 'object'">
+                    <span class="text-slate-400 font-mono truncate">{{ key }}</span>
+                    <span class="text-slate-700 col-span-2 truncate">{{ val ?? '—' }}</span>
+                  </template>
                 </template>
               </div>
             </div>
+            <!-- Missing-vars form — shown when YAML references vars not in .env -->
+            <div v-if="customMissingVars.length > 0"
+              class="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+              <p class="text-xs font-semibold text-amber-800">
+                ⚠ {{ customMissingVars.length }} variable{{ customMissingVars.length > 1 ? 's' : '' }}
+                not found in your .env — provide values before installing:
+              </p>
+              <div v-for="varName in customMissingVars" :key="varName" class="flex items-center gap-2">
+                <label class="text-xs font-mono text-amber-900 w-48 shrink-0">{{ varName }}</label>
+                <input
+                  v-model="customVarValues[varName]"
+                  type="text"
+                  :placeholder="`Enter ${varName}…`"
+                  class="input input-sm text-xs flex-1 font-mono" />
+              </div>
+              <p class="text-xs text-amber-700">
+                Values are passed as environment variables to the container.
+                Leave blank to skip (container may be misconfigured).
+              </p>
+            </div>
+
             <div class="flex gap-2">
-              <button @click="customYamlInput = ''; customLintResult = null" class="btn-secondary btn-sm text-xs">Clear</button>
+              <button @click="clearCustomApp" class="btn-secondary btn-sm text-xs">Clear</button>
               <button @click="installCustomYaml"
                 :disabled="!customLintResult?.valid || installingCustom"
                 class="btn-primary btn-sm text-xs flex-1">
@@ -825,6 +849,8 @@ const resettingQS = ref(false)
 const customAppTab = ref('Paste YAML')
 const customYamlInput = ref('')
 const customLintResult = ref<any>(null)
+const customMissingVars = ref<string[]>([])       // ${VAR} refs not in .env
+const customVarValues = ref<Record<string, string>>({})  // user-filled values for missing vars
 const customGithubUrl = ref('')
 const customGithubResult = ref<any>(null)
 const installingCustom = ref(false)
@@ -1284,9 +1310,21 @@ async function saveHFToken() {
 }
 
 
+function clearCustomApp() {
+  customYamlInput.value = ''
+  customLintResult.value = null
+  customMissingVars.value = []
+  customVarValues.value = {}
+}
+
 function lintCustomYaml() {
   if (_customLintTimer) clearTimeout(_customLintTimer)
-  if (!customYamlInput.value.trim()) { customLintResult.value = null; return }
+  if (!customYamlInput.value.trim()) {
+    customLintResult.value = null
+    customMissingVars.value = []
+    customVarValues.value = {}
+    return
+  }
   _customLintTimer = setTimeout(async () => {
     try {
       const res = await fetch('/api/v1/apps/lint-compose', {
@@ -1294,9 +1332,22 @@ function lintCustomYaml() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ yaml: customYamlInput.value }),
       })
-      customLintResult.value = await res.json()
+      const result = await res.json()
+      customLintResult.value = result
+      // Populate missing-vars state from scanner result
+      const newMissing: string[] = result.missing_vars || []
+      customMissingVars.value = newMissing
+      // Preserve any values the user already filled in, initialise new ones to ''
+      const prev = customVarValues.value
+      const next: Record<string, string> = {}
+      for (const v of newMissing) {
+        next[v] = prev[v] ?? ''
+      }
+      customVarValues.value = next
     } catch (e) {
       customLintResult.value = { valid: false, errors: [String(e)], warnings: [] }
+      customMissingVars.value = []
+      customVarValues.value = {}
     }
   }, 400)
 }
@@ -1306,17 +1357,37 @@ async function installCustomYaml() {
   installingCustom.value = true
   try {
     const preview = customLintResult.value.manifest_preview
-    const res = await fetch('/api/v1/apps/install-custom', {
+    // Step 1: register manifest in community catalog
+    const regRes = await fetch('/api/v1/apps/install-custom', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ manifest: preview, compose_yaml: customYamlInput.value }),
     })
-    if (res.ok) {
-      toast.success(`${preview?.display_name ?? 'App'} install started. Check Dashboard for status.`)
+    if (!regRes.ok) {
+      const err = await regRes.json()
+      toast.error('Registration failed.', err.detail ?? String(err))
+      return
+    }
+    const regData = await regRes.json()
+    const appKey = regData.key as string
+
+    // Step 2: start the actual install, passing user-supplied var values
+    const extraEnv = Object.fromEntries(
+      Object.entries(customVarValues.value).filter(([, v]) => v.trim() !== '')
+    )
+    const instRes = await fetch(`/api/v1/apps/${appKey}/install`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ extra_env: Object.keys(extraEnv).length > 0 ? extraEnv : null }),
+    })
+    if (instRes.ok) {
+      toast.success(`${preview?.display_name ?? appKey} install started — check Dashboard for progress.`)
       customYamlInput.value = ''
       customLintResult.value = null
+      customMissingVars.value = []
+      customVarValues.value = {}
     } else {
-      const err = await res.json()
+      const err = await instRes.json()
       toast.error('Install failed.', err.detail ?? String(err))
     }
   } catch (e) {

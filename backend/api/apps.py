@@ -655,6 +655,22 @@ class LintResult(BaseModel):
     errors: list[str] = []
     warnings: list[str] = []
     manifest_preview: dict[str, Any] | None = None
+    missing_vars: list[str] = []  # ${VAR} refs in compose YAML not found in platform .env
+
+
+def _read_env_keys() -> set[str]:
+    """Return the set of variable names currently defined in the platform .env file."""
+    from backend.core.config import config as _cfg
+    env_path = _cfg.env_file
+    keys: set[str] = set()
+    if not env_path.exists():
+        return keys
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, _, _ = line.partition("=")
+            keys.add(k.strip())
+    return keys
 
 
 @router.post("/lint-compose")
@@ -773,11 +789,57 @@ def lint_compose_yaml(payload: dict[str, Any]) -> LintResult:
         "service_type": "management",
     }
 
+    # ── Env extraction ────────────────────────────────────────────────────
+    # Preserve the service's environment block in the manifest so installed
+    # fragments carry the user's ${VAR} references through to the compose file.
+    env_block = svc.get("environment") or {}
+    env_dict: dict[str, str] = {}
+    if isinstance(env_block, list):
+        for item in env_block:
+            item_str = str(item).strip()
+            if "=" in item_str:
+                k, _, v = item_str.partition("=")
+                env_dict[k.strip()] = v.strip()
+            elif item_str:
+                env_dict[item_str] = ""  # bare var name — inherits from .env
+    elif isinstance(env_block, dict):
+        for k, v in env_block.items():
+            env_dict[str(k).strip()] = str(v).strip() if v is not None else ""
+
+    if env_dict:
+        manifest_preview["env"] = env_dict
+
+    # ── Variable scan ─────────────────────────────────────────────────────
+    # Find ${VAR} references without :- defaults (truly required — empty at
+    # runtime if not in .env).  Refs with defaults (${VAR:-x}) are optional
+    # and won't be empty, so we don't prompt the user for those.
+    import re as _re
+    required_refs = set(_re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}', raw))
+    known_keys = _read_env_keys()
+    # SLOP always writes these during wizard setup — never flag as missing
+    _slop_managed: set[str] = {
+        "PUID", "PGID", "TZ", "DOMAIN", "CONFIG_ROOT", "MEDIA_ROOT",
+        "CF_TUNNEL_TOKEN", "CF_DNS_API_TOKEN", "TAILSCALE_AUTH_KEY",
+        "TINYAUTH_USERNAME", "TINYAUTH_PASSWORD", "TINYAUTH_AUTH_USERS",
+        "VPN_TYPE", "VPN_SERVICE_PROVIDER", "WIREGUARD_PRIVATE_KEY",
+        "OPENVPN_USER", "OPENVPN_PASSWORD",
+    }
+    missing_vars = sorted(v for v in required_refs
+                          if v not in known_keys and v not in _slop_managed)
+
+    if missing_vars:
+        warnings.append(
+            f"{len(missing_vars)} variable(s) not found in your .env: "
+            + ", ".join(missing_vars)
+            + " — you will be prompted to provide values before install."
+        )
+
     return LintResult(
         valid=True,
         errors=[],
         warnings=warnings,
         manifest_preview=manifest_preview,
+        missing_vars=missing_vars,
     )
 
 
