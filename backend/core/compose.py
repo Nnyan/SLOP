@@ -103,9 +103,9 @@ def compose_down(frag_path: "Path", timeout: int = 60) -> tuple[int, str]:
 
 def build_traefik_fragment(
     domain: str,
+    config_root: str,
     network_name: str = STACK_NETWORK,
     cert_resolver: str = "letsencrypt",
-    config_root: str = "/srv/mediastack/config",
     dns_provider: str = "cloudflare",
 ) -> dict[str, Any]:
     """Generate the Traefik service compose fragment.

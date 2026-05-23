@@ -4,6 +4,7 @@ import time
 from typing import Any, Callable
 from fastapi import APIRouter
 from pydantic import BaseModel
+from backend.core.config import config as _config
 
 # Step 4 followup: prefix moved from `/api/quickstart` to bare
 # `/quickstart` so the router mounts at both /api/v1/quickstart and
@@ -69,7 +70,7 @@ def get_quickstart() -> dict[str, Any]:
                 or db.execute("SELECT COUNT(*) FROM apps").fetchone()[0] > 0
             ),
             "traefik": lambda: __import__('pathlib').Path(
-                db.get_setting("compose_dir") or "/srv/mediastack/data/compose"
+                db.get_setting("compose_dir") or str(_config.compose_dir)
             ).joinpath("traefik.yaml").exists(),
             "auth": lambda: db.execute(
                 "SELECT COUNT(*) FROM infra_slots WHERE slot='auth' AND status='active'"
