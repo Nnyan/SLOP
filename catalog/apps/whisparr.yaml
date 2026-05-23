@@ -23,9 +23,9 @@ volumes:
   media: /data
 
 env:
-  TZ: "{timezone}"
-  PUID: "{puid}"
-  PGID: "{pgid}"
+  TZ: "${TZ}"
+  PUID: "${PUID}"
+  PGID: "${PGID}"
 
 traefik:
   enabled: true

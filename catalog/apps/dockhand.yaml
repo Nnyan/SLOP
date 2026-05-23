@@ -26,7 +26,7 @@ volumes:
       readonly: false
 
 env:
-  TZ: "{timezone}"
+  TZ: "${TZ}"
   # Optional PostgreSQL — leave blank to use SQLite (recommended for single host)
   # DATABASE_URL: "postgresql://dockhand:${DOCKHAND_DB_PASSWORD}@postgres:5432/dockhand"
 

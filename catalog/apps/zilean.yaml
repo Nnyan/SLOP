@@ -26,7 +26,7 @@ volumes:
   config: /zilean/app/data
 
 env:
-  TZ: "{timezone}"
+  TZ: "${TZ}"
   ZILEAN__IMDB__IMPORT_ENABLED: "true"
   ZILEAN__DMBS__IMPORT_ENABLED: "true"
   ZILEAN__DATABASE__CONNECTION_STRING: "Host=postgres;Port=5432;Database=zilean;Username=mediastack;Password=${POSTGRES_PASSWORD}"

@@ -56,7 +56,7 @@ companions:
       FERRETDB_POSTGRESQL_URL: "postgres://mediastack:${POSTGRES_PASSWORD}@postgres:5432/komodo_ferretdb"
 
 env:
-  TZ: "{timezone}"
+  TZ: "${TZ}"
   KOMODO_HOST: "https://komodo.{domain}"
   KOMODO_TITLE: Komodo
   KOMODO_FIRST_SERVER: "https://komodo-periphery:8120"

@@ -17,9 +17,9 @@ volumes:
   config: /datastore
 
 env:
-  PUID: "{puid}"
-  PGID: "{pgid}"
-  TZ: "{timezone}"
+  PUID: "${PUID}"
+  PGID: "${PGID}"
+  TZ: "${TZ}"
   BASE_URL: "https://changedetection.{domain}"
 
 traefik:

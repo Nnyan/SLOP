@@ -26,11 +26,11 @@ ports:
 volumes:
   config: /config
   custom:
-    - host: "{media_root}"
+    - host: "${MEDIA_ROOT}"
       container: /data
 
 env:
-  TZ: "{timezone}"
+  TZ: "${TZ}"
 
 traefik:
   enabled: true

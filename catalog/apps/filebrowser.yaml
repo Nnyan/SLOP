@@ -18,9 +18,9 @@ volumes:
   media: /srv
 
 env:
-  PUID: "{puid}"
-  PGID: "{pgid}"
-  TZ: "{timezone}"
+  PUID: "${PUID}"
+  PGID: "${PGID}"
+  TZ: "${TZ}"
 
 traefik:
   enabled: true

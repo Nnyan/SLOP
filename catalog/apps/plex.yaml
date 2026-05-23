@@ -62,7 +62,7 @@ volumes:
       container: /transcode
 
 env:
-  TZ: "{timezone}"
+  TZ: "${TZ}"
   PLEX_CLAIM: "${PLEX_CLAIM}"       # get from plex.tv/claim — expires after 4min
   ADVERTISE_IP: "https://plex.{domain}:443"
 

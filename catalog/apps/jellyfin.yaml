@@ -45,7 +45,7 @@ volumes:
       container: /music
 
 env:
-  TZ: "{timezone}"
+  TZ: "${TZ}"
   JELLYFIN_PublishedServerUrl: "https://jellyfin.{domain}"
 
 traefik:

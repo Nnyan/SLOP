@@ -32,9 +32,9 @@ volumes:
       container: /music
 
 env:
-  TZ: "{timezone}"
-  UID: "{puid}"
-  GID: "{pgid}"
+  TZ: "${TZ}"
+  UID: "${PUID}"
+  GID: "${PGID}"
 
 traefik:
   enabled: true

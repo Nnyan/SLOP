@@ -24,7 +24,7 @@ volumes:
       container: /books
 
 env:
-  TZ: "{timezone}"
+  TZ: "${TZ}"
 
 traefik:
   enabled: true

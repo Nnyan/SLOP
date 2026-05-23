@@ -29,7 +29,7 @@ volumes:
       container: /opt/stacks
 
 env:
-  TZ: "{timezone}"
+  TZ: "${TZ}"
   DOCKGE_STACKS_DIR: /opt/stacks
 
 traefik:

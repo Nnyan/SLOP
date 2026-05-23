@@ -17,9 +17,9 @@ volumes:
   config: /config
 
 env:
-  PUID: "{puid}"
-  PGID: "{pgid}"
-  TZ: "{timezone}"
+  PUID: "${PUID}"
+  PGID: "${PGID}"
+  TZ: "${TZ}"
   DB_CONNECTION: sqlite
 
 traefik:

@@ -28,9 +28,9 @@ volumes:
       container: /app/logs
 
 env:
-  TZ: "{timezone}"
-  PUID: "{puid}"
-  PGID: "{pgid}"
+  TZ: "${TZ}"
+  PUID: "${PUID}"
+  PGID: "${PGID}"
   serverIP: "0.0.0.0"
   serverPort: "8266"
   webUIPort: "8265"

@@ -24,7 +24,7 @@ volumes:
       container: /temp
 
 env:
-  TZ: "{timezone}"
+  TZ: "${TZ}"
 
 traefik:
   enabled: true

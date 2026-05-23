@@ -62,9 +62,9 @@ devices:
   - /dev/fuse:/dev/fuse:rwm
 
 env:
-  TZ: "{timezone}"
-  PUID: "{puid}"
-  PGID: "{pgid}"
+  TZ: "${TZ}"
+  PUID: "${PUID}"
+  PGID: "${PGID}"
   # Component toggles — configure in Mediastack UI after install
   ZURG_ENABLED: "true"
   RCLONE_ENABLED: "true"

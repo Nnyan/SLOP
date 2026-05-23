@@ -38,9 +38,9 @@ volumes:
   config: /updater/data
 
 env:
-  TZ: "{timezone}"
-  PUID: "{puid}"
-  PGID: "{pgid}"
+  TZ: "${TZ}"
+  PUID: "${PUID}"
+  PGID: "${PGID}"
   # Backup period in case the HTTP endpoint fails
   PERIOD: 5m
   UPDATE_COOLDOWN_PERIOD: 5m

@@ -17,7 +17,7 @@ volumes:
   config: /config
 
 env:
-  TZ: "{timezone}"
+  TZ: "${TZ}"
 
 traefik:
   enabled: true
