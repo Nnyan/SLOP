@@ -161,6 +161,26 @@
         <!-- Description -->
         <p class="text-sm text-slate-500 mb-4 leading-relaxed">{{ installTarget.description }}</p>
 
+        <!-- Hardware warnings -->
+        <div v-if="installTarget.has_gpu || installTarget.hardware_note" class="space-y-2 mb-4">
+          <div v-if="installTarget.has_gpu"
+               class="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+            <span class="shrink-0 text-base leading-none">⚡</span>
+            <span v-if="installTarget.gpu_optional">
+              <strong>GPU recommended</strong> — hardware acceleration (transcoding / inference) requires a
+              compatible NVIDIA or AMD GPU. Works without one but at reduced performance.
+            </span>
+            <span v-else>
+              <strong>GPU required</strong> — this app needs a compatible NVIDIA or AMD GPU to function.
+            </span>
+          </div>
+          <div v-if="installTarget.hardware_note"
+               class="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+            <span class="shrink-0 text-base leading-none">🖴</span>
+            <span>{{ installTarget.hardware_note }}</span>
+          </div>
+        </div>
+
         <!-- Options (only when not installing) -->
         <template v-if="!installing">
           <div class="space-y-3 mb-4">

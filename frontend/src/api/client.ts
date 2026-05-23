@@ -100,6 +100,8 @@ export interface CatalogEntry {
   tags: string[]
   links: Record<string, string>
   has_gpu: boolean
+  gpu_optional: boolean | null
+  hardware_note: string | null
   start_grace_s: number
   dependencies: { postgres: boolean; redis: boolean; mariadb: boolean; apps: string[] }
 }

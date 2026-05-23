@@ -161,6 +161,11 @@ class AppManifest:
     # ── GPU ───────────────────────────────────────────────────────────────
     gpu: GpuDef | None = None
 
+    # ── Hardware requirements (non-GPU) ────────────────────────────────────
+    # Free-text note surfaced in the install modal when hardware dependencies
+    # exist that can't be detected automatically (e.g. SMART disk, USB drives).
+    hardware_note: str | None = None
+
     # ── Companion services (app-specific, not shared) ────────────────────
     # e.g. Karakeep needs Meilisearch + Chrome — deployed and removed with the app
     companions: list[dict[str, Any]] = field(default_factory=list)
@@ -215,6 +220,8 @@ class AppManifest:
             "tags": self.tags,
             "links": self.links,
             "has_gpu": self.gpu is not None,
+            "gpu_optional": self.gpu.optional if self.gpu is not None else None,
+            "hardware_note": self.hardware_note,
             "start_grace_s": self.start_grace_s or 60,
             "dependencies": {
                 "postgres": self.dependencies.postgres,
@@ -466,6 +473,7 @@ def parse_manifest(path: Path) -> AppManifest:
         health_checks=health_checks,
         self_heal=self_heal,
         gpu=gpu,
+        hardware_note=str(data["hardware_note"]) if data.get("hardware_note") else None,
         companions=list(data.get("companions", []) or []),
         requires=list(data.get("requires", []) or []),
         recommends=list(data.get("recommends", []) or []),

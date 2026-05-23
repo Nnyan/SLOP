@@ -36,6 +36,12 @@ env:
   UID: "${PUID}"
   GID: "${PGID}"
 
+gpu:
+  optional: true
+  warn_if_absent: true
+  nvidia: true
+  amd: true
+
 traefik:
   enabled: true
   subdomain: emby

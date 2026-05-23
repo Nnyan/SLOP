@@ -48,6 +48,12 @@ env:
   TZ: "${TZ}"
   JELLYFIN_PublishedServerUrl: "https://jellyfin.${DOMAIN}"
 
+gpu:
+  optional: true
+  warn_if_absent: true
+  nvidia: true
+  amd: true
+
 traefik:
   enabled: true
   subdomain: jellyfin

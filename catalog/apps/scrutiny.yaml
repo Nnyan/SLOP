@@ -1,6 +1,7 @@
 key: scrutiny
 display_name: Scrutiny
 description: SMART disk health monitoring with a clean web UI — tracks drive health, temperature, and pre-failure symptoms
+hardware_note: "Requires physical HDDs or SSDs with SMART support. Does not report meaningful data in virtual machines (VMware, Hyper-V, VirtualBox, WSL). The collector mounts /dev/disk read-only and needs SYS_RAWIO capability."
 category: monitoring
 tier: 2
 icon: 💿

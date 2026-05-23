@@ -66,6 +66,12 @@ env:
   PLEX_CLAIM: "${PLEX_CLAIM:-}"     # optional — get from plex.tv/claim (expires 4min); blank = start unclaimed
   ADVERTISE_IP: "https://plex.${DOMAIN}:443"
 
+gpu:
+  optional: true
+  warn_if_absent: true
+  nvidia: true
+  amd: true
+
 traefik:
   enabled: true
   subdomain: plex
