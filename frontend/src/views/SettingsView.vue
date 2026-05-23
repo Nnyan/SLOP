@@ -486,7 +486,7 @@
               <div class="grid grid-cols-3 gap-x-4 gap-y-1 text-xs">
                 <template v-for="(val, key) in customLintResult.manifest_preview" :key="key">
                   <!-- Skip 'env' dict — shown in the missing-vars section below -->
-                  <template v-if="key !== 'env' && typeof val !== 'object'">
+                  <template v-if="String(key) !== 'env' && typeof val !== 'object'">
                     <span class="text-slate-400 font-mono truncate">{{ key }}</span>
                     <span class="text-slate-700 col-span-2 truncate">{{ val ?? '—' }}</span>
                   </template>
