@@ -693,6 +693,33 @@ class LintResult(BaseModel):
     warnings: list[str] = []
     manifest_preview: dict[str, Any] | None = None
     missing_vars: list[str] = []  # ${VAR} refs in compose YAML not found in platform .env
+    port_conflicts: list[dict[str, Any]] = []  # [{port, type, conflicting}] — structured conflict data
+
+
+def _get_listening_ports() -> set[int]:
+    """Return set of TCP ports currently in LISTEN state on the host via /proc/net/tcp."""
+    ports: set[int] = set()
+    for fname in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(fname) as fh:
+                lines = fh.read().splitlines()
+            for line in lines[1:]:          # skip header row
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                if parts[3] != "0A":        # 0A = TCP_LISTEN
+                    continue
+                local_addr = parts[1]
+                if ":" not in local_addr:
+                    continue
+                hex_port = local_addr.split(":")[-1]
+                try:
+                    ports.add(int(hex_port, 16))
+                except ValueError:
+                    pass
+        except OSError:
+            pass
+    return ports
 
 
 def _read_env_keys() -> set[str]:
@@ -784,6 +811,44 @@ def lint_compose_yaml(payload: dict[str, Any]) -> LintResult:
             elif len(parts) != 1:
                 errors.append(f"Invalid port format: '{p}'.")
 
+    # Port conflict check — extract host ports and compare against installed apps + system
+    port_conflicts: list[dict[str, Any]] = []
+    host_ports_to_check: list[int] = []
+    for p in ports:
+        pstr = str(p)
+        if ":" in pstr:
+            parts_pc = pstr.split(":")
+            # Handle both host:container (2-part) and bind_ip:host:container (3-part)
+            host_idx = 0 if len(parts_pc) == 2 else 1
+            try:
+                host_ports_to_check.append(int(parts_pc[host_idx]))
+            except (ValueError, IndexError):
+                pass
+
+    if host_ports_to_check:
+        from backend.core.state import StateDB as _StateDB
+        with _StateDB() as _db_pc:
+            installed_port_map: dict[int, str] = {
+                a.host_port: a.display_name
+                for a in _db_pc.get_all_apps()
+                if a.host_port is not None
+            }
+        sys_ports = _get_listening_ports()
+        for hport in host_ports_to_check:
+            if hport in installed_port_map:
+                app_nm = installed_port_map[hport]
+                warnings.append(
+                    f"Port conflict: {hport} is already used by installed app '{app_nm}'. "
+                    f"The container will fail to bind this port — choose a different host port."
+                )
+                port_conflicts.append({"port": hport, "type": "installed_app", "conflicting": app_nm})
+            elif hport in sys_ports:
+                warnings.append(
+                    f"Port {hport} is already bound on this host. "
+                    f"Another process is listening — the container may fail to start."
+                )
+                port_conflicts.append({"port": hport, "type": "system", "conflicting": "system process"})
+
     # Volumes check
     volumes = svc.get("volumes", [])
     for v in volumes:
@@ -869,6 +934,7 @@ def lint_compose_yaml(payload: dict[str, Any]) -> LintResult:
         warnings=warnings,
         manifest_preview=manifest_preview,
         missing_vars=missing_vars,
+        port_conflicts=port_conflicts,
     )
 
 
