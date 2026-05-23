@@ -429,7 +429,7 @@ def cmd_wizard(api: APIClient, _args: argparse.Namespace) -> int:
         _err("A valid domain is required.")
         return 1
 
-    config_root = ask("Config root", "/srv/mediastack/config")
+    config_root = ask("Config root", "/var/lib/mediastack/config")
     media_root = ask("Media root", "/mnt/media")
     acme_email = ask("ACME email", f"admin@{domain}")
     dns_provider = ask("DNS provider for cert (cloudflare/route53/namecheap/…)", "cloudflare")
