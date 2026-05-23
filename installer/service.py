@@ -122,6 +122,15 @@ def install_service(
     template_text = read_template()
     content = _render_template(template_text, str(install_dir), str(data_dir))
     write_unit_file(_UNIT_PATH, content)
+
+    # Pre-create .env owned by the service user so the wizard can write to it.
+    # The install dir is root-owned; without this the mediastack user gets EPERM.
+    env_file = Path(install_dir) / ".env"
+    if not env_file.exists():
+        env_file.touch(mode=0o600)
+    import shutil as _shutil
+    _shutil.chown(env_file, user="mediastack", group="mediastack")
+
     run_systemctl("daemon-reload", "")
     run_systemctl("enable", _UNIT_NAME)
     run_systemctl("start", _UNIT_NAME)
