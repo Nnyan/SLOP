@@ -164,7 +164,7 @@
         <!-- Options (only when not installing) -->
         <template v-if="!installing">
           <div class="space-y-3 mb-4">
-            <div v-if="installTarget.ports?.web">
+            <div v-if="installTarget.web_port">
               <label class="text-xs font-medium text-slate-600">Host port override <span class="text-slate-400">(optional)</span></label>
               <input v-model.number="installOpts.host_port" type="number" placeholder="leave blank for default"
                 class="input w-full mt-1 text-sm" />
