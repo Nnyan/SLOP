@@ -468,6 +468,11 @@ def _ensure_config_dir(platform: Any, key: str,
     created_now = not config_path.exists()
     try:
         config_path.mkdir(parents=True, exist_ok=True)
+        os.chmod(config_path, 0o755)
+        try:
+            os.chown(config_path, platform.puid, platform.pgid)
+        except OSError:
+            pass  # non-root service; container handles ownership internally
         result.add("config_dir", "ok", f"Config directory ready: {config_path}")
     except OSError as e:
         result.fail(
