@@ -648,6 +648,91 @@ def _register_install(manifest: AppManifest, key: str, host_port: int | None,
                f"{manifest.display_name} installed and registered.")
 
 
+def _ensure_community_compose_dirs(
+    key: str,
+    platform: Any,
+    result: ExecutionResult,
+) -> None:
+    """Create host directories for bind-mount volumes in a community (custom) compose YAML.
+
+    Called after _ensure_config_dir() for community app installs.  Reads the
+    raw compose YAML saved at catalog/community/<key>.compose.yaml, resolves
+    ${CONFIG_ROOT} / ${MEDIA_ROOT} references, and creates + chowns any missing
+    host directories before 'docker compose up'.
+
+    Skips: named volumes, socket/device paths, relative paths, paths that are
+    already non-directory files. Failures are warnings — they do not block the
+    install so a permission error on one extra directory does not abort the deploy.
+    """
+    import yaml as _yaml
+    from backend.core.config import config as _cfg
+
+    compose_path = _cfg.catalog_dir / "community" / (key + ".compose.yaml")
+    if not compose_path.exists():
+        return
+
+    try:
+        doc = _yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        log.warning("Could not parse community compose YAML for %s: %s", key, exc)
+        return
+
+    if not isinstance(doc, dict):
+        return
+
+    services = doc.get("services") or {}
+    if not services and "image" in doc:
+        services = {"app": doc}
+
+    config_root = str(getattr(platform, "config_root", "") or "")
+    media_root = str(getattr(platform, "media_root", "") or "")
+    puid = int(getattr(platform, "puid", 1000) or 1000)
+    pgid = int(getattr(platform, "pgid", 1000) or 1000)
+
+    _skip_prefixes = ("/var/run/", "/dev/", "/proc/", "/sys/")
+
+    for svc in services.values():
+        if not isinstance(svc, dict):
+            continue
+        for vol in (svc.get("volumes") or []):
+            # Extract host path from string "host:container[:opts]" or dict format
+            if isinstance(vol, str) and ":" in vol:
+                host_raw = vol.split(":")[0].strip()
+            elif isinstance(vol, dict):
+                host_raw = str(vol.get("source") or "").strip()
+            else:
+                continue
+
+            # Expand Docker Compose var references used in custom compose YAMLs
+            host = host_raw.replace("${CONFIG_ROOT}", config_root)
+            host = host.replace("${MEDIA_ROOT}", media_root)
+
+            # Only handle absolute paths — relative paths are not portable
+            if not host.startswith("/"):
+                continue
+
+            # Skip socket/device/proc paths — not directories
+            if any(host.startswith(p) for p in _skip_prefixes):
+                continue
+
+            # Skip paths that exist as non-directory (socket, device, etc.)
+            if os.path.exists(host) and not os.path.isdir(host):
+                continue
+
+            try:
+                if not os.path.exists(host):
+                    os.makedirs(host, exist_ok=True)
+                    os.chown(host, puid, pgid)
+                    os.chmod(host, 0o755)
+                    result.add("config_dir", "ok",
+                               "Custom volume directory created: " + host)
+                else:
+                    # Directory already exists — ensure ownership
+                    os.chown(host, puid, pgid)
+            except OSError as exc:
+                log.warning("Could not create custom volume dir %s: %s", host, exc)
+
+
 def _install_inner(
     manifest: AppManifest,
     result: ExecutionResult,
@@ -675,6 +760,12 @@ def _install_inner(
     if cfg is None:
         return
     config_path, dir_created_now = cfg
+
+    # For community (custom) apps: create any extra bind-mount directories
+    # declared in the raw compose YAML before docker compose up runs.
+    # Catalog apps only have config_root/<key>/ as a host bind mount (already
+    # handled by _ensure_config_dir), so this is a community-only step.
+    _ensure_community_compose_dirs(key, platform, result)
 
     extra_env = _generate_auto_secrets(manifest, extra_env)
 
