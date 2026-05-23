@@ -36,6 +36,8 @@ companions:
     image: ghcr.io/moghtech/komodo-periphery
     image_tag: latest
     container_name: komodo-periphery
+    run_as_uid: 0   # periphery runs as root
+    run_as_gid: 0
     volumes:
       - host: /var/run/docker.sock
         container: /var/run/docker.sock
@@ -50,6 +52,8 @@ companions:
     image: ghcr.io/ferretdb/ferretdb
     image_tag: "1"
     container_name: komodo-ferretdb
+    run_as_uid: 1000   # ferretdb user (uid 1000 in ghcr.io/ferretdb/ferretdb)
+    run_as_gid: 1000
     volumes:
       - host: "{config_root}/komodo/ferretdb"
         container: /state/ferretdb

@@ -1087,6 +1087,14 @@ def _deploy_companions(manifest: AppManifest, platform: Any) -> dict[str, str]:
         }
 
         vols = companion.get("volumes", [])
+        # Per-companion UID/GID — set in YAML when the container user is known.
+        # If set, new dirs get chown(uid, gid) + chmod 0o755 (least-privilege).
+        # If absent, fallback is chmod 0o777 (world-writable) — still works but
+        # grants more permissions than necessary. Annotate companions with
+        # run_as_uid/run_as_gid in YAML to tighten this.
+        _run_uid = companion.get("run_as_uid")
+        _run_gid = companion.get("run_as_gid")
+        _has_uid = _run_uid is not None and _run_gid is not None
         if vols:
             expanded = []
             for v in vols:
@@ -1095,10 +1103,18 @@ def _deploy_companions(manifest: AppManifest, platform: Any) -> dict[str, str]:
                 ro = ":ro" if v.get("readonly") else ""
                 if not os.path.exists(host):
                     os.makedirs(host, exist_ok=True)
-                    os.chmod(host, 0o777)
+                    if _has_uid:
+                        os.chown(host, int(_run_uid), int(_run_gid))
+                        os.chmod(host, 0o755)
+                    else:
+                        os.chmod(host, 0o777)  # fallback: UID unknown
                 elif os.path.isdir(host):
-                    os.chmod(host, 0o777)
-                # socket/device paths: leave permissions as-is
+                    if _has_uid:
+                        os.chown(host, int(_run_uid), int(_run_gid))
+                        os.chmod(host, 0o755)
+                    else:
+                        os.chmod(host, 0o777)  # fallback: UID unknown
+                # socket/device paths (non-directory): leave permissions as-is
                 expanded.append(f"{host}:{container}{ro}")
             frag["volumes"] = expanded
 
