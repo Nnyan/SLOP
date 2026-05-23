@@ -1112,6 +1112,7 @@ def platform_prereqs(request: Request) -> dict[str, Any]:
             "total_ram_gb": round(profile.total_ram_mb / 1024, 1),
             "gpu_name": profile.gpu_name,
             "gpu_vram_gb": round(profile.gpu_vram_mb / 1024, 1) if profile.gpu_vram_mb else 0,
+            "config_root": str(_cfg.data_dir / "config"),
         }
 
     return {"checks": checks, "system": system}

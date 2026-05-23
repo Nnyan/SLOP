@@ -1102,6 +1102,7 @@ async function runPrereqChecks() {
     if (sys.puid) form.puid = sys.puid
     if (sys.pgid) form.pgid = sys.pgid
     if (sys.timezone) form.timezone = sys.timezone
+    if (sys.config_root) form.config_root = sys.config_root
     systemProfile.value = {
       ...(systemProfile.value || {}),
       server_ip: sys.server_ip,
