@@ -10,7 +10,8 @@ version: "1.0"
 # No "business edition" — all features free forever (GPL-3).
 # Architecture: Core (API + UI) + Periphery (lightweight agent per server).
 # For single-server setups, Periphery is a companion deployed alongside Core.
-# Uses FerretDB (MongoDB wire protocol over PostgreSQL) for storage.
+# Uses FerretDB v1.x (MongoDB wire protocol over SQLite) for storage.
+# FerretDB v1.x is pinned because v2.x dropped SQLite support and requires PostgreSQL.
 #
 # After deploy:
 #   1. Open http://komodo:9120
@@ -30,9 +31,6 @@ volumes:
     - host: "{config_root}/komodo/backups"
       container: /backups
 
-dependencies:
-  postgres: true
-
 companions:
   - key: komodo-periphery
     image: ghcr.io/moghtech/komodo-periphery
@@ -50,10 +48,16 @@ companions:
 
   - key: komodo-ferretdb
     image: ghcr.io/ferretdb/ferretdb
-    image_tag: latest
+    image_tag: "1"
     container_name: komodo-ferretdb
+    volumes:
+      - host: "{config_root}/komodo/ferretdb"
+        container: /state/ferretdb
     env:
-      FERRETDB_POSTGRESQL_URL: "postgres://mediastack:${POSTGRES_PASSWORD}@postgres:5432/komodo_ferretdb"
+      FERRETDB_HANDLER: sqlite
+      FERRETDB_SQLITE_URL: "file:///state/ferretdb/"
+      FERRETDB_TEST_DISABLE_AUTH: "true"
+      FERRETDB_STATE_DIR: /state
 
 env:
   TZ: "${TZ}"

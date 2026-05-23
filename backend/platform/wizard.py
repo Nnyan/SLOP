@@ -728,7 +728,7 @@ def _deploy_tunnels(inp: "WizardInput", domain: str, network: str,
     for tunnel in (inp.tunnels or []):
         cfg: dict[str, Any] = {"domain": domain, "network": network}
         if tunnel == "cloudflared":
-            cfg["token"] = (
+            cfg["tunnel_token"] = (
                 inp.secrets.get("CF_TUNNEL_TOKEN", "") if inp.secrets else ""
             )
         elif tunnel in ("tailscale", "headscale"):

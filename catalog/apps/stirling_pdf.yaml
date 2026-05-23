@@ -32,7 +32,7 @@ env:
 
 traefik:
   enabled: true
-  subdomain: pdf
+  subdomain: stirling
 
 post_deploy:
   - type: wait_healthy

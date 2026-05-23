@@ -45,7 +45,7 @@ class CloudflareTunnelProvider(InfraProvider):
             platform = db.get_platform()
 
         network = platform.network_name
-        tunnel_token = cfg.get("tunnel_token", "${CLOUDFLARED_TOKEN}")
+        tunnel_token = cfg.get("tunnel_token", "${CF_TUNNEL_TOKEN}")
         auto_register = cfg.get("auto_register", False)
         domain = cfg.get("domain") or platform.domain or ""
 
@@ -54,7 +54,7 @@ class CloudflareTunnelProvider(InfraProvider):
             "container_name": CONTAINER_NAME,
             "restart": "unless-stopped",
             "networks": [network],
-            "command": "tunnel --no-autoupdate run",
+            "command": f"tunnel --no-autoupdate run --token {tunnel_token}",
             "environment": {
                 "TUNNEL_TOKEN": tunnel_token,
             },
