@@ -278,7 +278,7 @@
               <div v-if="form.individualApps.length" class="flex flex-wrap gap-1.5 mt-2">
                 <span v-for="key in form.individualApps" :key="key"
                   class="flex items-center gap-1 text-xs bg-sky-50 border border-sky-200 text-sky-700 rounded-full px-2 py-0.5">
-                  {{ key }}
+                  {{ appDisplayName(key) }}
                   <button @click="form.individualApps.splice(form.individualApps.indexOf(key),1)" class="hover:text-red-500">✕</button>
                 </span>
               </div>
@@ -341,7 +341,7 @@
                   <span class="text-slate-500">Infra</span>
                   <span>{{ Object.entries(form.infra).filter(([,v]) => v && v !== 'none').map(([k,v]) => v).join(', ') || 'Traefik only' }}</span>
                   <span class="text-slate-500">Quick stacks</span>
-                  <span>{{ form.selectedStacks.length ? form.selectedStacks.join(', ') : 'None selected' }}</span>
+                  <span>{{ form.selectedStacks.length ? form.selectedStacks.map(id => QUICK_STACKS_CONFIG.find(s => s.id === id)?.label ?? id).join(', ') : 'None selected' }}</span>
                   <span class="text-slate-500">Notifications</span>
                   <span>{{ form.ntfy_enabled ? 'ntfy on ' + (form.ntfy_url || 'http://ntfy:80') + ' → ' + form.ntfy_topic : 'Will enable after installing ntfy from Catalog' }}</span>
                 </div>
@@ -1427,7 +1427,9 @@ const catalogAppInfo = computed(() => {
 })
 
 function appDisplayName(key: string): string {
-  return catalogAppInfo.value[key]?.name || key.charAt(0).toUpperCase() + key.slice(1)
+  return catalogAppInfo.value[key]?.name
+    || (catalogApps.value.find((a: any) => a.key === key) as any)?.display_name
+    || key.charAt(0).toUpperCase() + key.slice(1)
 }
 function appIcon(key: string): string {
   return catalogAppInfo.value[key]?.icon || '📦'
