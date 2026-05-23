@@ -162,11 +162,11 @@ import { appsCache, healthCache, setAppsCache, setHealthCache } from '../appCach
 import QuickStartWizard from '@/components/QuickStartWizard.vue'
 import { RouterLink } from 'vue-router'
 import { usePlatformStore } from '../stores/platform'
-const traefikRunning = ref(false)
 import { apps, health, catalog } from '../api/client'
 import type { AppStatus, HealthCheck, CatalogEntry } from '../api/client'
 
 const platformStore = usePlatformStore()
+const traefikRunning = computed(() => !!platformStore.status?.traefik_version)
 const loading = ref(false)
 const installedApps = ref<AppStatus[]>(appsCache ?? [])
 const _buildHealthMap = (checks: HealthCheck[] | null): Record<string, HealthCheck[]> => {
