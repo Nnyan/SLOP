@@ -45,7 +45,7 @@ post_install:
     description: >
       Go to LLM Models → Inference provider → select LocalAI →
       set URL to http://localai:8080 (internal Docker network).
-      Access the LocalAI web UI at https://localai.{domain}.
+      Access the LocalAI web UI via the Traefik subdomain configured for your domain.
     required: false
   - title: GPU version (NVIDIA)
     description: >
