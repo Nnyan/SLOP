@@ -489,6 +489,20 @@
                     <!-- Progress message or error -->
                     <div v-if="appInstallStatus[app] === 'running' && appInstallProgress[app]"
                       class="text-xs text-sky-500 mt-0.5">{{ appInstallProgress[app] }}</div>
+                    <!-- Compact step counter when steps are available -->
+                    <div v-if="appInstallStatus[app] === 'running' && appInstallSteps[app]?.length > 0"
+                      class="flex gap-1 mt-1 flex-wrap">
+                      <span v-for="step in appInstallSteps[app].slice(-5)" :key="step.step"
+                        :class="['text-xs px-1 py-0.5 rounded',
+                          step.status === 'ok'      ? 'bg-green-100 text-green-600' :
+                          step.status === 'warning' ? 'bg-amber-100 text-amber-600' :
+                          step.status === 'error'   ? 'bg-red-100 text-red-500' :
+                          step.status === 'skipped' ? 'bg-slate-100 text-slate-400' :
+                          'bg-sky-100 text-sky-600']">
+                        {{ step.status === 'ok' ? '✓' : step.status === 'error' ? '✗' : step.status === 'skipped' ? '—' : '…' }}
+                        {{ step.name || step.step }}
+                      </span>
+                    </div>
                     <div v-if="appInstallStatus[app] === 'error' && appInstallError[app]"
                       class="text-xs text-red-500 mt-0.5 break-all">{{ appInstallError[app] }}</div>
                   </div>
@@ -1325,6 +1339,7 @@ function toggleStack(id: string) {
 // ── App deploy tracking ───────────────────────────────────────────────────
 const appInstallStatus = reactive<Record<string, string>>({})
 const appInstallProgress = ref<Record<string, string>>({})
+const appInstallSteps = ref<Record<string, any[]>>({})   // per-app step log
 const secretsValidating = ref(false)
 const secretsValidationResult = ref<any>(null)
 const appInstallError = reactive<Record<string, string>>({})
@@ -1496,6 +1511,7 @@ async function installStacks() {
   installStarted.value = true
   stackInstallDone.value = false
   appInstallProgress.value = {}
+  appInstallSteps.value = {}
 
   const res = await fetch(`/api/v1/platform/wizard/stack-app-keys?stack_ids=${form.selectedStacks.join(',')}`)
   const data = await res.json()
@@ -1513,32 +1529,69 @@ async function installStacks() {
   async function installOne(key: string) {
     appInstallStatus[key] = 'running'
     appInstallProgress.value[key] = 'Starting…'
+    appInstallSteps.value[key] = []
     try {
-      const r = await fetch('/api/v1/platform/wizard/install-stacks', {
+      // Start the install (returns immediately — background task)
+      const r = await fetch(`/api/v1/apps/${key}/install`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stack_keys: [key] }),
+        body: JSON.stringify({}),
       })
-      const result = await r.json()
-      const appResult = result.results?.[0]
-      if (appResult?.ok) {
-        appInstallStatus[key] = 'ok'
-        appInstallProgress.value[key] = ''
-      } else {
-        // Check if the app is actually running despite error (health timeout race)
-        try {
-          const hc = await fetch(`/api/v1/health/apps/${key}/container-status`)
-          const hd = await hc.json()
-          if (hd.ready) {
-            appInstallStatus[key] = 'ok'
-            appInstallProgress.value[key] = 'Running (health check passed)'
-            return
-          }
-        } catch {}
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}))
         appInstallStatus[key] = 'error'
-        appInstallError[key] = appResult?.error || result.message || 'Install failed'
+        appInstallError[key] = err.detail || `HTTP ${r.status}`
         appInstallProgress.value[key] = ''
+        return
       }
+
+      // Poll progress endpoint every 800ms until done
+      await new Promise<void>((resolve) => {
+        const poll = setInterval(async () => {
+          try {
+            const prog = await fetch(`/api/v1/apps/${key}/install/progress`)
+            const pdata = await prog.json()
+            const steps: any[] = pdata.steps || []
+            appInstallSteps.value[key] = steps
+            // Show latest step message as progress text
+            const runningStep = steps.filter(
+              (s: any) => s.status !== 'skipped'
+            ).slice(-1)[0]
+            if (runningStep) {
+              appInstallProgress.value[key] = runningStep.message || runningStep.step
+            }
+            if (pdata.done) {
+              clearInterval(poll)
+              if (pdata.ok) {
+                appInstallStatus[key] = 'ok'
+                appInstallProgress.value[key] = ''
+              } else {
+                // Health-timeout race: check if container is actually running
+                try {
+                  const hc = await fetch(`/api/v1/health/apps/${key}/container-status`)
+                  const hd = await hc.json()
+                  if (hd.ready) {
+                    appInstallStatus[key] = 'ok'
+                    appInstallProgress.value[key] = 'Running (health check passed)'
+                    resolve()
+                    return
+                  }
+                } catch {}
+                appInstallStatus[key] = 'error'
+                appInstallError[key] = pdata.error || 'Install failed'
+                appInstallProgress.value[key] = ''
+              }
+              resolve()
+            }
+          } catch (e) {
+            clearInterval(poll)
+            appInstallStatus[key] = 'error'
+            appInstallError[key] = String(e)
+            appInstallProgress.value[key] = ''
+            resolve()
+          }
+        }, 800)
+      })
     } catch (e) {
       appInstallStatus[key] = 'error'
       appInstallError[key] = String(e)
@@ -1639,28 +1692,63 @@ async function retryFailedApps() {
   for (const key of failed) {
     appInstallStatus[key] = 'queued'
     appInstallError[key] = ''
+    appInstallProgress.value[key] = ''
+    appInstallSteps.value[key] = []
   }
-  for (const key of failed) {
+  // Re-use the same per-app install logic as installStacks: start + poll
+  async function retryOne(key: string) {
     appInstallStatus[key] = 'running'
+    appInstallProgress.value[key] = 'Starting…'
     try {
-      const r = await fetch('/api/v1/platform/wizard/install-stacks', {
+      const r = await fetch(`/api/v1/apps/${key}/install`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stack_keys: [key] }),
+        body: JSON.stringify({}),
       })
-      const result = await r.json()
-      const appResult = result.results?.[0]
-      if (appResult?.ok) {
-        appInstallStatus[key] = 'ok'
-      } else {
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}))
         appInstallStatus[key] = 'error'
-        appInstallError[key] = appResult?.error || result.message || 'Install failed'
+        appInstallError[key] = err.detail || `HTTP ${r.status}`
+        appInstallProgress.value[key] = ''
+        return
       }
+      await new Promise<void>((resolve) => {
+        const poll = setInterval(async () => {
+          try {
+            const prog = await fetch(`/api/v1/apps/${key}/install/progress`)
+            const pdata = await prog.json()
+            const steps: any[] = pdata.steps || []
+            appInstallSteps.value[key] = steps
+            const latest = steps.filter((s: any) => s.status !== 'skipped').slice(-1)[0]
+            if (latest) appInstallProgress.value[key] = latest.message || latest.step
+            if (pdata.done) {
+              clearInterval(poll)
+              if (pdata.ok) {
+                appInstallStatus[key] = 'ok'
+                appInstallProgress.value[key] = ''
+              } else {
+                appInstallStatus[key] = 'error'
+                appInstallError[key] = pdata.error || 'Install failed'
+                appInstallProgress.value[key] = ''
+              }
+              resolve()
+            }
+          } catch (e) {
+            clearInterval(poll)
+            appInstallStatus[key] = 'error'
+            appInstallError[key] = String(e)
+            appInstallProgress.value[key] = ''
+            resolve()
+          }
+        }, 800)
+      })
     } catch (e) {
       appInstallStatus[key] = 'error'
       appInstallError[key] = String(e)
+      appInstallProgress.value[key] = ''
     }
   }
+  await Promise.all(failed.map(retryOne))
   stackInstallDone.value = true
 }
 
