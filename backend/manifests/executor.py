@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -1032,8 +1033,10 @@ def _deploy_companions(manifest: AppManifest, platform: Any) -> dict[str, str]:
         if vols:
             expanded = []
             for v in vols:
-                host = _expand_path(v.split(":")[0], platform)
-                container = v.split(":")[1] if ":" in v else v
+                host = _expand_path(v["host"], platform)
+                container = v["container"]
+                os.makedirs(host, exist_ok=True)
+                os.chmod(host, 0o777)
                 expanded.append(f"{host}:{container}")
             frag["volumes"] = expanded
 
