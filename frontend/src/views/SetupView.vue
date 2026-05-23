@@ -366,8 +366,50 @@
                   <span>{{ form.ntfy_enabled ? 'ntfy on ' + (form.ntfy_url || 'http://ntfy:80') + ' → ' + form.ntfy_topic : 'Will enable after installing ntfy from Catalog' }}</span>
                 </div>
               </div>
-              <div class="text-xs text-slate-400 rounded-lg bg-amber-50 border border-amber-100 p-3">
-                ⚠ This will deploy Traefik and the selected infra apps. Existing installed apps are not affected.
+              <!-- Deploy manifest — what will actually be started -->
+              <div class="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-1 text-xs">
+                <p class="font-medium text-slate-700 mb-1.5">📦 Will be deployed now</p>
+                <div class="flex items-center gap-2 text-slate-600">
+                  <span class="text-green-500 shrink-0">✓</span>
+                  <span>Traefik — reverse proxy</span>
+                </div>
+                <div v-if="form.infra.auth && form.infra.auth !== 'none'"
+                  class="flex items-center gap-2 text-slate-600">
+                  <span class="text-green-500 shrink-0">✓</span>
+                  <span>{{ form.infra.auth === 'tinyauth' ? 'TinyAuth' : 'Authelia' }} — authentication</span>
+                </div>
+                <div v-for="t in form.tunnels" :key="t" class="flex items-center gap-2 text-slate-600">
+                  <span class="text-green-500 shrink-0">✓</span>
+                  <span>{{ t === 'cloudflared' ? 'Cloudflare Tunnel' : t === 'tailscale' ? 'Tailscale' : t === 'headscale' ? 'Headscale (self-hosted)' : t }}</span>
+                </div>
+                <div v-if="form.infra.vpn && form.infra.vpn !== 'none'"
+                  class="flex items-center gap-2 text-slate-600">
+                  <span class="text-green-500 shrink-0">✓</span>
+                  <span>Gluetun — VPN gateway</span>
+                </div>
+                <div v-if="form.infra.dashboard && form.infra.dashboard !== 'none'"
+                  class="flex items-center gap-2 text-slate-600">
+                  <span class="text-green-500 shrink-0">✓</span>
+                  <span>{{ form.infra.dashboard === 'glance' ? 'Glance' : 'Homepage' }} — homelab dashboard</span>
+                </div>
+                <div v-if="form.infra.management && form.infra.management !== 'none'"
+                  class="flex items-center gap-2 text-slate-600">
+                  <span class="text-green-500 shrink-0">✓</span>
+                  <span>Komodo — container management</span>
+                </div>
+              </div>
+              <!-- Quick stacks — scheduled for Stage 8 after deploy -->
+              <div v-if="form.selectedStacks.length > 0"
+                class="rounded-lg bg-sky-50 border border-sky-100 p-3 text-xs space-y-1">
+                <p class="font-medium text-sky-700 mb-1">🔜 App installs after deploy (Stage 8)</p>
+                <div v-for="id in form.selectedStacks" :key="id"
+                  class="flex items-center gap-2 text-sky-600">
+                  <span class="shrink-0">›</span>
+                  <span>{{ QUICK_STACKS_CONFIG.find(s => s.id === id)?.label ?? id }}</span>
+                </div>
+              </div>
+              <div class="text-xs text-amber-700 rounded-lg bg-amber-50 border border-amber-100 p-2">
+                ⚠ Existing installed apps are not affected by this deployment.
               </div>
             </div>
           </template>
