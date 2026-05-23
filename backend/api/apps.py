@@ -1051,6 +1051,33 @@ def install_from_github(req: GitHubManifestRequest) -> dict[str, Any]:
         f"Use POST /api/apps/{result['key']}/install to install it."
     )
     result["source_url"] = url
+
+    # ── Variable scan ─────────────────────────────────────────────────────
+    # Scan the manifest env: block for ${VAR} refs that are not already in
+    # the platform .env. Returns missing_vars so the frontend can show a
+    # var form before triggering the install (same pattern as paste YAML path).
+    env_block = manifest_data.get("env") or {}
+    if isinstance(env_block, dict):
+        env_values_str = " ".join(str(v) for v in env_block.values())
+    else:
+        env_values_str = ""
+    # Also scan image/ports/volumes fields for any stray ${VAR} refs
+    for _field in ("volumes", "image", "image_tag"):
+        _val = manifest_data.get(_field, "")
+        env_values_str += " " + str(_val)
+    required_refs = set(_re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}', env_values_str))
+    known_keys = _read_env_keys()
+    _slop_managed: set[str] = {
+        "PUID", "PGID", "TZ", "DOMAIN", "CONFIG_ROOT", "MEDIA_ROOT",
+        "CF_TUNNEL_TOKEN", "CF_DNS_API_TOKEN", "TAILSCALE_AUTH_KEY",
+        "TINYAUTH_USERNAME", "TINYAUTH_PASSWORD", "TINYAUTH_AUTH_USERS",
+        "VPN_TYPE", "VPN_SERVICE_PROVIDER", "WIREGUARD_PRIVATE_KEY",
+        "OPENVPN_USER", "OPENVPN_PASSWORD",
+    }
+    missing_vars = sorted(v for v in required_refs
+                          if v not in known_keys and v not in _slop_managed)
+    result["missing_vars"] = missing_vars
+
     return result
 
 

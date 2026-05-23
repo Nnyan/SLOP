@@ -529,19 +529,61 @@
             <div>
               <label class="label text-xs">GitHub repo URL</label>
               <input v-model="customGithubUrl" type="text" class="input font-mono text-xs"
+                :disabled="!!githubRegisteredKey"
                 placeholder="https://github.com/user/repo" />
-              <p class="text-xs text-slate-400 mt-1">Repo must contain a docker-compose.yml at its root.</p>
+              <p class="text-xs text-slate-400 mt-1">Repo must contain a <code>manifest.yaml</code> or <code>mediastack.yaml</code> at its root.</p>
             </div>
-            <div v-if="customGithubResult" :class="['text-xs rounded-lg p-2',
-              customGithubResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
+
+            <!-- Fetch error -->
+            <div v-if="customGithubResult && !customGithubResult.ok"
+              class="text-xs rounded-lg p-2 bg-red-50 text-red-700">
               {{ customGithubResult.message || customGithubResult.detail }}
             </div>
+
+            <!-- Post-fetch: registered key + optional missing-vars form + Install button -->
+            <template v-if="githubRegisteredKey">
+              <div class="text-xs rounded-lg p-2 bg-green-50 text-green-700">
+                ✓ Registered as <code class="font-mono">{{ githubRegisteredKey }}</code>
+                <span v-if="githubMissingVars.length === 0"> — ready to install</span>
+              </div>
+
+              <!-- Missing-vars form — same pattern as paste YAML path -->
+              <div v-if="githubMissingVars.length > 0"
+                class="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+                <p class="text-xs font-semibold text-amber-800">
+                  ⚠ {{ githubMissingVars.length }} variable{{ githubMissingVars.length > 1 ? 's' : '' }}
+                  not found in your .env — provide values before installing:
+                </p>
+                <div v-for="varName in githubMissingVars" :key="varName" class="flex items-center gap-2">
+                  <label class="text-xs font-mono text-amber-900 w-48 shrink-0">{{ varName }}</label>
+                  <input
+                    v-model="githubVarValues[varName]"
+                    type="text"
+                    :placeholder="`Enter ${varName}…`"
+                    class="input input-sm text-xs flex-1 font-mono" />
+                </div>
+                <p class="text-xs text-amber-700">
+                  Values are passed as environment variables to the container.
+                  Leave blank to skip (container may be misconfigured).
+                </p>
+              </div>
+            </template>
+
             <div class="flex gap-2">
-              <button @click="customGithubUrl = ''; customGithubResult = null" class="btn-secondary btn-sm text-xs">Clear</button>
-              <button @click="installCustomGithub"
+              <button @click="clearGithubApp" class="btn-secondary btn-sm text-xs">Clear</button>
+              <!-- Before fetch: Fetch & register button -->
+              <button v-if="!githubRegisteredKey"
+                @click="installCustomGithub"
                 :disabled="!customGithubUrl || installingCustom"
                 class="btn-primary btn-sm text-xs flex-1">
                 {{ installingCustom ? 'Fetching…' : 'Fetch & register' }}
+              </button>
+              <!-- After fetch: Install now button -->
+              <button v-else
+                @click="installGithubApp"
+                :disabled="installingCustom"
+                class="btn-primary btn-sm text-xs flex-1">
+                {{ installingCustom ? 'Installing…' : 'Install now' }}
               </button>
             </div>
           </div>
@@ -853,6 +895,9 @@ const customMissingVars = ref<string[]>([])       // ${VAR} refs not in .env
 const customVarValues = ref<Record<string, string>>({})  // user-filled values for missing vars
 const customGithubUrl = ref('')
 const customGithubResult = ref<any>(null)
+const githubRegisteredKey = ref<string | null>(null)   // key returned after Fetch & register
+const githubMissingVars = ref<string[]>([])            // ${VAR} refs not in .env
+const githubVarValues = ref<Record<string, string>>({}) // user-filled values for missing vars
 const installingCustom = ref(false)
 let _customLintTimer: ReturnType<typeof setTimeout> | null = null
 const hfTokenInput = ref('')
@@ -1401,6 +1446,9 @@ async function installCustomGithub() {
   if (!customGithubUrl.value) return
   installingCustom.value = true
   customGithubResult.value = null
+  githubRegisteredKey.value = null
+  githubMissingVars.value = []
+  githubVarValues.value = {}
   try {
     const res = await fetch('/api/v1/apps/install-from-github', {
       method: 'POST',
@@ -1409,13 +1457,54 @@ async function installCustomGithub() {
     })
     const data = await res.json()
     customGithubResult.value = data
-    if (data.ok) toast.success(`Manifest fetched: ${data.key}`)
-    else toast.error('Fetch failed.', data.detail ?? '')
+    if (data.ok) {
+      toast.success(`Manifest fetched: ${data.key}`)
+      githubRegisteredKey.value = data.key as string
+      const newMissing: string[] = data.missing_vars ?? []
+      githubMissingVars.value = newMissing
+      githubVarValues.value = Object.fromEntries(newMissing.map((v: string) => [v, '']))
+    } else {
+      toast.error('Fetch failed.', data.detail ?? '')
+    }
   } catch (e) {
     customGithubResult.value = { ok: false, message: String(e) }
   } finally {
     installingCustom.value = false
   }
+}
+
+async function installGithubApp() {
+  if (!githubRegisteredKey.value) return
+  installingCustom.value = true
+  try {
+    const extraEnv = Object.fromEntries(
+      Object.entries(githubVarValues.value).filter(([, v]) => (v as string).trim() !== '')
+    )
+    const instRes = await fetch(`/api/v1/apps/${githubRegisteredKey.value}/install`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ extra_env: Object.keys(extraEnv).length > 0 ? extraEnv : null }),
+    })
+    if (instRes.ok) {
+      toast.success(`${githubRegisteredKey.value} install started — check Dashboard for progress.`)
+      clearGithubApp()
+    } else {
+      const err = await instRes.json()
+      toast.error('Install failed.', err.detail ?? String(err))
+    }
+  } catch (e) {
+    toast.error('Install failed.', String(e))
+  } finally {
+    installingCustom.value = false
+  }
+}
+
+function clearGithubApp() {
+  customGithubUrl.value = ''
+  customGithubResult.value = null
+  githubRegisteredKey.value = null
+  githubMissingVars.value = []
+  githubVarValues.value = {}
 }
 
 async function resetQuickstart() {
