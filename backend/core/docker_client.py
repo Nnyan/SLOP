@@ -60,6 +60,13 @@ _client: docker.DockerClient | None = None
 _last_ping_at: float = 0.0
 _PING_INTERVAL: float = 30.0  # seconds between liveness pings
 
+# Short-lived container-list cache — avoids redundant Docker API calls when
+# list_apps() and the health scheduler both request container status within
+# the same second.  TTL of 3s means the dashboard always sees data <3s stale.
+_container_cache: list[Any] | None = None
+_container_cache_at: float = 0.0
+_CONTAINER_CACHE_TTL: float = 3.0  # seconds
+
 
 def client() -> docker.DockerClient:
     """Return the Docker client, reconnecting if the socket was lost.
@@ -126,19 +133,35 @@ def get_container(name: str) -> ContainerInfo | None:
         raise DockerError(f"Could not get container '{name}': {e}")
 
 
+def _cached_container_list() -> list[Any]:
+    """Return containers.list(all=True) with a 3-second cache.
+
+    Avoids duplicate Docker API calls when list_apps() and the health scheduler
+    both request container state within the same scheduling window.
+    Callers must not mutate the returned list.
+    """
+    global _container_cache, _container_cache_at
+    now = _time.monotonic()
+    if _container_cache is not None and (now - _container_cache_at) <= _CONTAINER_CACHE_TTL:
+        return _container_cache
+    _container_cache = client().containers.list(all=True)
+    _container_cache_at = now
+    return _container_cache
+
+
 def get_containers_by_name(names: list[str]) -> dict[str, ContainerInfo]:
     """Fetch container info for a list of names in a single Docker API call.
 
     Returns {name: ContainerInfo} for containers that exist.  Missing names
     are omitted (not None) — callers should use .get(name) with a fallback.
 
-    Use this instead of calling get_container() in a loop to avoid N+1 Docker
-    API calls when enriching a list of apps with live container status.
+    Uses _cached_container_list() so multiple callers within 3s share one
+    Docker API call instead of each making a separate containers.list().
     """
     if not names:
         return {}
     try:
-        all_containers = client().containers.list(all=True)
+        all_containers = _cached_container_list()
         name_set = set(names)
         return {
             c.name: _container_info(c)
