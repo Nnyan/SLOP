@@ -1040,6 +1040,27 @@ def validate_wizard(inp: WizardInput) -> list[dict[str, str]]:
             "message": "PUID and PGID must be non-negative integers.",
         })
 
+    # Timezone validation — must be a valid IANA zone name
+    if not inp.timezone:
+        issues.append({
+            "field": "timezone",
+            "message": "Timezone is required. Example: 'America/Los_Angeles'.",
+        })
+    else:
+        try:
+            from zoneinfo import available_timezones
+            if inp.timezone not in available_timezones():
+                issues.append({
+                    "field": "timezone",
+                    "message": (
+                        "'" + inp.timezone + "' is not a valid IANA timezone name. "
+                        "Example: 'America/Los_Angeles'. "
+                        "Use the timezone dropdown to pick a valid zone."
+                    ),
+                })
+        except Exception:
+            pass  # zoneinfo unavailable — skip check
+
     return issues
 
 

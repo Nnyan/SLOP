@@ -149,7 +149,12 @@
               </div>
               <div>
                 <label class="label">Timezone</label>
-                <input v-model="form.timezone" type="text" class="input" />
+                <input v-model="form.timezone" type="text" class="input"
+                  list="tz-list" autocomplete="off"
+                  placeholder="America/Los_Angeles" />
+                <datalist id="tz-list">
+                  <option v-for="tz in timezones" :key="tz" :value="tz" />
+                </datalist>
               </div>
             </div>
             <div>
@@ -1456,6 +1461,7 @@ const stackInstallDone = ref(false)
 const installStarted = ref(false)
 const appSearch = ref('')
 const catalogApps = ref<any[]>([])
+const timezones = ref<string[]>([])
 const activeStageBtn = ref<HTMLElement | null>(null)
 const stageNavRef = ref<HTMLElement | null>(null)
 const setupError = ref<string | null>(null)
@@ -1953,6 +1959,12 @@ onMounted(async () => {
     const r = await fetch('/api/v1/catalog')
     const d = await r.json()
     catalogApps.value = Object.values(d).flat()
+  } catch {}
+  // Load IANA timezone list for timezone dropdown
+  try {
+    const r = await fetch('/api/v1/platform/timezones')
+    const d = await r.json()
+    timezones.value = d.timezones || []
   } catch {}
 })
 </script>

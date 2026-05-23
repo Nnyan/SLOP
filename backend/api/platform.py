@@ -95,6 +95,23 @@ class WizardRequest(BaseModel):
             raise ValueError("Path must be absolute (start with '/')")
         return v
 
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v: str) -> str:
+        if not v:
+            raise ValueError("Timezone is required. Example: 'America/Los_Angeles'.")
+        try:
+            from zoneinfo import available_timezones
+            if v not in available_timezones():
+                raise ValueError(
+                    f"'{v}' is not a valid IANA timezone name. "
+                    "Example: 'America/Los_Angeles'. "
+                    "Use the timezone dropdown to pick a valid zone."
+                )
+        except ImportError:
+            pass  # zoneinfo unavailable — skip Pydantic-level check
+        return v
+
 
 class StepInfo(BaseModel):
     name: str
@@ -829,6 +846,28 @@ def list_dns_providers() -> list[dict[str, Any]]:
     https://doc.traefik.io/traefik/https/acme/#providers
     """
     return SUPPORTED_DNS_PROVIDERS
+
+
+@router.get("/timezones")
+def list_timezones() -> dict[str, list[str]]:
+    """Return sorted list of valid IANA timezone names.
+
+    Used by the wizard frontend to power the searchable timezone dropdown.
+    Sourced from the system's zoneinfo database (Python standard library).
+    """
+    try:
+        from zoneinfo import available_timezones
+        return {"timezones": sorted(available_timezones())}
+    except ImportError:
+        # Fallback for Python < 3.9 — return a representative subset
+        return {"timezones": [
+            "Africa/Johannesburg", "America/Chicago", "America/Denver",
+            "America/Los_Angeles", "America/New_York", "America/Sao_Paulo",
+            "Asia/Kolkata", "Asia/Seoul", "Asia/Shanghai", "Asia/Tokyo",
+            "Australia/Melbourne", "Australia/Sydney", "Europe/Amsterdam",
+            "Europe/Berlin", "Europe/London", "Europe/Paris", "Europe/Rome",
+            "Pacific/Auckland", "UTC",
+        ]}
 
 
 @router.get("/media-routing-guide")
