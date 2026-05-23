@@ -39,6 +39,7 @@ _DEFAULT_STACKS: list[dict] = [
     {"id": "immich",       "label": "Photo Management (Immich)", "app_keys": ["immich"],                                    "ram_note": "~8GB RAM",                                "ram_gb": 8},
     {"id": "monitoring",   "label": "Monitoring Stack",          "app_keys": ["dozzle", "beszel", "scrutiny"],              "ram_note": "~1GB RAM",                                "ram_gb": 1},
     {"id": "productivity", "label": "Productivity",              "app_keys": ["vaultwarden", "paperless_ngx", "mealie"],    "ram_note": "~2GB RAM",                                "ram_gb": 2},
+    {"id": "ai_local",     "label": "Local AI",                  "app_keys": ["ollama", "open_webui"],                      "ram_note": "~8GB RAM · GPU optional",                 "ram_gb": 8},
 ]
 
 
