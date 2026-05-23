@@ -1494,6 +1494,71 @@ def check_app_update(key: str) -> dict[str, Any]:
     except Exception as e:
         return {"update_available": None, "image_ref": image_ref, "note": str(e)[:200]}
 
+@router.get("/{key}/health-config")
+def get_health_config(key: str) -> dict[str, Any]:
+    """Return the health check configuration and current status for an app.
+
+    Works for both catalog apps (official manifests) and custom/community apps.
+    Custom apps get an auto-generated HTTP check when a web_port is available.
+
+    Returns:
+      key            — app key
+      has_manifest   — whether a manifest was found (catalog or community)
+      is_community   — whether this is a custom/community-installed app
+      checks_defined — number of health check definitions in the manifest
+      checks         — list of health check definitions
+      current_status — list of most-recent health check records from DB
+    """
+    from backend.manifests.loader import load_manifest, ManifestError
+    from backend.core.state import StateDB
+
+    # Try to load manifest — works for both official and community apps
+    manifest = None
+    is_community = False
+    try:
+        manifest = load_manifest(key)
+        # Community manifests are saved with source="community" in YAML;
+        # detect by checking the source_path location.
+        if manifest.source_path is not None:
+            is_community = "community" in str(manifest.source_path)
+    except (KeyError, ManifestError):
+        pass
+
+    checks: list[dict[str, Any]] = []
+    if manifest:
+        for hc in manifest.health_checks:
+            checks.append({
+                "name": hc.name,
+                "type": hc.check_type,
+                "path": hc.path,
+                "expect_status": hc.expect_status,
+                "interval": hc.interval,
+                "port": hc.port,
+            })
+
+    with StateDB() as db:
+        db_checks = db.get_health_checks("app", key)
+    current_status = [
+        {
+            "check_name": c.check_name,
+            "status": c.status,
+            "summary": c.summary,
+            "detail": c.detail,
+            "checked_at": c.checked_at,
+        }
+        for c in db_checks
+    ]
+
+    return {
+        "key": key,
+        "has_manifest": manifest is not None,
+        "is_community": is_community,
+        "checks_defined": len(checks),
+        "checks": checks,
+        "current_status": current_status,
+    }
+
+
 @router.post("/{key}/probe-path")
 async def probe_health_path(key: str, req: dict[str, Any]) -> dict[str, Any]:
     """Test if a custom app responds to an HTTP health check path."""

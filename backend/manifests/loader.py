@@ -508,21 +508,33 @@ _CACHE_TTL: float = 300.0              # 5 minutes — new community manifests p
 def load_manifest(key: str, force_reload: bool = False) -> AppManifest:
     """Load a single manifest by app key.
 
-    Checks catalog/apps/<key>.yaml. Caches result — use force_reload=True
-    to pick up changes (e.g. during development or after a registry install).
+    Checks catalog/apps/<key>.yaml first, then catalog/community/<key>.yaml.
+    Caches result — use force_reload=True to pick up changes (e.g. during
+    development or after a registry/community install).
 
     Raises ManifestError if not found or invalid.
-    Raises KeyError if the key doesn't exist in the catalog.
+    Raises KeyError if the key doesn't exist in either catalog location.
     """
     if key in _cache and not force_reload:
         return _cache[key]
 
+    # Check official catalog first, fall back to community manifests.
+    # Community manifests are written by custom/GitHub installs and live at
+    # catalog/community/<key>.yaml.  Without this fallback, load_manifest()
+    # would only find community apps if load_all_manifests() had already
+    # warmed the cache — making smoke tests and health checks unreliable for
+    # custom-installed apps.
     app_path = config.catalog_dir / "apps" / f"{key}.yaml"
     if not app_path.exists():
-        raise KeyError(
-            f"No manifest found for '{key}'. "
-            f"Looked in: {app_path}"
-        )
+        community_path = config.catalog_dir / "community" / f"{key}.yaml"
+        if community_path.exists():
+            app_path = community_path
+        else:
+            raise KeyError(
+                f"No manifest found for '{key}'. "
+                f"Looked in: {config.catalog_dir / 'apps'} and "
+                f"{config.catalog_dir / 'community'}"
+            )
 
     manifest = parse_manifest(app_path)
     if manifest.key != key:
