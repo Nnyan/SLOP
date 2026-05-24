@@ -239,6 +239,7 @@ class AppManifest:
 VALID_CATEGORIES = {
     "arr", "media", "downloader", "requests", "tools",
     "ai", "monitoring", "productivity", "infra",
+    "agent",  # reserved for tier-0 system components (SLOP Agent etc.)
 }
 
 VALID_STEP_TYPES = {"wait_healthy", "api_ready", "wire", "custom"}

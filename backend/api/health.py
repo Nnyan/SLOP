@@ -35,6 +35,14 @@ class AppHealthOut(BaseModel):
     auto_fix: str | None
 
 
+class AgentHealthOut(BaseModel):
+    check_name: str
+    status: str
+    summary: str
+    detail: str | None
+    last_checked: str | None
+
+
 class LLMAgentStatus(BaseModel):
     status: str
     consecutive_failures: int
@@ -93,22 +101,54 @@ def get_app_health(key: str) -> list[AppHealthOut]:
     ]
 
 
+@router.get("/agent", response_model=list[AgentHealthOut])
+def get_agent_health() -> list[AgentHealthOut]:
+    """Return SLOP Agent (tier-0) health check records.
+
+    Distinct from /apps health — uses subject_type='agent' rows so it never
+    mixes with user-installed app checks.
+    """
+    with StateDB() as db:
+        rows = db.execute(
+            "SELECT * FROM health_checks WHERE subject_type='agent' ORDER BY checked_at DESC"
+        ).fetchall()
+    return [
+        AgentHealthOut(
+            check_name=r["check_name"],
+            status=r["status"],
+            summary=r["summary"] or "",
+            detail=r["detail"] if "detail" in r.keys() else None,
+            last_checked=datetime.fromtimestamp(r["checked_at"]).isoformat() if r["checked_at"] else None,
+        )
+        for r in rows
+    ]
+
 
 @router.get("/summary")
 def get_health_summary() -> dict[str, Any]:
     """Return lightweight ok/warning/error counts — for sidebar display.
     Avoids fetching all check details just to count statuses.
+
+    Response shape:
+      ok / warning / error / unknown  — integer counts of app health checks
+      agent_status                    — string status of the SLOP Agent itself
     """
     from backend.core.state import StateDB
     with StateDB() as db:
-        rows = db.execute(
+        app_rows = db.execute(
             "SELECT status, COUNT(*) as n FROM health_checks "
             "WHERE subject_type='app' GROUP BY status"
         ).fetchall()
-    counts = {"ok": 0, "warning": 0, "error": 0, "unknown": 0}
-    for r in rows:
+        agent_row = db.execute(
+            "SELECT status FROM health_checks "
+            "WHERE subject_type='agent' AND subject_key='slop_agent' "
+            "AND check_name='agent_status' LIMIT 1"
+        ).fetchone()
+    counts: dict[str, Any] = {"ok": 0, "warning": 0, "error": 0, "unknown": 0}
+    for r in app_rows:
         if r["status"] in counts:
             counts[r["status"]] = r["n"]
+    counts["agent_status"] = agent_row["status"] if agent_row else "unknown"
     return counts
 
 @router.get("/llm-agent", response_model=LLMAgentStatus)

@@ -436,15 +436,29 @@ class StateDB:
         ).fetchone()
         return self._row_to_app(row) if row else None
 
-    def get_all_apps(self, status: str | None = None) -> list[App]:
+    def get_all_apps(
+        self,
+        status: str | None = None,
+        include_system: bool = False,
+    ) -> list[App]:
+        """Return installed apps.
+
+        By default (include_system=False) tier-0 system components such as the
+        SLOP Agent are excluded so they don't appear in user-facing app lists or
+        Docker status queries.  Pass include_system=True to include them.
+        """
+        conditions: list[str] = []
+        params: list[object] = []
         if status:
-            rows = self._c.execute(
-                "SELECT * FROM apps WHERE status = ? ORDER BY display_name", (status,)
-            ).fetchall()
-        else:
-            rows = self._c.execute(
-                "SELECT * FROM apps ORDER BY display_name"
-            ).fetchall()
+            conditions.append("status = ?")
+            params.append(status)
+        if not include_system:
+            conditions.append("tier != 0")
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        rows = self._c.execute(
+            "SELECT * FROM apps " + where + " ORDER BY display_name",
+            params,
+        ).fetchall()
         return [self._row_to_app(r) for r in rows]
 
     def _row_to_app(self, row: sqlite3.Row) -> App:

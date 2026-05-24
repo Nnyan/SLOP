@@ -208,6 +208,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     init_db(config.db_path)
     log.info("Mediastack backend ready — db: %s", config.db_path)
 
+    # Ensure tier-0 SLOP Agent record and baseline health check exist in DB.
+    from backend.core.agent import ensure_agent_registered
+    ensure_agent_registered()
+
     # Mark any in-flight installs as failed.
     # If the server restarted mid-install the __done__ sentinel was never written,
     # leaving the progress poller stuck. Clean those up on startup.
