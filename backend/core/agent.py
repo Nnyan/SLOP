@@ -1,10 +1,12 @@
 """backend/core/agent.py
 
-SLOP Agent — tier-0 system component registration.
+SLOP Agent — tier-0 system component registration and health connectivity.
 
-This module owns the canonical constants for the SLOP Agent and provides
-ensure_agent_registered() which is called at every backend startup to
-guarantee the agent DB record and its baseline health check exist.
+This module owns the canonical constants for the SLOP Agent and provides:
+  ensure_agent_registered()  — startup hook; idempotent DB bootstrap
+  check_agent_connectivity() — async probe of the configured LLM backend;
+                               writes live status to health_checks each cycle
+  _write_agent_health()      — sync helper to persist a status string + summary
 
 The SLOP Agent is NOT a Docker-based catalog app.  It is the backend process
 itself acting as an autonomous monitor and remediator.  Its DB record
@@ -18,6 +20,8 @@ Tier meanings:
   3  — community / custom-installed app
 """
 from __future__ import annotations
+
+import json as _json
 
 from backend.core.logging import get_logger
 from backend.core.state import StateDB
@@ -90,6 +94,140 @@ def ensure_agent_registered() -> None:
                 subject_key=AGENT_KEY,
                 check_name=HEALTH_CHECK_AGENT_STATUS,
                 status="unknown",
-                summary="SLOP Agent registered — health check pending",
+                summary="SLOP Agent registered — health check pending first cycle",
             )
             log.info("SLOP Agent baseline health check registered")
+
+
+# ---------------------------------------------------------------------------
+# Phase B — Live connectivity probe (called every health cycle)
+# ---------------------------------------------------------------------------
+
+# Provider sets for routing logic
+_LOCAL_OAI_PROVIDERS: frozenset[str] = frozenset({"shimmy", "localai"})
+_CLOUD_PROVIDERS: frozenset[str] = frozenset({
+    "groq", "cerebras", "openrouter", "mistral", "cohere",
+    "google", "anthropic", "openai", "nim", "gai",
+})
+
+
+def _write_agent_health(
+    status: str,
+    summary: str,
+    detail: str | None = None,
+) -> None:
+    """Persist an agent health check result to DB.  Never raises."""
+    try:
+        with StateDB() as db:
+            db.upsert_health_check(
+                subject_type=AGENT_SUBJECT_TYPE,
+                subject_key=AGENT_KEY,
+                check_name=HEALTH_CHECK_AGENT_STATUS,
+                status=status,
+                summary=summary,
+                detail=detail,
+            )
+        log.debug("Agent health written: %s — %s", status, summary)
+    except Exception as exc:
+        log.warning("Failed to write agent health check: %s", exc)
+
+
+async def check_agent_connectivity() -> str:
+    """Probe the configured LLM backend and update the health_checks DB record.
+
+    Called by run_health_cycle() on every health check pass.  Never raises —
+    all exceptions are caught and recorded as 'error'.
+
+    Status values written to DB:
+      running  — backend probe succeeded (or cloud provider has an API key)
+      error    — backend unreachable, misconfigured, or key missing
+      disabled — LLM agent explicitly disabled by the user
+
+    Returns the status string.
+    """
+    import httpx as _httpx
+
+    # Load config from DB (graceful on missing / malformed)
+    try:
+        with StateDB() as _db:
+            _raw = _db.get_setting("llm_agent_config")
+        cfg: dict = _json.loads(_raw) if _raw else {}
+    except Exception:
+        cfg = {}
+
+    enabled: bool = cfg.get("enabled", True)
+    provider: str = (cfg.get("provider", "") or "ollama").strip()
+
+    # ── Disabled ────────────────────────────────────────────────────────────
+    if not enabled:
+        _write_agent_health(
+            "disabled",
+            "LLM agent disabled — configure a provider in Settings → AI / LLM.",
+        )
+        return "disabled"
+
+    # ── Cloud providers — API key presence is the connectivity signal ────────
+    if provider in _CLOUD_PROVIDERS:
+        api_key: str = (cfg.get("api_key", "") or "").strip()
+        if api_key:
+            _write_agent_health(
+                "running",
+                f"Cloud provider '{provider}' configured with API key.",
+            )
+            return "running"
+        _write_agent_health(
+            "error",
+            f"Cloud provider '{provider}' selected but no API key configured. "
+            "Add one in Settings → AI / LLM.",
+        )
+        return "error"
+
+    # ── Local providers — HTTP probe ─────────────────────────────────────────
+    if provider == "ollama":
+        base_url: str = (cfg.get("ollama_url", "") or "http://localhost:11434").strip()
+        probe_path = "/api/tags"
+    elif provider == "llamacpp":
+        base_url = (cfg.get("llamacpp_url", "") or "http://localhost:8081").strip()
+        probe_path = "/v1/models"
+    else:
+        # shimmy, localai, and any unknown local provider
+        base_url = (cfg.get("ollama_url", "") or "http://localhost:8081").strip()
+        probe_path = "/v1/models"
+
+    api_key = (cfg.get("api_key", "") or "").strip()
+    headers: dict = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    try:
+        async with _httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{base_url}{probe_path}", headers=headers)
+        if r.status_code == 200:
+            _write_agent_health(
+                "running",
+                f"{provider.capitalize()} reachable at {base_url}.",
+            )
+            return "running"
+        _write_agent_health(
+            "error",
+            f"{provider.capitalize()} returned HTTP {r.status_code} at {base_url}.",
+            detail=r.text[:200] if r.text else None,
+        )
+        return "error"
+
+    except _httpx.ConnectError:
+        _write_agent_health(
+            "error",
+            f"Cannot reach {provider} at {base_url} — check that the service is running.",
+        )
+        return "error"
+    except _httpx.TimeoutException:
+        _write_agent_health(
+            "error",
+            f"Connection to {provider} at {base_url} timed out (5s).",
+        )
+        return "error"
+    except Exception as exc:
+        _write_agent_health(
+            "error",
+            f"Unexpected error probing {provider}: {str(exc)[:100]}",
+        )
+        return "error"

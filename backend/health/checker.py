@@ -1448,4 +1448,14 @@ async def run_health_cycle(
             else:
                 run.apps_degraded += 1
 
+    # Phase B: probe SLOP Agent LLM backend connectivity on every cycle.
+    # This updates health_checks (subject_type='agent') so /health/summary
+    # and /health/agent return live status rather than the bootstrap "unknown".
+    try:
+        from backend.core.agent import check_agent_connectivity
+        agent_status = await check_agent_connectivity()
+        run.llm_agent_state = agent_status
+    except Exception as _ae:
+        log.warning("Agent connectivity check failed: %s", _ae)
+
     return run
