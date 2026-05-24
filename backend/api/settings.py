@@ -131,7 +131,7 @@ def get_settings() -> SettingsOut:
         llm_enabled=agent.get("enabled", True),
         llm_backend=agent.get("backend", "ollama"),
         llm_ollama_url=agent.get("ollama_url", "http://localhost:11434"),
-        llm_llamacpp_url=agent.get("llamacpp_url", "http://llamacpp:8080"),
+        llm_llamacpp_url=agent.get("llamacpp_url", "http://localhost:8081"),
         llm_model=agent.get("model", "phi4-mini"),
         scheduler_running=sched["running"],
         health_last_cycle_at=last_at,

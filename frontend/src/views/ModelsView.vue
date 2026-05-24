@@ -671,7 +671,7 @@ const isCloudProvider = computed(() =>
 function providerUrl(p: string): string {
   const defaults: Record<string, string> = {
     ollama:     'http://localhost:11434',
-    llamacpp:   'http://localhost:8080',
+    llamacpp:   'http://localhost:8081',
     shimmy:     'http://localhost:11435',
     localai:    'http://localhost:8080',
     groq:       'https://api.groq.com/openai/v1',

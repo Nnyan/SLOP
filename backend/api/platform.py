@@ -1748,7 +1748,7 @@ def wizard_save_llm(req: dict[str, Any]) -> dict[str, Any]:
                     "ollama_url": ollama_url,
                 }
             elif provider == "llamacpp":
-                llamacpp_url = req.get("llamacpp_url", "http://localhost:8080") or "http://localhost:8080"
+                llamacpp_url = req.get("llamacpp_url", "http://localhost:8081") or "http://localhost:8081"
                 model_name = req.get("model", "phi-4-mini") or "phi-4-mini"
                 cfg = {
                     "provider": "llamacpp",

@@ -109,7 +109,7 @@
               <div>
                 <label class="label text-xs">{{ form.llm_backend === 'ollama' ? 'Ollama' : 'llama.cpp' }} URL</label>
                 <input v-model="form.llm_ollama_url" class="input text-xs"
-                  :placeholder="form.llm_backend === 'ollama' ? 'http://ollama:11434' : 'http://llamacpp:8080'"/>
+                  :placeholder="form.llm_backend === 'ollama' ? 'http://ollama:11434' : 'http://localhost:8081'"/>
               </div>
               <div>
                 <label class="label text-xs">Model</label>
@@ -1061,7 +1061,7 @@ const form = ref<FormState>({
   llm_enabled: true,
   llm_backend: 'ollama',
   llm_ollama_url: 'http://ollama:11434',
-  llm_llamacpp_url: 'http://llamacpp:8080',
+  llm_llamacpp_url: 'http://localhost:8081',
   llm_model: 'phi4-mini',
   cf_auto_register_hostnames: false,
   disk_warn_percent: 80,
@@ -1387,7 +1387,7 @@ async function load() {
       llm_enabled: data.llm_enabled ?? true,
       llm_backend: data.llm_backend ?? 'ollama',
       llm_ollama_url: data.llm_ollama_url ?? 'http://ollama:11434',
-      llm_llamacpp_url: data.llm_llamacpp_url ?? 'http://llamacpp:8080',
+      llm_llamacpp_url: data.llm_llamacpp_url ?? 'http://localhost:8081',
       llm_model: data.llm_model ?? 'phi4-mini',
       cf_auto_register_hostnames: data.cf_auto_register_hostnames ?? false,
       disk_warn_percent: data.disk_warn_percent ?? 80,
