@@ -63,7 +63,7 @@ def ensure_agent_registered() -> None:
                 display_name=AGENT_DISPLAY_NAME,
                 tier=AGENT_TIER,
                 category=AGENT_CATEGORY,
-                status="registered",
+                status="running",   # backend up = agent running; Phase B refines this
                 image="",
                 image_tag="",
                 container_name=AGENT_KEY,
