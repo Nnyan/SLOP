@@ -205,7 +205,11 @@ async def trigger_health_run(request: Request) -> dict[str, Any]:
             cfg = db.get_setting("llm_agent_config")
 
         agent_cfg = json.loads(cfg) if cfg else {}
-        ollama_url = agent_cfg.get("ollama_url", "http://ollama:11434")
+        _provider = agent_cfg.get("provider", "ollama")
+        if _provider == "llamacpp":
+            ollama_url = agent_cfg.get("llamacpp_url", "http://localhost:8081")
+        else:
+            ollama_url = agent_cfg.get("ollama_url", "http://ollama:11434")
         ntfy_topic = agent_cfg.get("ntfy_topic", "mediastack")
 
         run = await run_health_cycle(
@@ -1226,7 +1230,10 @@ async def ping_llm() -> dict[str, Any]:
         cfg_raw = db.get_setting("llm_agent_config")
     cfg = _json.loads(cfg_raw) if cfg_raw else {}
     provider  = cfg.get("provider",   "ollama")
-    base_url  = cfg.get("ollama_url", "http://localhost:11434")
+    if provider == "llamacpp":
+        base_url = cfg.get("llamacpp_url", "http://localhost:8081")
+    else:
+        base_url  = cfg.get("ollama_url", "http://localhost:11434")
     api_key   = cfg.get("api_key",   "")
 
     try:
