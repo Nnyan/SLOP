@@ -53,6 +53,41 @@
       </div>
     </div>
 
+    <!-- SLOP Agent system widget — tier-0, always pinned above catalog apps -->
+    <div v-if="agentChecks.length" class="mb-4">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-xs font-medium text-slate-400 uppercase tracking-wide">System</span>
+      </div>
+      <div class="card card-body border-l-2"
+        :class="agentChecks[0]?.status === 'running' ? 'border-l-green-400' :
+                agentChecks[0]?.status === 'error'   ? 'border-l-red-400' :
+                agentChecks[0]?.status === 'disabled' ? 'border-l-slate-300' :
+                'border-l-amber-300'">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 bg-slate-100 rounded-lg flex items-center justify-center shrink-0 text-lg">⚡</div>
+            <div>
+              <div class="font-medium text-slate-900 text-sm">SLOP Agent</div>
+              <div class="text-xs text-slate-400">System monitor &amp; remediator</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="badge text-xs"
+              :class="agentChecks[0]?.status === 'running'  ? 'badge-green' :
+                      agentChecks[0]?.status === 'error'    ? 'badge-red' :
+                      agentChecks[0]?.status === 'disabled' ? 'badge-gray' :
+                      'badge-yellow'">
+              {{ agentChecks[0]?.status ?? 'unknown' }}
+            </span>
+            <span class="badge badge-gray text-xs">system</span>
+          </div>
+        </div>
+        <div v-if="agentChecks[0]?.summary" class="mt-2 text-xs text-slate-500">
+          {{ agentChecks[0].summary }}
+        </div>
+      </div>
+    </div>
+
     <!-- Installed apps -->
     <div class="mb-6">
       <div class="flex items-center justify-between mb-3">
@@ -163,7 +198,7 @@ import QuickStartWizard from '@/components/QuickStartWizard.vue'
 import { RouterLink } from 'vue-router'
 import { usePlatformStore } from '../stores/platform'
 import { apps, health, catalog } from '../api/client'
-import type { AppStatus, HealthCheck, CatalogEntry } from '../api/client'
+import type { AppStatus, HealthCheck, CatalogEntry, AgentHealthCheck } from '../api/client'
 
 const platformStore = usePlatformStore()
 const traefikRunning = computed(() => !!platformStore.status?.traefik_version)
@@ -177,6 +212,7 @@ const _buildHealthMap = (checks: HealthCheck[] | null): Record<string, HealthChe
 }
 const appHealth = ref<Record<string, HealthCheck[]>>(_buildHealthMap(healthCache))
 const llmStatus = ref<{ status: string; description: string } | null>(null)
+const agentChecks = ref<AgentHealthCheck[]>([])
 const catalogIcons = ref<Record<string, string>>({})
 const wizard = ref<any>(null)
 
@@ -260,11 +296,12 @@ function iconUrl(key: string): string {
 async function refreshAll() {
   loading.value = true
   try {
-    const [appList, allChecks, agentStatus, catalogData] = await Promise.allSettled([
+    const [appList, allChecks, agentStatus, catalogData, agentHealth] = await Promise.allSettled([
       apps.list(),
       health.allApps(),
       health.llmAgent(),
       catalog.all(),
+      health.agentChecks(),
     ])
 
     if (appList.status === 'fulfilled') {
@@ -282,6 +319,7 @@ async function refreshAll() {
       appHealth.value = grouped
     }
     if (agentStatus.status === 'fulfilled') llmStatus.value = agentStatus.value
+    if (agentHealth.status === 'fulfilled') agentChecks.value = agentHealth.value
     if (catalogData.status === 'fulfilled') {
       for (const entries of Object.values(catalogData.value)) {
         for (const entry of entries as CatalogEntry[]) {

@@ -67,6 +67,46 @@
       </div>
     </div>
 
+    <!-- SLOP Agent — tier-0 system check, always pinned above app health -->
+    <div v-if="agentChecks.length" class="mb-4">
+      <h2 class="section-label mb-2">SLOP Agent <span class="text-slate-300 font-normal ml-1 normal-case tracking-normal">· system</span></h2>
+      <div v-for="check in agentChecks" :key="check.check_name"
+        class="card card-body !py-3 border-l-2 mb-2"
+        :class="check.status === 'running'  ? 'border-l-green-400' :
+                check.status === 'error'    ? 'border-l-red-400' :
+                check.status === 'disabled' ? 'border-l-slate-300' :
+                'border-l-amber-300'">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="text-base">⚡</span>
+            <div>
+              <span class="text-sm font-medium text-slate-800">SLOP Agent</span>
+              <span class="text-xs text-slate-400 ml-2">{{ check.check_name }}</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span :class="['w-2 h-2 rounded-full',
+              check.status === 'running'  ? 'bg-green-400' :
+              check.status === 'error'    ? 'bg-red-400' :
+              check.status === 'disabled' ? 'bg-slate-300' :
+              'bg-amber-300']"/>
+            <span class="badge text-xs"
+              :class="check.status === 'running'  ? 'badge-green' :
+                      check.status === 'error'    ? 'badge-red' :
+                      check.status === 'disabled' ? 'badge-gray' :
+                      'badge-yellow'">
+              {{ check.status }}
+            </span>
+          </div>
+        </div>
+        <p v-if="check.summary" class="text-xs text-slate-500 mt-1.5">{{ check.summary }}</p>
+        <p v-if="check.detail" class="text-xs text-red-500 mt-1 font-mono">{{ check.detail }}</p>
+        <p v-if="check.last_checked" class="text-xs text-slate-300 mt-1">
+          Last checked {{ check.last_checked }}
+        </p>
+      </div>
+    </div>
+
     <!-- AI Suggested Fixes — highest priority, show first -->
     <div v-if="pendingFixes.length" class="mb-4">
       <div class="flex items-center justify-between mb-2">
@@ -376,9 +416,10 @@ import { useToast } from '@/composables/useToast'
 const toast = useToast()
 import { health } from '../api/client'
 import { healthCache, setHealthCache } from '../appCache'
-import type { HealthCheck } from '../api/client'
+import type { HealthCheck, AgentHealthCheck } from '../api/client'
 
 const checks = ref<HealthCheck[]>(healthCache ?? [])
+const agentChecks = ref<AgentHealthCheck[]>([])
 const llmStatus = ref<{ status: string; description: string; configured_provider?: string; last_error_type?: string; last_error?: string; model_tried?: string } | null>(null)
 const running = ref(false)
 const schedulerStatus = ref<any>(null)
@@ -718,10 +759,11 @@ onMounted(async () => {
     schedulerStatus.value = await r.json()
   } catch {}
 
-  const [c, l, a] = await Promise.allSettled([
+  const [c, l, a, ag] = await Promise.allSettled([
     health.allApps(),
     health.llmAgent(),
     fetch('/api/v1/health/anomalies').then(r => r.json()),
+    health.agentChecks(),
   ])
   if (a.status === 'fulfilled') anomalies.value = Array.isArray(a.value) ? a.value : []
   if (c.status === 'fulfilled') { checks.value = c.value; setHealthCache(c.value) }
@@ -729,6 +771,7 @@ onMounted(async () => {
     llmStatus.value = l.value
     llmInactive.value = !l.value || l.value.status === 'inactive'
   }
+  if (ag.status === 'fulfilled') agentChecks.value = ag.value
 
   await Promise.all([loadMaintenanceWindows(), loadSources(), loadPendingFixes()])
   

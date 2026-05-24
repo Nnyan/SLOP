@@ -115,6 +115,14 @@ export interface HealthCheck {
   auto_fix: string | null
 }
 
+export interface AgentHealthCheck {
+  check_name: string
+  status: 'running' | 'error' | 'disabled' | 'unknown'
+  summary: string
+  detail: string | null
+  last_checked: string | null
+}
+
 export interface SystemProfile {
   cpu_cores: number
   cpu_model: string
@@ -226,6 +234,7 @@ export const catalog = {
 export const health = {
   allApps: () => request<HealthCheck[]>('/health/apps'),
   app: (key: string) => request<HealthCheck[]>(`/health/apps/${key}`),
+  agentChecks: () => request<AgentHealthCheck[]>('/health/agent'),
   llmAgent: () => request<{ status: string; description: string; last_error: string; last_error_type: string; ollama_url: string; model_tried: string; consecutive_failures: number; consecutive_slow: number; last_success_at: number; configured_provider: string }>('/health/llm-agent'),
   runCycle: () => request('/health/run', { method: 'POST' }),
   scheduler: () => request('/health/scheduler'),
