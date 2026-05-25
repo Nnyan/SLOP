@@ -981,3 +981,222 @@ class TestSlopManagedVarsCompleteness:
         """DOMAIN is a core SLOP var — must always be in the set."""
         from backend.api.apps import _SLOP_MANAGED_VARS
         assert "DOMAIN" in _SLOP_MANAGED_VARS
+
+
+# ── Task 1: llamacpp provider URL dispatch ────────────────────────────────────
+
+
+class TestLlamacppUrlDispatch:
+    """Regression guard for 0eb5431 — provider-aware URL key dispatch.
+
+    trigger_health_run() and ping_llm() both branch on agent_cfg["provider"]:
+      provider=llamacpp  → reads "llamacpp_url"
+      provider=ollama    → reads "ollama_url"
+
+    Without these tests a future refactor could silently revert to always
+    reading "ollama_url" regardless of provider.
+    Tag: [BR: config dispatch path ignores provider when selecting URL key]
+    """
+
+    LLAMACPP_CFG = {
+        "provider":    "llamacpp",
+        "llamacpp_url": "http://testhost:8082",
+        "ollama_url":   "http://otherhost:11434",
+        "ntfy_topic":  "test-topic",
+    }
+
+    OLLAMA_CFG = {
+        "provider":    "ollama",
+        "llamacpp_url": "http://ignored:8082",
+        "ollama_url":   "http://ollamahost:11434",
+        "ntfy_topic":  "test-topic",
+    }
+
+    def _set_agent_cfg(self, cfg: dict) -> None:
+        import json
+        with StateDB() as db:
+            db.set_setting("llm_agent_config", json.dumps(cfg))
+
+    def _make_health_run(self):
+        """Return a minimal HealthRun-compatible mock."""
+        import time as _t
+        run = MagicMock()
+        run.apps_checked = 0
+        run.apps_healthy = 0
+        run.apps_degraded = 0
+        run.llm_agent_state = "unknown"
+        run.started_at = _t.monotonic()
+        run.results = []
+        return run
+
+    def test_trigger_health_run_reads_llamacpp_url(self, client, db_path):
+        """trigger_health_run passes llamacpp_url to run_health_cycle when provider=llamacpp."""
+        from unittest.mock import AsyncMock
+
+        self._set_agent_cfg(self.LLAMACPP_CFG)
+
+        captured: dict = {}
+
+        async def spy_health_cycle(*args, **kwargs):
+            captured.update(kwargs)
+            return self._make_health_run()
+
+        with patch("backend.health.checker.run_health_cycle", new=spy_health_cycle):
+            r = client.post("/api/health/run")
+
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
+        assert "ollama_url" in captured, "run_health_cycle was not called with ollama_url kwarg"
+        assert captured["ollama_url"] == "http://testhost:8082", (
+            f"Expected llamacpp_url 'http://testhost:8082' but got: {captured['ollama_url']!r} "
+            f"— provider dispatch is broken (reading ollama_url instead of llamacpp_url)"
+        )
+
+    def test_trigger_health_run_reads_ollama_url(self, client, db_path):
+        """trigger_health_run passes ollama_url to run_health_cycle when provider=ollama."""
+        self._set_agent_cfg(self.OLLAMA_CFG)
+
+        captured: dict = {}
+
+        async def spy_health_cycle(*args, **kwargs):
+            captured.update(kwargs)
+            return self._make_health_run()
+
+        with patch("backend.health.checker.run_health_cycle", new=spy_health_cycle):
+            r = client.post("/api/health/run")
+
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
+        assert "ollama_url" in captured, "run_health_cycle was not called with ollama_url kwarg"
+        assert captured["ollama_url"] == "http://ollamahost:11434", (
+            f"Expected ollama_url 'http://ollamahost:11434' but got: {captured['ollama_url']!r}"
+        )
+
+    def test_ping_llm_reads_llamacpp_url(self, client, db_path):
+        """ping_llm uses llamacpp_url as base_url when provider=llamacpp.
+
+        We let httpx raise ConnectError (no real server); _err() still
+        returns the selected base_url in the response so we can assert
+        the correct URL key was read.
+        """
+        import httpx as _httpx
+
+        self._set_agent_cfg(self.LLAMACPP_CFG)
+
+        mock_http = MagicMock()
+        mock_http.__aenter__ = MagicMock(return_value=mock_http)
+        mock_http.__aexit__ = MagicMock(return_value=False)
+        mock_http.get.side_effect = _httpx.ConnectError("no server")
+
+        with patch("httpx.AsyncClient", return_value=mock_http):
+            r = client.get("/api/health/llm-ping")
+
+        assert r.status_code == 200, f"Expected 200 even on connect error, got {r.status_code}"
+        data = r.json()
+        assert data["provider"] == "llamacpp", f"provider mismatch: {data['provider']!r}"
+        assert data["ollama_url"] == "http://testhost:8082", (
+            f"Expected llamacpp_url 'http://testhost:8082' in ollama_url field "
+            f"but got: {data['ollama_url']!r} — dispatch is broken"
+        )
+        assert data["reachable"] is False, "ConnectError should mark reachable=False"
+
+    def test_ping_llm_reads_ollama_url(self, client, db_path):
+        """ping_llm uses ollama_url as base_url when provider=ollama."""
+        import httpx as _httpx
+
+        self._set_agent_cfg(self.OLLAMA_CFG)
+
+        mock_http = MagicMock()
+        mock_http.__aenter__ = MagicMock(return_value=mock_http)
+        mock_http.__aexit__ = MagicMock(return_value=False)
+        mock_http.get.side_effect = _httpx.ConnectError("no server")
+
+        with patch("httpx.AsyncClient", return_value=mock_http):
+            r = client.get("/api/health/llm-ping")
+
+        assert r.status_code == 200
+        data = r.json()
+        assert data["provider"] == "ollama", f"provider mismatch: {data['provider']!r}"
+        assert data["ollama_url"] == "http://ollamahost:11434", (
+            f"Expected ollama_url 'http://ollamahost:11434' but got: {data['ollama_url']!r}"
+        )
+
+
+# ── Task 2: executor._check_port_conflict() direct coverage ──────────────────
+
+
+class TestExecutorPortConflict:
+    """Direct unit tests for executor._check_port_conflict().
+
+    This function is indirectly covered via the lint endpoint
+    (TestLintComposeYamlPortConflict) but has no direct import-level
+    test. A refactor to executor.py could silently break the DB-side
+    conflict check while lint tests continue to pass (they mock at the
+    API layer).
+    Tag: [BR: port conflict class, found by S-23-BR-TESTS-A blast-radius sweep]
+    """
+
+    def _make_result(self):
+        from backend.manifests.executor import ExecutionResult
+        return ExecutionResult(ok=True, app_key="test-app", operation="install")
+
+    def test_executor_check_port_conflict_installed_app(self, db_path):
+        """_check_port_conflict returns False when another DB-registered app owns the port."""
+        from backend.manifests.executor import _check_port_conflict
+
+        # Register a competing app with host_port=7777 and status='stopped'
+        # (valid statuses: installing|running|stopped|unhealthy|updating|removing|error|disabled|failed)
+        # 'stopped' represents an app that is installed but not currently running — it still owns its port
+        with StateDB() as db:
+            db.upsert_app("other-app", status="stopped", host_port=7777)
+
+        result = self._make_result()
+        # No running containers — conflict must come from the DB check
+        with patch("backend.core.docker_client.ports_in_use", return_value={}):
+            conflict = _check_port_conflict("test-app", 7777, result)
+
+        assert conflict is False, (
+            "Expected False (conflict) when another installed app owns port 7777"
+        )
+        assert not result.ok, "ExecutionResult.ok should be False after a conflict"
+        assert "7777" in result.error, (
+            f"Expected port 7777 in error message but got: {result.error!r}"
+        )
+
+    def test_executor_check_port_conflict_clean(self, db_path):
+        """_check_port_conflict returns True when no running container or DB app owns the port."""
+        from backend.manifests.executor import _check_port_conflict
+
+        result = self._make_result()
+        with patch("backend.core.docker_client.ports_in_use", return_value={}):
+            conflict = _check_port_conflict("test-app", 7777, result)
+
+        assert conflict is True, (
+            "Expected True (no conflict) when port 7777 is free in DB and Docker"
+        )
+        assert result.ok, "ExecutionResult.ok should remain True when no conflict"
+
+    def test_executor_check_port_conflict_none_port(self, db_path):
+        """_check_port_conflict returns True immediately when host_port is None."""
+        from backend.manifests.executor import _check_port_conflict
+
+        result = self._make_result()
+        # ports_in_use should NOT be called — None port skips all checks
+        with patch("backend.core.docker_client.ports_in_use", side_effect=AssertionError("should not be called")):
+            conflict = _check_port_conflict("test-app", None, result)
+
+        assert conflict is True, "None host_port should always return True (no check needed)"
+        assert result.ok, "ExecutionResult.ok should remain True for None port"
+
+    def test_executor_check_port_conflict_running_container(self, db_path):
+        """_check_port_conflict returns False when a running container holds the port."""
+        from backend.manifests.executor import _check_port_conflict
+
+        result = self._make_result()
+        # Simulate Docker reporting port 7777 held by a different container
+        with patch("backend.core.docker_client.ports_in_use", return_value={7777: "rival-container"}):
+            conflict = _check_port_conflict("test-app", 7777, result)
+
+        assert conflict is False, (
+            "Expected False when Docker reports port 7777 held by rival-container"
+        )
+        assert not result.ok
+        assert "7777" in result.error
