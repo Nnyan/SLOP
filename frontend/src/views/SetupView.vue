@@ -360,6 +360,131 @@
                 <li v-for="warn in secretsValidationResult.warnings" :key="warn">{{ warn }}</li>
               </ul>
             </div>
+
+            <!-- AI Agent — optional, collected before deploy so agent observes install -->
+            <div class="mt-4 border border-slate-200 rounded-lg overflow-hidden">
+              <button
+                @click="showLLMConfig = !showLLMConfig"
+                class="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors">
+                <span class="flex items-center gap-2 text-sm">
+                  <span>🤖</span>
+                  <span class="font-medium">AI Monitoring Agent</span>
+                  <span class="text-slate-400 text-xs font-normal">(optional)</span>
+                  <span v-if="form.llm_provider !== 'none'"
+                    class="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full capitalize">
+                    {{ form.llm_provider }}
+                  </span>
+                </span>
+                <span class="text-slate-400 text-xs">{{ showLLMConfig ? '▲' : '▼ Configure' }}</span>
+              </button>
+              <div v-if="showLLMConfig" class="p-3 space-y-3">
+                <p class="text-xs text-slate-400">Select an AI provider to enable automated health monitoring. Configured here so the agent observes app installs from the start.</p>
+                <div class="space-y-1">
+                  <label class="label text-xs">AI Provider</label>
+                  <select v-model="form.llm_provider" class="input text-xs">
+                    <option value="none">None — skip AI monitoring</option>
+                    <option value="ollama">Local AI (Ollama) — private, no API key (Recommended)</option>
+                    <option value="llamacpp">llama.cpp — local, OpenAI-compatible</option>
+                    <option value="groq">Groq — free cloud tier</option>
+                    <option value="awan">Awan LLM — free cloud tier</option>
+                    <option value="cerebras">Cerebras — free cloud tier</option>
+                    <option value="openai">OpenAI — paid</option>
+                  </select>
+                </div>
+                <!-- Cloud: Groq -->
+                <div v-if="form.llm_provider === 'groq'" class="space-y-2">
+                  <a href="https://console.groq.com/keys" target="_blank" rel="noopener"
+                    class="text-xs text-sky-600 underline">Get a free Groq API key ↗</a>
+                  <input v-model="form.groq_api_key" type="password" class="input text-xs" placeholder="gsk_…" />
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs text-slate-500 w-14 shrink-0">Model:</label>
+                    <select v-model="form.groq_model" class="input text-xs flex-1">
+                      <option value="llama-3.3-70b-versatile">Llama 3.3 70B — best quality (recommended)</option>
+                      <option value="llama-3.1-8b-instant">Llama 3.1 8B — fastest</option>
+                      <option value="llama3-70b-8192">Llama 3 70B — balanced</option>
+                    </select>
+                  </div>
+                </div>
+                <!-- Cloud: Awan -->
+                <div v-if="form.llm_provider === 'awan'" class="space-y-2">
+                  <a href="https://www.awanllm.com/" target="_blank" rel="noopener"
+                    class="text-xs text-sky-600 underline">Get a free Awan LLM API key ↗</a>
+                  <input v-model="form.awan_api_key" type="password" class="input text-xs" placeholder="Awan API key…" />
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs text-slate-500 w-14 shrink-0">Model:</label>
+                    <select v-model="form.awan_model" class="input text-xs flex-1">
+                      <option value="Meta-Llama-3.1-8B-Instruct">Llama 3.1 8B — fast, free (recommended)</option>
+                      <option value="Meta-Llama-3.1-70B-Instruct">Llama 3.1 70B — best quality</option>
+                    </select>
+                  </div>
+                </div>
+                <!-- Cloud: Cerebras -->
+                <div v-if="form.llm_provider === 'cerebras'" class="space-y-2">
+                  <a href="https://console.cerebras.ai/tokens" target="_blank" rel="noopener"
+                    class="text-xs text-sky-600 underline">Get a free Cerebras API key ↗</a>
+                  <input v-model="form.cerebras_api_key" type="password" class="input text-xs" placeholder="csk-…" />
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs text-slate-500 w-14 shrink-0">Model:</label>
+                    <select v-model="form.cerebras_model" class="input text-xs flex-1">
+                      <option value="llama-3.3-70b">Llama 3.3 70B — best quality (recommended)</option>
+                      <option value="llama3.1-8b">Llama 3.1 8B — fastest</option>
+                    </select>
+                  </div>
+                </div>
+                <!-- Cloud: OpenAI -->
+                <div v-if="form.llm_provider === 'openai'" class="space-y-2">
+                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener"
+                    class="text-xs text-sky-600 underline">Get an OpenAI API key ↗</a>
+                  <input v-model="form.openai_api_key" type="password" class="input text-xs" placeholder="sk-…" />
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs text-slate-500 w-14 shrink-0">Model:</label>
+                    <select v-model="form.openai_model" class="input text-xs flex-1">
+                      <option value="gpt-4o-mini">GPT-4o mini — fast, affordable (recommended)</option>
+                      <option value="gpt-4o">GPT-4o — best quality</option>
+                    </select>
+                  </div>
+                </div>
+                <!-- Local: llama.cpp -->
+                <div v-if="form.llm_provider === 'llamacpp'" class="space-y-2">
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs text-slate-500 w-20 shrink-0">Server URL:</label>
+                    <input v-model="form.llamacpp_url" type="text"
+                      placeholder="http://localhost:8081" class="input text-xs flex-1 font-mono" />
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs text-slate-500 w-20 shrink-0">Model name:</label>
+                    <input v-model="form.llamacpp_model" type="text"
+                      placeholder="phi-4-mini" class="input text-xs flex-1 font-mono" />
+                  </div>
+                </div>
+                <!-- Local: Ollama — model selection here; install runs in Stage 9 after deploy -->
+                <div v-if="form.llm_provider === 'ollama'" class="space-y-2">
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs text-slate-500 w-14 shrink-0">Server:</label>
+                    <select v-model="form.ollama_server" class="input text-xs w-48 shrink-0">
+                      <option value="local">This server (install after deploy)</option>
+                      <option value="remote">Remote Ollama server</option>
+                    </select>
+                    <input v-if="form.ollama_server === 'remote'"
+                      v-model="form.ollama_url"
+                      type="text" placeholder="http://192.168.1.x:11434"
+                      class="input text-xs flex-1 font-mono" />
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs text-slate-500 w-14 shrink-0">Model:</label>
+                    <select v-model="form.ollama_model" class="input text-xs flex-1">
+                      <option v-for="m in ollamaModelOptions" :key="m.value" :value="m.value">
+                        {{ m.label }}
+                      </option>
+                    </select>
+                  </div>
+                  <p class="text-xs text-slate-400 italic">
+                    Ollama will be installed and the model downloaded after deploy (Step 9).
+                    <span v-if="ollamaModelSizeInfo"> {{ ollamaModelSizeInfo }}.</span>
+                  </p>
+                </div>
+              </div>
+            </div>
           </template>
 
           <!-- Stage 6: Review -->
@@ -582,266 +707,84 @@
             </div>
           </template>
 
-          <!-- Stage 9: AI / LLM -->
+          <!-- Stage 9: AI / LLM — Ollama install only (auto-skipped for non-Ollama providers) -->
           <template v-if="currentStage === 9">
-            <p class="text-xs text-slate-500">The AI agent diagnoses app failures, suggests fixes, and auto-heals common issues.</p>
-            <div class="space-y-3">
-
-              <!-- Local Ollama -->
-              <div :class="['border rounded-lg p-3 cursor-pointer transition-colors',
-                form.llm_provider === 'ollama' ? 'border-sky-400 bg-sky-50' : 'border-slate-200 hover:border-slate-300']"
-                @click="form.llm_provider = 'ollama'">
-                <div class="flex items-center gap-3">
-                  <input v-model="form.llm_provider" value="ollama" type="radio" class="w-4 h-4 shrink-0"/>
-                  <div class="flex-1 min-w-0">
-                    <div class="text-sm font-medium">Local AI (Ollama) — Recommended</div>
-                    <div class="text-xs text-slate-400 mt-0.5">
-                      Runs on your server. Private. No API key. ~3GB download.
-                    </div>
-                  </div>
-                  <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full shrink-0">Private</span>
+            <p class="text-xs text-slate-500 mb-3">Installing Ollama as your AI monitoring agent. This was selected in the Secrets step — you can skip and configure later if needed.</p>
+            <div class="border border-sky-200 rounded-lg p-3 bg-sky-50 space-y-3">
+              <div class="flex items-center gap-2 text-sm font-medium text-sky-700">
+                <span>🤖</span><span>Ollama AI Agent</span>
+              </div>
+              <div class="space-y-2">
+                <div class="flex items-center gap-2">
+                  <label class="text-xs text-slate-500 w-14 shrink-0">Server:</label>
+                  <select v-model="form.ollama_server" class="input text-xs w-52 shrink-0">
+                    <option value="local">This server (install now)</option>
+                    <option value="remote">Remote Ollama server</option>
+                  </select>
+                  <input v-if="form.ollama_server === 'remote'"
+                    v-model="form.ollama_url"
+                    type="text" placeholder="http://192.168.1.x:11434"
+                    class="input text-xs flex-1 font-mono" />
+                </div>
+                <div class="flex items-center gap-2">
+                  <label class="text-xs text-slate-500 w-14 shrink-0">Model:</label>
+                  <select v-model="form.ollama_model" class="input text-xs flex-1">
+                    <option v-for="m in ollamaModelOptions" :key="m.value" :value="m.value">
+                      {{ m.label }}
+                    </option>
+                  </select>
+                </div>
+                <div class="text-xs text-slate-400">
+                  <span v-if="form.ollama_server === 'local'">Ollama will be installed on this server and the model downloaded during setup.</span>
+                  <span v-else>Model will be pulled on your remote Ollama server.</span>
+                </div>
+                <!-- Estimated download time for known models (local only) -->
+                <div v-if="form.ollama_server === 'local' && ollamaModelSizeInfo"
+                  class="text-xs text-slate-400 italic">
+                  {{ ollamaModelSizeInfo }}
                 </div>
 
-                <!-- Model selector + auto-install progress when Ollama selected -->
-                <div v-if="form.llm_provider === 'ollama'" class="mt-3 ml-7 space-y-2">
-                  <div class="flex items-center gap-2">
-                    <label class="text-xs text-slate-500 w-14 shrink-0">Server:</label>
-                    <select v-model="form.ollama_server" class="input text-xs w-52 shrink-0">
-                      <option value="local">This server (install now)</option>
-                      <option value="remote">Remote Ollama server</option>
-                    </select>
-                    <input v-if="form.ollama_server === 'remote'"
-                      v-model="form.ollama_url"
-                      type="text" placeholder="http://192.168.1.x:11434"
-                      class="input text-xs flex-1 font-mono" />
+                <!-- Install + pull progress -->
+                <div v-if="ollamaSetupJob" class="rounded-lg bg-white border border-slate-100 p-3 space-y-2">
+                  <div class="flex items-center gap-2 text-xs">
+                    <span v-if="!ollamaSetupJob.done"
+                      class="w-3 h-3 border border-sky-400 border-t-transparent rounded-full animate-spin shrink-0"/>
+                    <span v-else-if="ollamaSetupJob.ok" class="text-green-500 shrink-0">✓</span>
+                    <span v-else class="text-red-500 shrink-0">✗</span>
+                    <span :class="ollamaSetupJob.ok ? 'text-green-700' : ollamaSetupJob.phase === 'error' ? 'text-red-600' : 'text-slate-600'">
+                      {{ ollamaSetupJob.message }}
+                    </span>
                   </div>
-                  <div class="flex items-center gap-2">
-                    <label class="text-xs text-slate-500 w-14 shrink-0">Model:</label>
-                    <select v-model="form.ollama_model" class="input text-xs flex-1">
-                      <option v-for="m in ollamaModelOptions" :key="m.value" :value="m.value">
-                        {{ m.label }}
-                      </option>
-                    </select>
+                  <div v-if="!ollamaSetupJob.done || ollamaSetupJob.ok" class="w-full bg-slate-100 rounded-full h-1.5">
+                    <div class="bg-sky-500 h-1.5 rounded-full transition-all duration-500"
+                      :style="{ width: ollamaSetupJob.progress + '%' }"/>
                   </div>
-                  <div class="text-xs text-slate-400">
-                    <span v-if="form.ollama_server === 'local'">Ollama will be installed on this server and the model downloaded during setup.</span>
-                    <span v-else>Model will be pulled on your remote Ollama server.</span>
-                  </div>
-                  <!-- Estimated download time for known models (local only) -->
-                  <div v-if="form.ollama_server === 'local' && ollamaModelSizeInfo"
-                    class="text-xs text-slate-400 italic">
-                    {{ ollamaModelSizeInfo }}
-                  </div>
-
-                  <!-- Install + pull progress -->
-                  <div v-if="ollamaSetupJob" class="rounded-lg bg-white border border-slate-100 p-3 space-y-2">
-                    <!-- Phase indicator -->
-                    <div class="flex items-center gap-2 text-xs">
-                      <span v-if="!ollamaSetupJob.done"
-                        class="w-3 h-3 border border-sky-400 border-t-transparent rounded-full animate-spin shrink-0"/>
-                      <span v-else-if="ollamaSetupJob.ok" class="text-green-500 shrink-0">✓</span>
-                      <span v-else class="text-red-500 shrink-0">✗</span>
-                      <span :class="ollamaSetupJob.ok ? 'text-green-700' : ollamaSetupJob.phase === 'error' ? 'text-red-600' : 'text-slate-600'">
-                        {{ ollamaSetupJob.message }}
-                      </span>
-                    </div>
-                    <!-- Progress bar -->
-                    <div v-if="!ollamaSetupJob.done || ollamaSetupJob.ok" class="w-full bg-slate-100 rounded-full h-1.5">
-                      <div class="bg-sky-500 h-1.5 rounded-full transition-all duration-500"
-                        :style="{ width: ollamaSetupJob.progress + '%' }"/>
-                    </div>
-                    <!-- Error detail (collapsible) -->
-                    <details v-if="ollamaSetupJob.phase === 'error' && ollamaSetupJob.errorDetail"
-                      class="text-xs">
-                      <summary class="cursor-pointer text-slate-500 hover:text-slate-700 select-none">
-                        Show error log
-                      </summary>
-                      <pre class="mt-1 p-2 bg-slate-50 border border-slate-200 rounded text-red-700 text-[11px] leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto">{{ ollamaSetupJob.errorDetail }}</pre>
-                    </details>
-                    <!-- Retry on error -->
-                    <button v-if="ollamaSetupJob.phase === 'error'"
-                      @click="startOllamaSetup"
-                      class="btn-secondary btn-sm text-xs">↺ Retry</button>
-                  </div>
-
-                  <!-- Skip for now — visible while install is in progress or failed -->
-                  <button v-if="form.llm_provider === 'ollama' && (ollamaSetupJob || ollamaSetupJobId)"
-                    @click="form.llm_provider = 'none'"
-                    class="text-xs text-slate-500 underline hover:text-slate-700 mt-2">
-                    Skip for now — configure later in Settings
-                  </button>
-
-                  <!-- Start button (before job begins) -->
-                  <button v-if="!ollamaSetupJob && !ollamaSetupJobId"
+                  <details v-if="ollamaSetupJob.phase === 'error' && ollamaSetupJob.errorDetail" class="text-xs">
+                    <summary class="cursor-pointer text-slate-500 hover:text-slate-700 select-none">Show error log</summary>
+                    <pre class="mt-1 p-2 bg-slate-50 border border-slate-200 rounded text-red-700 text-[11px] leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto">{{ ollamaSetupJob.errorDetail }}</pre>
+                  </details>
+                  <button v-if="ollamaSetupJob.phase === 'error'"
                     @click="startOllamaSetup"
-                    class="btn-primary btn-sm text-xs">
-                    ▶ Install Ollama + download {{ form.ollama_model }}
-                  </button>
-                  <div v-if="ollamaSetupJob?.ok" class="flex items-center gap-1.5 text-xs text-green-600">
-                    <span>✓</span><span>Ready — AI agent will activate after first health cycle</span>
-                  </div>
+                    class="btn-secondary btn-sm text-xs">↺ Retry</button>
+                </div>
+
+                <!-- Skip for now — visible while install is in progress or failed -->
+                <button v-if="form.llm_provider === 'ollama' && (ollamaSetupJob || ollamaSetupJobId)"
+                  @click="form.llm_provider = 'none'"
+                  class="text-xs text-slate-500 underline hover:text-slate-700 mt-2">
+                  Skip for now — configure later in Settings
+                </button>
+
+                <!-- Start button (before job begins) -->
+                <button v-if="!ollamaSetupJob && !ollamaSetupJobId"
+                  @click="startOllamaSetup"
+                  class="btn-primary btn-sm text-xs">
+                  ▶ Install Ollama + download {{ form.ollama_model }}
+                </button>
+                <div v-if="ollamaSetupJob?.ok" class="flex items-center gap-1.5 text-xs text-green-600">
+                  <span>✓</span><span>Ready — AI agent will activate after first health cycle</span>
                 </div>
               </div>
-
-              <!-- Local: llama.cpp -->
-              <div :class="['border rounded-lg p-3 cursor-pointer transition-colors',
-                form.llm_provider === 'llamacpp' ? 'border-sky-400 bg-sky-50' : 'border-slate-200 hover:border-slate-300']"
-                @click="form.llm_provider = 'llamacpp'">
-                <div class="flex items-center gap-3">
-                  <input v-model="form.llm_provider" value="llamacpp" type="radio" class="w-4 h-4 shrink-0"/>
-                  <div class="flex-1 min-w-0">
-                    <div class="text-sm font-medium">llama.cpp (local, OpenAI-compatible)</div>
-                    <div class="text-xs text-slate-400">Lightweight CPU inference. Point to any llama.cpp server on your network.</div>
-                  </div>
-                  <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full shrink-0">CPU · No GPU</span>
-                </div>
-                <div v-if="form.llm_provider === 'llamacpp'" class="mt-3 ml-7 space-y-2">
-                  <div class="flex items-center gap-2">
-                    <label class="text-xs text-slate-500 w-20 shrink-0">Server URL:</label>
-                    <input v-model="form.llamacpp_url" type="text"
-                      placeholder="http://localhost:8081" class="input text-xs flex-1 font-mono" />
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <label class="text-xs text-slate-500 w-20 shrink-0">Model name:</label>
-                    <input v-model="form.llamacpp_model" type="text"
-                      placeholder="phi-4-mini (or any model tag)" class="input text-xs flex-1 font-mono" />
-                  </div>
-                  <p class="text-xs text-slate-400">
-                    Runs any GGUF model. Start with:
-                    <code class="bg-slate-100 px-1 rounded">docker run -p 8081:8080 ghcr.io/ggerganov/llama.cpp:server -m your-model.gguf</code>
-                  </p>
-                </div>
-              </div>
-
-              <!-- Cloud: Groq -->
-              <div :class="['border rounded-lg p-3 cursor-pointer transition-colors',
-                form.llm_provider === 'groq' ? 'border-sky-400 bg-sky-50' : 'border-slate-200 hover:border-slate-300']"
-                @click="form.llm_provider = 'groq'">
-                <div class="flex items-center gap-3">
-                  <input v-model="form.llm_provider" value="groq" type="radio" class="w-4 h-4"/>
-                  <div>
-                    <div class="text-sm font-medium">Cloud AI (Groq)</div>
-                    <div class="text-xs text-slate-400">Free tier. Instant. Requires a free API key at console.groq.com.</div>
-                  </div>
-                  <span class="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full shrink-0">No GPU</span>
-                </div>
-                <div v-if="form.llm_provider === 'groq'" class="mt-3 ml-7 space-y-2">
-                  <a href="https://console.groq.com/keys" target="_blank" rel="noopener"
-                    class="text-xs text-sky-600 underline">Get a free Groq API key ↗</a>
-                  <input v-model="form.groq_api_key" type="password" class="input text-xs"
-                    placeholder="gsk_…" />
-                  <div class="flex items-center gap-2">
-                    <label class="text-xs text-slate-500 w-14 shrink-0">Model:</label>
-                    <select v-model="form.groq_model" class="input text-xs flex-1">
-                      <option value="llama-3.3-70b-versatile">Llama 3.3 70B — best quality (recommended)</option>
-                      <option value="llama-3.1-8b-instant">Llama 3.1 8B — fastest</option>
-                      <option value="llama3-70b-8192">Llama 3 70B — balanced</option>
-                      <option value="mixtral-8x7b-32768">Mixtral 8x7B — good reasoning</option>
-                      <option value="gemma2-9b-it">Gemma 2 9B — efficient</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Cloud: Awan LLM -->
-              <div :class="['border rounded-lg p-3 cursor-pointer transition-colors',
-                form.llm_provider === 'awan' ? 'border-sky-400 bg-sky-50' : 'border-slate-200 hover:border-slate-300']"
-                @click="form.llm_provider = 'awan'">
-                <div class="flex items-center gap-3">
-                  <input v-model="form.llm_provider" value="awan" type="radio" class="w-4 h-4"/>
-                  <div>
-                    <div class="text-sm font-medium">Cloud AI (Awan LLM)</div>
-                    <div class="text-xs text-slate-400">Free tier. OpenAI-compatible. Get a key at awanllm.com.</div>
-                  </div>
-                  <span class="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full shrink-0">No GPU</span>
-                </div>
-                <div v-if="form.llm_provider === 'awan'" class="mt-3 ml-7 space-y-2">
-                  <a href="https://www.awanllm.com/" target="_blank" rel="noopener"
-                    class="text-xs text-sky-600 underline">Get a free Awan LLM API key ↗</a>
-                  <input v-model="form.awan_api_key" type="password" class="input text-xs"
-                    placeholder="Awan API key…" />
-                  <div class="flex items-center gap-2">
-                    <label class="text-xs text-slate-500 w-14 shrink-0">Model:</label>
-                    <select v-model="form.awan_model" class="input text-xs flex-1">
-                      <option value="Meta-Llama-3.1-8B-Instruct">Llama 3.1 8B — fast, free (recommended)</option>
-                      <option value="Meta-Llama-3.1-70B-Instruct">Llama 3.1 70B — best quality</option>
-                      <option value="Mistral-7B-Instruct-v0.3">Mistral 7B — efficient</option>
-                      <option value="Qwen2.5-7B-Instruct">Qwen 2.5 7B — strong reasoning</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-
-              <!-- Cloud: Cerebras -->
-              <div :class="['border rounded-lg p-3 cursor-pointer transition-colors',
-                form.llm_provider === 'cerebras' ? 'border-sky-400 bg-sky-50' : 'border-slate-200 hover:border-slate-300']"
-                @click="form.llm_provider = 'cerebras'">
-                <div class="flex items-center gap-3">
-                  <input v-model="form.llm_provider" value="cerebras" type="radio" class="w-4 h-4"/>
-                  <div>
-                    <div class="text-sm font-medium">Cloud AI (Cerebras)</div>
-                    <div class="text-xs text-slate-400">Free tier. World's fastest inference. console.cerebras.ai</div>
-                  </div>
-                  <span class="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full shrink-0">No GPU</span>
-                </div>
-                <div v-if="form.llm_provider === 'cerebras'" class="mt-3 ml-7 space-y-2">
-                  <a href="https://console.cerebras.ai/tokens" target="_blank" rel="noopener"
-                    class="text-xs text-sky-600 underline">Get a free Cerebras API key ↗</a>
-                  <input v-model="form.cerebras_api_key" type="password" class="input text-xs"
-                    placeholder="csk-…" />
-                  <div class="flex items-center gap-2">
-                    <label class="text-xs text-slate-500 w-14 shrink-0">Model:</label>
-                    <select v-model="form.cerebras_model" class="input text-xs flex-1">
-                      <option value="llama-3.3-70b">Llama 3.3 70B — best quality (recommended)</option>
-                      <option value="llama3.1-8b">Llama 3.1 8B — fastest</option>
-                      <option value="qwen-3-32b">Qwen 3 32B — strong reasoning</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Cloud: OpenAI -->
-              <div :class="['border rounded-lg p-3 cursor-pointer transition-colors',
-                form.llm_provider === 'openai' ? 'border-sky-400 bg-sky-50' : 'border-slate-200 hover:border-slate-300']"
-                @click="form.llm_provider = 'openai'">
-                <div class="flex items-center gap-3">
-                  <input v-model="form.llm_provider" value="openai" type="radio" class="w-4 h-4"/>
-                  <div>
-                    <div class="text-sm font-medium">Cloud AI (OpenAI)</div>
-                    <div class="text-xs text-slate-400">Paid. GPT-4o and o3-mini. platform.openai.com</div>
-                  </div>
-                  <span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full shrink-0">Paid</span>
-                </div>
-                <div v-if="form.llm_provider === 'openai'" class="mt-3 ml-7 space-y-2">
-                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener"
-                    class="text-xs text-sky-600 underline">Get an OpenAI API key ↗</a>
-                  <input v-model="form.openai_api_key" type="password" class="input text-xs"
-                    placeholder="sk-…" />
-                  <div class="flex items-center gap-2">
-                    <label class="text-xs text-slate-500 w-14 shrink-0">Model:</label>
-                    <select v-model="form.openai_model" class="input text-xs flex-1">
-                      <option value="gpt-4o-mini">GPT-4o mini — fast, affordable (recommended)</option>
-                      <option value="gpt-4o">GPT-4o — best quality</option>
-                      <option value="o3-mini">o3-mini — strong reasoning</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Skip -->
-              <div :class="['border rounded-lg p-3 cursor-pointer transition-colors',
-                form.llm_provider === 'none' ? 'border-slate-400 bg-slate-50' : 'border-slate-200 hover:border-slate-300']"
-                @click="form.llm_provider = 'none'">
-                <div class="flex items-center gap-3">
-                  <input v-model="form.llm_provider" value="none" type="radio" class="w-4 h-4"/>
-                  <div>
-                    <div class="text-sm font-medium text-slate-500">Skip for now</div>
-                    <div class="text-xs text-slate-400">Enable later in Settings → AI.</div>
-                  </div>
-                </div>
-              </div>
-
             </div>
           </template>
 
@@ -979,7 +922,7 @@ const STAGES = [
   { id: 'review',     label: 'Review',        description: 'Confirm your configuration before deploying' },
   { id: 'deploy',     label: 'Deploy',        description: 'Deploy Traefik and infrastructure' },
   { id: 'apps',       label: 'Apps',          description: 'Install selected quick stacks' },
-  { id: 'ai',         label: 'AI Monitoring', description: 'Optional: configure the health AI agent' },
+  { id: 'ai',         label: 'AI Monitoring', description: 'Optional: install Ollama AI agent (if selected in Secrets)' },
   { id: 'storage',    label: 'Storage',       description: 'Optional: configure shared storage' },
 ]
 
@@ -1056,6 +999,8 @@ function prevStage() {
 
 async function nextStage() {
   if (currentStage.value === 6) {
+    // Save LLM config before deploy so the AI agent can observe from the start
+    await saveLLMConfig()
     // Stage 6 → 7: trigger wizard deployment
     currentStage.value = 7
     maxReachedStage.value = Math.max(maxReachedStage.value, 7)
@@ -1134,6 +1079,11 @@ async function nextStage() {
   }
   currentStage.value++
   maxReachedStage.value = Math.max(maxReachedStage.value, currentStage.value)
+  // Auto-skip Stage 9 (Ollama install) when AI provider is not Ollama
+  if (currentStage.value === 9 && form.llm_provider !== 'ollama') {
+    currentStage.value = 10
+    maxReachedStage.value = Math.max(maxReachedStage.value, 10)
+  }
 }
 
 const finishing = ref(false)
@@ -1180,13 +1130,8 @@ const canAdvance = computed(() => {
   if (currentStage.value === 7) return setupSuccess.value
   if (currentStage.value === 8) return stackInstallDone.value
   if (currentStage.value === 9) {
-    if (form.llm_provider === 'ollama') return ollamaSetupJob.value?.ok === true
-    if (form.llm_provider === 'groq') return !!form.groq_api_key?.trim()
-    if (form.llm_provider === 'awan') return !!form.awan_api_key?.trim()
-    if (form.llm_provider === 'llamacpp') return !!form.llamacpp_url?.trim()
-    if (form.llm_provider === 'cerebras') return !!form.cerebras_api_key?.trim()
-    if (form.llm_provider === 'openai') return !!form.openai_api_key?.trim()
-    return true  // 'none' — always can advance
+    // Stage 9 only reached when form.llm_provider === 'ollama' (others auto-skip to Stage 10)
+    return ollamaSetupJob.value?.ok === true
   }
   return true
 })
@@ -1210,15 +1155,7 @@ const advanceBlockReason = computed((): string => {
   }
   if (currentStage.value === 7) return 'Waiting for platform deployment to complete'
   if (currentStage.value === 8) return 'Waiting for app installations to complete'
-  if (currentStage.value === 9) {
-    if (form.llm_provider === 'ollama') return 'Complete the Ollama install and model download above'
-    if (form.llm_provider === 'groq') return 'Enter your Groq API key above'
-    if (form.llm_provider === 'awan') return 'Enter your Awan API key above'
-    if (form.llm_provider === 'llamacpp') return 'Enter the llama.cpp server URL above'
-    if (form.llm_provider === 'cerebras') return 'Enter your Cerebras API key above'
-    if (form.llm_provider === 'openai') return 'Enter your OpenAI API key above'
-    return ''
-  }
+  if (currentStage.value === 9) return 'Complete the Ollama install and model download above'
   return ''
 })
 
@@ -1480,6 +1417,7 @@ const setupError = ref<string | null>(null)
 const setupSuccess = ref(false)
 const stepResults = ref<any[]>([])
 const showReset = ref(false)
+const showLLMConfig = ref(false)
 const certStatus = ref<{cert_found: boolean; message: string} | null>(null)
 let certPollInterval: ReturnType<typeof setInterval> | null = null
 
@@ -2000,7 +1938,7 @@ onMounted(async () => {
       recommended_model: d.recommended_model || 'phi4-mini',
     }
   } catch {}
-  // Pre-load LLM providers for Stage 9
+  // Pre-load LLM providers for Stage 5 (Secrets) and Stage 9 (Ollama install)
   try {
     const r = await fetch('/api/v1/health/llm-providers')
     wizardLLMProviders.value = await r.json()
