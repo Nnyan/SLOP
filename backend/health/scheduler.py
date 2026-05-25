@@ -64,16 +64,21 @@ async def _load_cycle_config() -> dict[str, Any]:
             ntfy_url   = db.get_setting("ntfy_url")   or "http://ntfy:80"
         interval = int(interval_raw) if interval_raw else DEFAULT_INTERVAL
         agent_cfg = json.loads(agent_raw) if agent_raw else {}
+        _provider = agent_cfg.get("provider", "ollama")
+        if _provider == "llamacpp":
+            _llm_url = agent_cfg.get("llamacpp_url", "http://localhost:8081")
+        else:
+            _llm_url = agent_cfg.get("ollama_url", "http://ollama:11434")
         return {
             "interval": max(30, interval),
-            "ollama_url": agent_cfg.get("ollama_url", "http://ollama:11434"),
+            "ollama_url": _llm_url,
             "ntfy_url": ntfy_url,
             "ntfy_topic": ntfy_topic,
         }
     except Exception:
         return {
             "interval": DEFAULT_INTERVAL,
-            "ollama_url": "http://ollama:11434",
+            "ollama_url": "",   # provider config unreadable — surface error rather than silently use wrong backend
             "ntfy_url": "http://ntfy:80",
             "ntfy_topic": "mediastack",
         }
@@ -323,8 +328,14 @@ async def _maybe_run_weekly_summary() -> None:
             if _llm_state.get("status") == "ready":
                 import httpx, asyncio
                 with SDB() as db:
-                    ollama_url = db.get_setting("ollama_url") or "http://ollama:11434"
-                    model = db.get_setting("ollama_model") or "phi4-mini"
+                    _wcfg_raw = db.get_setting("llm_agent_config")
+                _wcfg = json.loads(_wcfg_raw) if _wcfg_raw else {}
+                _wprovider = _wcfg.get("provider", "ollama")
+                if _wprovider == "llamacpp":
+                    ollama_url = _wcfg.get("llamacpp_url", "http://localhost:8081")
+                else:
+                    ollama_url = _wcfg.get("ollama_url", "http://ollama:11434")
+                model = _wcfg.get("ollama_model") or "phi4-mini"
                 async with httpx.AsyncClient(timeout=60) as client:
                     resp = await client.post(
                         f"{ollama_url}/api/generate",

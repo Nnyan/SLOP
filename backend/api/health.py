@@ -169,10 +169,15 @@ def get_llm_agent_status() -> LLMAgentStatus:
     err_type = _llm_state.get("last_error_type", "")
 
     if status == "offline" and last_err:
+        _provider = _llm_state.get("configured_provider", "ollama") or "ollama"
+        _pname = "Ollama" if _provider == "ollama" else _provider
         if err_type == "connection":
-            base_desc = f"Cannot reach Ollama at {url}. Check that Ollama is installed and running."
+            base_desc = f"Cannot reach {_pname} at {url}. Check that {_pname} is installed and running."
         elif err_type == "model":
-            base_desc = f"Model \'{model}\' not found in Ollama. Run: ollama pull {model}"
+            if _provider == "ollama":
+                base_desc = f"Model \'{model}\' not found in Ollama. Run: ollama pull {model}"
+            else:
+                base_desc = f"Model \'{model}\' not found in {_pname}."
         elif err_type == "timeout":
             base_desc = f"Model \'{model}\' took too long to respond. Try a smaller/faster model."
         elif err_type == "parse":

@@ -345,7 +345,10 @@ async def find_replacement(
         cfg_raw = db.get_setting("llm_agent_config")
     cfg = _json.loads(cfg_raw) if cfg_raw else {}
     provider  = cfg.get("provider",   "ollama")
-    base_url  = cfg.get("ollama_url", "http://localhost:11434")
+    if provider == "llamacpp":
+        base_url = cfg.get("llamacpp_url", "http://localhost:8081")
+    else:
+        base_url = cfg.get("ollama_url", "http://localhost:11434")
     api_key   = cfg.get("api_key",    "")
 
     prompt = f"""You are a homelab software assistant. A resource URL has returned 404 or is missing.

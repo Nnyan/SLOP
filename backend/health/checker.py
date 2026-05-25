@@ -465,15 +465,20 @@ def _classify_llm_error(e: Exception, ollama_url: str, model: str) -> None:
     """Update _llm_state with the error classification + offline-state transition."""
     _llm_state["consecutive_failures"] = _llm_state.get("consecutive_failures", 0) + 1
     err_str = str(e)
+    _provider = _llm_state.get("configured_provider", "ollama") or "ollama"
+    _pname = "Ollama" if _provider == "ollama" else _provider
     if "Connection refused" in err_str or "Connect call failed" in err_str or "ConnectionRefusedError" in err_str:
         _llm_state["last_error_type"] = "connection"
-        _llm_state["last_error"] = f"Cannot reach {ollama_url} — Ollama may not be running."
+        _llm_state["last_error"] = f"Cannot reach {ollama_url} — {_pname} may not be running."
     elif "timed out" in err_str.lower() or "TimeoutError" in err_str:
         _llm_state["last_error_type"] = "timeout"
         _llm_state["last_error"] = f"Request to {ollama_url} timed out — model may be too slow or overloaded."
     elif "404" in err_str or "model" in err_str.lower() and "not found" in err_str.lower():
         _llm_state["last_error_type"] = "model"
-        _llm_state["last_error"] = f"Model \'{model}\' not found in Ollama — run: ollama pull {model}"
+        if _provider == "ollama":
+            _llm_state["last_error"] = f"Model \'{model}\' not found in Ollama — run: ollama pull {model}"
+        else:
+            _llm_state["last_error"] = f"Model \'{model}\' not found in {_pname}."
     elif "JSONDecodeError" in err_str or "json" in err_str.lower():
         _llm_state["last_error_type"] = "parse"
         _llm_state["last_error"] = f"Model \'{model}\' returned invalid JSON — try a different model."
