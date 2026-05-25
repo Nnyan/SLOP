@@ -627,6 +627,11 @@
                     <span v-if="form.ollama_server === 'local'">Ollama will be installed on this server and the model downloaded during setup.</span>
                     <span v-else>Model will be pulled on your remote Ollama server.</span>
                   </div>
+                  <!-- Estimated download time for known models (local only) -->
+                  <div v-if="form.ollama_server === 'local' && ollamaModelSizeInfo"
+                    class="text-xs text-slate-400 italic">
+                    {{ ollamaModelSizeInfo }}
+                  </div>
 
                   <!-- Install + pull progress -->
                   <div v-if="ollamaSetupJob" class="rounded-lg bg-white border border-slate-100 p-3 space-y-2">
@@ -658,6 +663,13 @@
                       @click="startOllamaSetup"
                       class="btn-secondary btn-sm text-xs">↺ Retry</button>
                   </div>
+
+                  <!-- Skip for now — visible while install is in progress or failed -->
+                  <button v-if="form.llm_provider === 'ollama' && (ollamaSetupJob || ollamaSetupJobId)"
+                    @click="form.llm_provider = 'none'"
+                    class="text-xs text-slate-500 underline hover:text-slate-700 mt-2">
+                    Skip for now — configure later in Settings
+                  </button>
 
                   <!-- Start button (before job begins) -->
                   <button v-if="!ollamaSetupJob && !ollamaSetupJobId"
@@ -1790,6 +1802,37 @@ async function startOllamaSetup() {
       message: `Failed to start: ${e}` }
   }
 }
+
+// ── Stage 9: Ollama model size + auto-start ──────────────────────────────
+const OLLAMA_MODEL_SIZE_GB: Record<string, number> = {
+  'smollm2:1.7b': 1.1,
+  'qwen2.5:3b': 1.9,
+  'llama3.2:3b': 2.0,
+  'phi4-mini': 2.5,
+  'llama3.1:8b': 4.7,
+  'gemma3:1b': 0.8,
+  'llama3.2:1b': 1.3,
+  'mistral:7b': 4.1,
+}
+
+const ollamaModelSizeInfo = computed((): string => {
+  const size = OLLAMA_MODEL_SIZE_GB[form.ollama_model]
+  if (!size) return ''
+  return '~' + size + ' GB — est. ' + Math.round(size / 1.5) + ' min on 100 Mbps'
+})
+
+// Auto-start Ollama install when user selects Ollama + local at stage 9.
+// Guard: only fires if no job is already running or completed.
+watch(
+  [() => currentStage.value, () => form.llm_provider, () => form.ollama_server],
+  ([stage, provider, server]) => {
+    if (stage === 9 && provider === 'ollama' && server === 'local'
+        && !ollamaSetupJob.value && !ollamaSetupJobId.value) {
+      startOllamaSetup()
+    }
+  },
+  { immediate: true }
+)
 
 async function retryFailedApps() {
   const failed = stackAppsToInstall.value.filter(k => appInstallStatus[k] === 'error')
