@@ -1,0 +1,1 @@
+smoke-B test file
