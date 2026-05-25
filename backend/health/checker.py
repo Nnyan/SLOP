@@ -1405,7 +1405,7 @@ async def run_health_cycle(
     run.llm_agent_state = _llm_state.get("status", "unknown")
 
     # Skip LLM phase if no model is configured or Ollama is not running
-    _llm_available = _llm_state.get("status") == "ready"
+    _llm_available = _llm_state.get("status") in ("active", "degraded")
     if not _llm_available:
         log.debug(
             "LLM health agent inactive (status: %s) — "
