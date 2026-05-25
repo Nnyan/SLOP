@@ -291,6 +291,16 @@ class WizardRequest(BaseModel):
             raise ValueError('Must be a valid http/https URL')
         return v
 
+    # H-5b: ntfy_topic — alphanumeric, hyphens, underscores only [BR: input not sanitized before structured-file write]
+    @field_validator("ntfy_topic")
+    @classmethod
+    def ntfy_topic_safe(cls, v: str) -> str:
+        """Topic must be URL-safe: alphanumeric, hyphens, underscores only."""
+        import re as _re
+        if not _re.match(r'^[A-Za-z0-9_-]{1,64}$', v):
+            raise ValueError("ntfy_topic must be alphanumeric with hyphens/underscores, 1-64 chars")
+        return v
+
     # H-6: cert_resolver — restrict to known enum values
     @field_validator("cert_resolver")
     @classmethod

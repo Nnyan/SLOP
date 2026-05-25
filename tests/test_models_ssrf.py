@@ -56,23 +56,14 @@ def test_reject_private_ip_192_168():
         _validate_gguf_url("https://192.168.1.1/model.gguf")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known gap: 'localhost' is treated as a DNS name by ipaddress.ip_address(), "
-        "so the literal-IP block does not fire and the URL passes validation. "
-        "[BR: SSRF] [WAVE-DEFER: owned by S-23-BR-TESTS-B] "
-        "Needs an explicit hostname blocklist (localhost, ::1, etc.) in _validate_gguf_url."
-    ),
-)
 def test_reject_localhost():
     """https://localhost should be rejected — SSRF risk via loopback.
 
-    CURRENT STATUS: xfail — localhost is not a bare IP literal, so the guard
-    silently allows it through.  Fix tracked in TODO.md as
-    [BR: SSRF] _validate_gguf_url allows hostname 'localhost' as DNS bypass.
+    Fixed in S-23-BR-TESTS-B: _BLOCKED_HOSTNAMES set added to _validate_gguf_url()
+    so 'localhost' (and ip6-localhost, ip6-loopback, ::1) are rejected before the
+    ipaddress.ip_address() path runs.
     """
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="localhost"):
         _validate_gguf_url("https://localhost/model.gguf")
 
 
