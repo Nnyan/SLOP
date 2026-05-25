@@ -648,7 +648,7 @@ const providerModel = ref('')
 const PROVIDERS = [
   // Local
   { id: 'ollama',      label: 'Ollama',       group: 'local',  hint: 'Best local option. Install: curl -fsSL https://ollama.com/install.sh | sh' },
-  { id: 'llamacpp',   label: 'llama-server',  group: 'local',  hint: 'Bare llama.cpp server. Fastest CPU inference. Run: llama-server -m model.gguf --port 8080' },
+  { id: 'llamacpp',   label: 'llama-server',  group: 'local',  hint: 'Bare llama.cpp server. Fastest CPU inference. Run: llama-server -m model.gguf --port 8081' },
   { id: 'shimmy',     label: 'Shimmy',        group: 'local',  hint: '5MB Rust binary, no dependencies. ./shimmy serve (auto GPU, port 11435)' },
   { id: 'localai',    label: 'LocalAI',       group: 'local',  hint: '36+ backends (vLLM, Whisper, images). Install via Catalog → AI → LocalAI' },
   // Cloud — free tiers

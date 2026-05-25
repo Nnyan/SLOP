@@ -1252,7 +1252,7 @@ async def ping_llm() -> dict[str, Any]:
 
     INSTALL = {
         "ollama":      "curl -fsSL https://ollama.com/install.sh | sh && ollama pull phi4-mini",
-        "llamacpp":    "# Build llama-server: cmake llama.cpp -B build -DGGML_CUDA=ON && cmake --build build -t llama-server\n./build/bin/llama-server -m /path/to/model.gguf --port 8080",
+        "llamacpp":    "# Build llama-server: cmake llama.cpp -B build -DGGML_CUDA=ON && cmake --build build -t llama-server\n./build/bin/llama-server -m /path/to/model.gguf --port 8081",
         "shimmy":      "curl -L https://github.com/Michael-A-Kuykendall/shimmy/releases/latest/download/shimmy-linux-x86_64 -o shimmy\nchmod +x shimmy && ./shimmy serve --bind 0.0.0.0:11435",
         "localai":     "docker run -p 8080:8080 localai/localai:latest-aio-cpu",
         "groq":        "# Sign up at console.groq.com → API Keys (free, no credit card)",
