@@ -17,8 +17,10 @@ from __future__ import annotations
 from typing import Any
 
 import asyncio
+import ipaddress
 import json
 import time
+import urllib.parse
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -38,6 +40,52 @@ from backend.core.state import StateDB
 
 log = get_logger(__name__)
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# SSRF guard — H-10
+# ---------------------------------------------------------------------------
+
+_GGUF_BLOCKED_PRIVATE = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local / AWS metadata
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+]
+
+
+def _validate_gguf_url(url: str) -> str:
+    """Raise ValueError if url is not a safe https:// or hf:// URL.
+
+    Blocks file://, http://, and direct connections to private/reserved IPs.
+    DNS rebinding is out of scope — only the scheme and literal-IP checks are
+    enforced here.
+    """
+    if url.startswith("hf://"):
+        return url  # handled by resolve_gguf_url in gguf_validator
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(
+            "GGUF URL must use https:// (got: %r). "
+            "file://, http://, and other schemes are not permitted." % parsed.scheme
+        )
+    hostname = parsed.hostname or ""
+    try:
+        addr = ipaddress.ip_address(hostname)
+        for net in _GGUF_BLOCKED_PRIVATE:
+            if addr in net:
+                raise ValueError(
+                    "GGUF URL targets a private or reserved IP address: %s" % hostname
+                )
+    except ValueError as exc:
+        if "GGUF" in str(exc):
+            raise
+        # hostname is a DNS name, not a bare IP — allow it
+        # (DNS rebinding mitigation is out of scope for this guard)
+    return url
+
 
 # Models directory — inside data_dir so it persists
 def _read_hf_token() -> str:
@@ -262,6 +310,12 @@ def download_model_sse(
     import queue
     import threading
 
+    # SSRF guard — H-10: reject non-https, private IPs, file:// etc.
+    try:
+        _validate_gguf_url(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     event_queue: queue.Queue[Any] = queue.Queue()
 
     hf_token = _read_hf_token()
@@ -345,6 +399,12 @@ def download_model(req: DownloadRequest) -> dict[str, Any]:
     For browser UI use GET /gguf/download?url=...&filename=... with EventSource.
     This POST version is for programmatic/CLI use; it blocks until complete.
     """
+    # SSRF guard — H-10: reject non-https, private IPs, file:// etc.
+    try:
+        _validate_gguf_url(req.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     fname = req.filename or req.url.split("/")[-1].split("?")[0]
     dest = _models_dir() / fname
     try:
@@ -742,6 +802,12 @@ def preflight_download(url: str) -> PreflightResult:
     import urllib.error as _uerr
 
     from backend.core.config import config as _cfg
+
+    # SSRF guard — H-10: reject non-https, private IPs, file:// etc.
+    try:
+        _validate_gguf_url(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     # Build headers
     headers = {"User-Agent": "Mediastack/3.0"}
