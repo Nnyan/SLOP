@@ -240,6 +240,106 @@ ports:
         assert "valid" in data
 
 
+# ── Workflow 3b: YAML linter — port conflict detection ───────────────────────
+
+
+class TestLintComposeYamlPortConflict:
+    """Port conflict detection in lint_compose_yaml — regression guards.
+
+    The linter checks host ports in the submitted compose fragment against:
+    1. System ports already bound on the host (/proc/net/tcp via _get_listening_ports)
+    2. Host ports of already-installed Mediastack apps (StateDB)
+
+    Port conflicts become warnings (not errors) — the linted YAML is still
+    structurally valid, but the container may fail to bind at runtime.
+    """
+
+    COMPOSE_PORT_8080 = """
+services:
+  app:
+    image: nginx:1.27
+    ports:
+      - "8080:80"
+"""
+
+    COMPOSE_PORT_9090 = """
+services:
+  app:
+    image: nginx:1.27
+    ports:
+      - "9090:80"
+"""
+
+    def test_system_port_conflict_triggers_warning(self, client):
+        """Linter warns when compose host port matches a system-listening port."""
+        with patch("backend.api.apps._get_listening_ports", return_value={8080}):
+            r = client.post("/api/apps/lint-compose", json={"yaml": self.COMPOSE_PORT_8080})
+        assert r.status_code == 200
+        data = r.json()
+        # Port conflict is a warning — compose YAML itself is still structurally valid
+        assert data["valid"] is True, f"Expected valid=True (conflict is a warning), got: {data}"
+        assert any("8080" in w for w in data["warnings"]), (
+            f"Expected a warning mentioning port 8080 but got warnings: {data['warnings']}"
+        )
+        assert any(pc["port"] == 8080 for pc in data["port_conflicts"]), (
+            f"Expected port_conflicts to include port 8080 but got: {data['port_conflicts']}"
+        )
+        conflict_entry = next(pc for pc in data["port_conflicts"] if pc["port"] == 8080)
+        assert conflict_entry["type"] == "system", (
+            f"Expected conflict type 'system' but got: {conflict_entry['type']}"
+        )
+
+    def test_installed_app_port_conflict_triggers_warning(self, client):
+        """Linter warns when compose host port is used by an installed Mediastack app."""
+        mock_app = MagicMock()
+        mock_app.host_port = 8080
+        mock_app.display_name = "Sonarr"
+
+        with patch("backend.api.apps._get_listening_ports", return_value=set()):
+            with patch("backend.core.state.StateDB.get_all_apps", return_value=[mock_app]):
+                r = client.post("/api/apps/lint-compose", json={"yaml": self.COMPOSE_PORT_8080})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["valid"] is True
+        assert any("8080" in w for w in data["warnings"]), (
+            f"Expected port conflict warning for installed-app path but got: {data['warnings']}"
+        )
+        conflict_entries = [pc for pc in data["port_conflicts"] if pc["port"] == 8080]
+        assert conflict_entries, f"port_conflicts empty; expected port 8080 entry"
+        assert conflict_entries[0]["type"] == "installed_app"
+        assert "Sonarr" in conflict_entries[0]["conflicting"]
+
+    def test_different_host_port_no_conflict(self, client):
+        """No port conflict warning when compose host port is not in use."""
+        with patch("backend.api.apps._get_listening_ports", return_value={8080}):
+            r = client.post("/api/apps/lint-compose", json={"yaml": self.COMPOSE_PORT_9090})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["valid"] is True
+        conflict_warnings = [w for w in data["warnings"] if "conflict" in w.lower() or "already" in w.lower()]
+        assert not conflict_warnings, (
+            f"Unexpected port conflict warning for port 9090 (only 8080 is in use): {conflict_warnings}"
+        )
+        assert data["port_conflicts"] == [], (
+            f"Expected empty port_conflicts for non-conflicting port 9090 but got: {data['port_conflicts']}"
+        )
+
+    def test_no_ports_no_conflict_check(self, client):
+        """Compose fragment without ports mapping skips conflict check cleanly."""
+        compose_no_ports = """
+services:
+  app:
+    image: nginx:1.27
+"""
+        with patch("backend.api.apps._get_listening_ports", return_value={8080, 9090}):
+            r = client.post("/api/apps/lint-compose", json={"yaml": compose_no_ports})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["port_conflicts"] == [], (
+            f"No ports mapped — expected empty port_conflicts but got: {data['port_conflicts']}"
+        )
+
+
 # ── Workflow 4: Health pending actions ───────────────────────────────────────
 
 
