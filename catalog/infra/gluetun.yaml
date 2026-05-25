@@ -41,7 +41,7 @@ env:
   WIREGUARD_PRIVATE_KEY: "${GLUETUN_WIREGUARD_PRIVATE_KEY}"
   WIREGUARD_ADDRESSES: "${GLUETUN_WIREGUARD_ADDRESSES}"
   SERVER_COUNTRIES: "${GLUETUN_SERVER_COUNTRIES}"
-  TZ: "{timezone}"
+  TZ: "${TZ}"
   UPDATER_PERIOD: "24h"
 
 # Gluetun needs NET_ADMIN — handled as a special capability in the executor
