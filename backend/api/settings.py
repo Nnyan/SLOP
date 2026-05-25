@@ -374,7 +374,8 @@ def _write_env_file(updates: dict[str, str]) -> None:
             continue
         key = stripped.split("=", 1)[0].strip()
         if key in updates:
-            new_lines.append(f"{key}={updates[key]}\n")
+            # C-4 fix: strip newlines to prevent .env injection
+            new_lines.append(f"{key}={str(updates[key]).replace(chr(10), '').replace(chr(13), '')}\n")
             written_keys.add(key)
         else:
             new_lines.append(line)
@@ -382,7 +383,8 @@ def _write_env_file(updates: dict[str, str]) -> None:
     # Append any keys that weren't already in the file
     for key, val in updates.items():
         if key not in written_keys:
-            new_lines.append(f"{key}={val}\n")
+            # C-4 fix: strip newlines to prevent .env injection
+            new_lines.append(f"{key}={str(val).replace(chr(10), '').replace(chr(13), '')}\n")
 
     env_path.write_text("".join(new_lines))
 

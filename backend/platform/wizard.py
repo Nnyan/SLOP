@@ -667,7 +667,11 @@ def step_write_env(inp: "WizardInput") -> "StepResult":
                 log.warning("Could not hash TinyAuth password: %s", _e)
 
         existing.update(updates)
-        content = "\n".join(f"{k}={v}" for k, v in sorted(existing.items())) + "\n"
+        # C-4 fix: strip newlines from values to prevent .env injection
+        content = "\n".join(
+            f"{k}={str(v).replace(chr(10), '').replace(chr(13), '')}"
+            for k, v in sorted(existing.items())
+        ) + "\n"
         env_path.parent.mkdir(parents=True, exist_ok=True)
         env_path.write_text(content)
         os.chmod(env_path, 0o600)

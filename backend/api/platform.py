@@ -8,6 +8,7 @@ POST /api/platform/wizard/run      — run the full wizard
 GET  /api/platform/wizard/steps    — list of steps with descriptions
 """
 from __future__ import annotations
+import re
 from typing import Any
 
 from fastapi import APIRouter, Request, HTTPException
@@ -258,6 +259,43 @@ class WizardRequest(BaseModel):
                 )
         except ImportError:
             pass  # zoneinfo unavailable — skip Pydantic-level check
+        return v
+
+    # ── Security validators (S-23-SEC-A) ──────────────────────────────────
+    # C-1 / C-2: EAB fields — base64url charset only, no newlines or YAML chars
+    @field_validator("eab_kid", "eab_hmac")
+    @classmethod
+    def no_injection_chars(cls, v: str) -> str:
+        if v and not re.match(r'^[A-Za-z0-9\-_=]+$', v):
+            raise ValueError('Invalid characters — EAB fields must be base64url only (A-Z a-z 0-9 - _ =)')
+        return v
+
+    # C-3: ACME email — proper format, no newlines
+    @field_validator("acme_email")
+    @classmethod
+    def valid_email(cls, v: str) -> str:
+        if v and not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', v.strip()):
+            raise ValueError('Invalid email format')
+        return v.strip() if v else v
+
+    # H-5: ntfy URL — must be http:// or https://, no newlines
+    @field_validator("ntfy_url")
+    @classmethod
+    def valid_url(cls, v: str) -> str:
+        if v and not re.match(r'^https?://[^\s\n\r]+$', v):
+            raise ValueError('Must be a valid http/https URL')
+        return v
+
+    # H-6: cert_resolver — restrict to known enum values
+    @field_validator("cert_resolver")
+    @classmethod
+    def validate_cert_resolver(cls, v: str) -> str:
+        _valid = {"letsencrypt", "zerossl", "buypass", "staging"}
+        if v and v not in _valid:
+            raise ValueError(
+                "Unknown cert_resolver '" + v + "'. "
+                "Allowed values: " + ", ".join(sorted(_valid))
+            )
         return v
 
 
