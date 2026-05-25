@@ -21,6 +21,26 @@ from backend.infra.base import InfraProvider, ProviderResult
 
 log = get_logger(__name__)
 
+
+def _validate_lan_subnet(v: str) -> str:
+    """Validate that v is a valid CIDR notation (or empty string = no LAN bypass).
+
+    Raises ValueError for non-empty values that aren't valid CIDRs.
+    An empty/blank string means 'no LAN bypass' and is always accepted.
+    """
+    import ipaddress as _ipaddress
+    v = v.strip()
+    if not v:
+        return v
+    try:
+        _ipaddress.ip_network(v, strict=False)
+    except ValueError:
+        raise ValueError(
+            "lan_subnet must be a valid CIDR (e.g. 192.168.1.0/24), got: " + repr(v)
+        )
+    return v
+
+
 CONTAINER_NAME = "tinyauth"
 IMAGE = "ghcr.io/steveiliop56/tinyauth:v5"
 PORT = 3000
@@ -46,7 +66,8 @@ class TinyauthProvider(InfraProvider):
         domain = cfg.get("domain") or platform.domain or ""
         app_url = cfg.get("app_url", f"https://auth.{domain}")
         users = cfg.get("users", "")
-        lan_subnet = cfg.get("lan_subnet", platform.config.get("lan_subnet", "") if hasattr(platform, "config") else "")
+        _raw_subnet = cfg.get("lan_subnet", platform.config.get("lan_subnet", "") if hasattr(platform, "config") else "")
+        lan_subnet = _validate_lan_subnet(_raw_subnet)
         network = platform.network_name
         config_path = f"{platform.config_root}/tinyauth"
 

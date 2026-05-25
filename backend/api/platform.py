@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+_NETWORK_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
@@ -233,9 +235,12 @@ class WizardRequest(BaseModel):
     @field_validator("domain")
     @classmethod
     def domain_must_have_dot(cls, v: str) -> str:
+        v = v.strip().lower()
+        if "\n" in v or "\r" in v:
+            raise ValueError("domain must not contain newlines")
         if "." not in v:
             raise ValueError("Domain must contain at least one dot, e.g. 'example.com'")
-        return v.lower().strip()
+        return v
 
     @field_validator("config_root", "media_root")
     @classmethod
@@ -296,6 +301,17 @@ class WizardRequest(BaseModel):
                 "Unknown cert_resolver '" + v + "'. "
                 "Allowed values: " + ", ".join(sorted(_valid))
             )
+        return v
+
+    # M-7: network_name — allowlist (letters, digits, hyphen, underscore only)
+    @field_validator("network_name")
+    @classmethod
+    def network_name_safe(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("network_name must not be empty")
+        if not _NETWORK_NAME_RE.match(v):
+            raise ValueError("network_name may only contain letters, digits, hyphens, and underscores")
         return v
 
 

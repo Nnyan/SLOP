@@ -559,37 +559,7 @@ Respond as a helpful assistant in plain language. Be concise — 2-3 sentences p
 
     prompt = enrich_prompt_with_context(prompt, actions_text)
 
-    # Try local LLM first
-    from backend.health.checker import _llm_state
-    llm_available = _llm_state.get("status") == "ready"
-
-    if llm_available:
-        try:
-            from backend.core.state import StateDB as _SDB
-            with _SDB() as db:
-                ollama_url = db.get_setting("ollama_url") or "http://localhost:11434"
-                model = db.get_setting("ollama_model") or "phi4-mini"
-            import httpx
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"{ollama_url}/api/generate",
-                    json={"model": model, "prompt": prompt, "stream": False}
-                )
-                resp.raise_for_status()
-                response_text = resp.json().get("response", "")
-                return {
-                    "ok": True,
-                    "summary": response_text,
-                    "provider": "local",
-                    "action_count": len(actions),
-                    "suggestions": [
-                        {"title": a.title, "action": a.action, "priority": a.priority}
-                        for a in actions
-                    ],
-                }
-        except Exception as e:
-            log.debug("Local LLM platform review failed: %s", e)
-
+    # removed: status "ready" never emitted by LLM state machine; block was dead code
     # No local LLM — return structured analysis without AI
     error_count = sum(1 for a in actions if a.priority == "error")
     warning_count = sum(1 for a in actions if a.priority == "warning")
@@ -857,24 +827,8 @@ Keep it conversational and helpful."""
 
     prompt = enrich_prompt_with_context(prompt, issues_text)
 
-    # Try local LLM
+    # removed: status "ready" never emitted by LLM state machine; block was dead code
     summary = None
-    from backend.health.checker import _llm_state
-    if _llm_state.get("status") == "ready":
-        try:
-            with StateDB() as db:
-                ollama_url = db.get_setting("ollama_url") or "http://localhost:11434"
-                model = db.get_setting("ollama_model") or "phi4-mini"
-            import httpx
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    f"{ollama_url}/api/generate",
-                    json={"model": model, "prompt": prompt, "stream": False}
-                )
-                resp.raise_for_status()
-                summary = resp.json().get("response", "")
-        except Exception:
-            pass
 
     if not summary:
         # Fallback: structured summary without LLM
@@ -892,7 +846,7 @@ Keep it conversational and helpful."""
         "warning_count": warning_count,
         "top_issues": top_issues,
         "generated_at": int(_time.time()),
-        "llm_used": _llm_state.get("status") == "ready",
+        "llm_used": _llm_state.get("status") in ("active", "degraded"),
     }
 
 
@@ -1009,14 +963,21 @@ Start with: import pytest
     except Exception:
         proposed_code = None
 
-    # Fallback to local LLM
+    # Fallback to local LLM — branch on provider per 0eb5431 pattern
     if not proposed_code:
         try:
             import httpx
+            import json as _json
             from backend.core.state import StateDB
             with StateDB() as db:
-                ollama_url = db.get_setting("ollama_url") or "http://localhost:11434"
-                model = db.get_setting("ollama_model") or "phi4-mini"
+                _agent_cfg_raw = db.get_setting("llm_agent_config")
+            _agent_cfg = _json.loads(_agent_cfg_raw) if isinstance(_agent_cfg_raw, str) else (_agent_cfg_raw or {})
+            _provider = _agent_cfg.get("provider", "ollama")
+            if _provider == "llamacpp":
+                ollama_url = _agent_cfg.get("llamacpp_url", "http://localhost:8081")
+            else:
+                ollama_url = _agent_cfg.get("ollama_url", "http://ollama:11434")
+            model = _agent_cfg.get("model", "phi4-mini")
             async with httpx.AsyncClient(timeout=60) as client:
                 resp = await client.post(
                     f"{ollama_url}/api/generate",
