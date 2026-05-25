@@ -5,7 +5,7 @@
 S.L.O.P. (Self-hosted Linux Orchestration Platform) — public repo (`Nnyan/SLOP`).
 Backend: FastAPI + Python (`backend/`). Frontend: Vue 3 + TypeScript (`frontend/src/`).
 Catalog: YAML manifests for 56 installable apps (`catalog/apps/`).
-Dev/private repo: `Nnyan/mediastack`. Test server: rocinante (10.0.1.51).
+Backend tests run against a local venv; no external server required for unit tests.
 
 ## Frontend architecture rule — NO business logic in view files
 
@@ -34,7 +34,7 @@ Existing violators (SetupView ~1711, SettingsView ~1369, ModelsView ~1182, Healt
 Steps in `operation_steps` DB table. `clear_op_steps()` runs before each new install.
 `__done__` sentinel signals completion. Frontend polls until `done: true`.
 
-## Path layout (on rocinante / standard install)
+## Path layout (standard install)
 
 | Path | Purpose |
 |------|---------|
@@ -63,7 +63,7 @@ Stable architectural truths. Moved here from HANDOFF.md on 2026-05-24 (S2a split
   `get_all_apps(include_system=False)` excludes tier=0 from all user-facing lists.
 - **User LLM catalog apps** (Ollama, llama.cpp, Open WebUI): what users install for their own AI use.
 
-**Three data directories on rocinante — all different:**
+**Three data directories (standard install) — all different:**
 | Path | Purpose |
 |------|---------|
 | `/opt/mediastack/` | Code + venv (install_dir) |
@@ -72,7 +72,7 @@ Stable architectural truths. Moved here from HANDOFF.md on 2026-05-24 (S2a split
 
 **Vue view files — NO business logic.** See above. Rule-007 gates new files at 600 lines.
 
-**No git on rocinante** — deploy = scp + sudo cp + systemctl restart.
+**No git on target server** — deploy = scp + sudo cp + systemctl restart.
 
 **Catalog has two `CatalogEntry` definitions** — `loader.py` dataclass AND `catalog.py` Pydantic
 response model. Any field added to `to_catalog_entry()` must also be added to the Pydantic model
