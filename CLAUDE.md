@@ -49,3 +49,55 @@ Steps in `operation_steps` DB table. `clear_op_steps()` runs before each new ins
 - Apply scripts: Python only, no f-strings, no `{}` dict literals
 - No multi-line bash in SSH double-quoted args — Write script → scp → ssh execute
 - No multi-line `python3 -c` — write to /tmp file and run
+
+## Project facts
+
+Stable architectural truths. Moved here from HANDOFF.md on 2026-05-24 (S2a split).
+
+**SLOP AI Agent ≠ User LLM catalog apps.** Critical distinction:
+- **SLOP AI Agent**: tier-0 core system — monitors all of SLOP, analyzes errors, remediates.
+  DB record: `key="slop_agent"`, `tier=0`, `category="agent"`, `status="running"`.
+  Module: `backend/core/agent.py` — `ensure_agent_registered()` runs at every startup.
+  Health: `subject_type="agent"` (never mixes with app health checks, `subject_type="app"`).
+  API: `GET /api/v1/health/agent` + `agent_status` field in `/api/v1/health/summary`.
+  `get_all_apps(include_system=False)` excludes tier=0 from all user-facing lists.
+- **User LLM catalog apps** (Ollama, llama.cpp, Open WebUI): what users install for their own AI use.
+
+**Three data directories on rocinante — all different:**
+| Path | Purpose |
+|------|---------|
+| `/opt/mediastack/` | Code + venv (install_dir) |
+| `/var/lib/mediastack/` | Runtime data, DB, compose fragments (MS_DATA_DIR via systemd) |
+| `/srv/mediastack/config` | User app config dirs (set via wizard, stored in platform DB + .env) |
+
+**Vue view files — NO business logic.** See above. Rule-007 gates new files at 600 lines.
+
+**No git on rocinante** — deploy = scp + sudo cp + systemctl restart.
+
+**Catalog has two `CatalogEntry` definitions** — `loader.py` dataclass AND `catalog.py` Pydantic
+response model. Any field added to `to_catalog_entry()` must also be added to the Pydantic model
+or FastAPI silently drops it.
+
+**Custom install flow (two steps)**:
+1. `POST /api/v1/apps/install-custom` → registers manifest in `catalog/community/` — returns `{key}`.
+2. `POST /api/v1/apps/{key}/install` with `extra_env` → actually starts the background install.
+
+**Port conflict linter** (added session 14):
+- `_get_listening_ports()` reads `/proc/net/tcp` + `/proc/net/tcp6` for LISTEN-state ports.
+- `lint_compose_yaml()` extracts host ports, checks against `StateDB` installed app `host_port` values and system ports.
+- Conflicts appear in `LintResult.warnings` (auto-rendered in SettingsView + CatalogView) and `LintResult.port_conflicts` (structured list for future frontend use).
+
+**Catalog template variables** (clarified session 14):
+- `{config_root}` / `{media_root}` in volume `host:` paths → **intentional** — handled by `_expand_path()` in executor.py.
+- `${VAR}` refs in env: blocks → handled via `_SLOP_MANAGED_VARS`, `auto_secrets`, wizard, or `:-` defaults.
+- `POSTGRES_PASSWORD` + `POSTGRES_USER` added to `_SLOP_MANAGED_VARS` (wizard always generates them).
+
+**_SLOP_MANAGED_VARS** — module-level frozenset in `backend/api/apps.py`. Contains vars always
+written by the wizard (PUID, PGID, TZ, DOMAIN, CONFIG_ROOT, MEDIA_ROOT, POSTGRES_PASSWORD, POSTGRES_USER, VPN vars, etc.).
+
+**Quick Stacks** — `_DEFAULT_STACKS` in `backend/api/platform.py` is the single source of truth.
+Customisations stored in `settings` table keys `custom_stacks` and `hidden_stacks` as JSON.
+
+**Community manifest directory** — `catalog/community/` under install_dir. Owned by `mediastack`
+user. Installer pre-creates it after `fetch_repo()` at step [5/8]. `load_manifest()` searches
+`catalog/apps/` first, then `catalog/community/` as fallback.

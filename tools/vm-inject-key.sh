@@ -10,10 +10,10 @@
 #
 # Examples:
 #   # Direct (rocinante):
-#   VM_PASS=THX1138@ ./tools/vm-inject-key.sh 10.0.1.51
+#   VM_PASS=$(cat ~/.config/slop/secrets/rocinante_sudo) ./tools/vm-inject-key.sh 10.0.1.51
 #
 #   # Via jump server (matrix test VMs):
-#   VM_PASS=THX1138@ JUMP_HOST=stack@10.0.1.60 ./tools/vm-inject-key.sh 10.0.3.25
+#   VM_PASS=$(cat ~/.config/slop/secrets/rocinante_sudo) JUMP_HOST=stack@10.0.1.60 ./tools/vm-inject-key.sh 10.0.3.25
 
 set -euo pipefail
 
