@@ -199,7 +199,12 @@ class TestStateMachineS1:
             ),
         )
         assert result == 0
-        assert log == ["deps", "docker", "user", "fetch", "backend", "frontend", "service"]
+        # Steps 6 (backend) and 7 (frontend) run in parallel — their relative
+        # order in the log is non-deterministic.  Assert the surrounding
+        # sequence is correct and both are present.
+        assert log[:4] == ["deps", "docker", "user", "fetch"]
+        assert set(log[4:6]) == {"backend", "frontend"}
+        assert log[6:] == ["service"]
 
     def test_s1_state_write_called_three_times(self):
         writes = []
@@ -729,14 +734,23 @@ class TestPipelineOrder:
             ),
         )
         assert result == 0
-        assert log == ["deps", "docker", "user", "fetch", "backend", "frontend", "service"]
+        # Steps 6 (backend) and 7 (frontend) run in parallel — their relative
+        # order in the log is non-deterministic.  Assert the surrounding
+        # sequence is correct and both are present.
+        assert log[:4] == ["deps", "docker", "user", "fetch"]
+        assert set(log[4:6]) == {"backend", "frontend"}
+        assert log[6:] == ["service"]
 
     @pytest.mark.parametrize("fail_at,expected_called,not_called", [
         ("deps",     [],                      ["docker", "user", "fetch", "backend", "frontend", "service"]),
         ("docker",   ["deps"],                ["user", "fetch", "backend", "frontend", "service"]),
         ("user",     ["deps", "docker"],      ["fetch", "backend", "frontend", "service"]),
         ("fetch",    ["deps", "docker", "user"], ["backend", "frontend", "service"]),
-        ("backend",  ["deps", "docker", "user", "fetch"], ["frontend", "service"]),
+        # backend and frontend run in parallel: when backend fails, frontend still
+        # runs to completion (both threads are joined before the error propagates).
+        # The critical invariant is that "service" is NOT called — not that
+        # "frontend" is skipped.
+        ("backend",  ["deps", "docker", "user", "fetch"], ["service"]),
         ("frontend", ["deps", "docker", "user", "fetch", "backend"], ["service"]),
     ])
     def test_pipeline_halts_at_failing_module(self, fail_at, expected_called, not_called):

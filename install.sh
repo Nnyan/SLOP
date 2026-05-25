@@ -150,7 +150,7 @@ if [ "$_needs_apt_update" -eq 1 ]; then
 fi
 
 if ! command -v git >/dev/null 2>&1; then
-  apt-get install -y git -qq
+  apt-get install -y --no-install-recommends git -qq
 fi
 
 if [ "$_py3_ok" -eq 0 ]; then
@@ -158,7 +158,7 @@ if [ "$_py3_ok" -eq 0 ]; then
     ubuntu|debian)
       # Ubuntu 24.04 ships Python 3.12; Debian 12 ships 3.11; Debian 13 ships 3.13.
       # All supported distros provide python3 >= 3.11 in main — no PPA required.
-      apt-get install -y python3 python3-venv -qq
+      apt-get install -y --no-install-recommends python3 python3-venv -qq
       ;;
   esac
 elif [ "$_pyvenv_ok" -eq 0 ]; then
@@ -166,7 +166,7 @@ elif [ "$_pyvenv_ok" -eq 0 ]; then
   # Install python3-venv independently — no python3 version-selection needed.
   case "${ID:-}" in
     ubuntu|debian)
-      apt-get install -y python3-venv -qq
+      apt-get install -y --no-install-recommends python3-venv -qq
       ;;
   esac
 fi

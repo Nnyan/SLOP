@@ -125,7 +125,9 @@ def _run_nodesource_setup(distro: str) -> None:
 
 
 def _run_apt_install(packages: list) -> None:
-    result = run_required(["apt-get", "install", "-y", "-qq"] + packages)
+    result = run_required(
+        ["apt-get", "install", "-y", "-qq", "--no-install-recommends"] + packages
+    )
     if result.returncode != 0:
         stderr = result.stderr
         if "Could not get lock" in stderr:

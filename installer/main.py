@@ -12,8 +12,9 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 from installer import (
     _run as _run_mod,
@@ -36,6 +37,40 @@ from installer import (
 
 _DEFAULT_PORT: int = 8080
 _INSTALLER_VERSION: str = "5.0.0"
+
+
+# ── Parallel step runner ──────────────────────────────────────────────────────
+
+
+def _run_parallel(fn_a: Callable, fn_b: Callable) -> None:
+    """Run two zero-argument callables concurrently in daemon threads.
+
+    Both callables are started simultaneously and joined before returning.
+    If either raises an exception, the first exception captured is re-raised
+    after both threads complete (so the second step always runs to completion
+    rather than being abandoned mid-way).
+
+    Thread safety: Python's list.append is GIL-protected; _errors is safe to
+    write from multiple threads.  subprocess.run inside each callable is also
+    thread-safe (each call creates its own child process with its own fds).
+    """
+    _errors: List[BaseException] = []
+
+    def _wrap(fn: Callable) -> None:
+        try:
+            fn()
+        except Exception as exc:
+            _errors.append(exc)
+
+    t_a = threading.Thread(target=_wrap, args=(fn_a,), daemon=True)
+    t_b = threading.Thread(target=_wrap, args=(fn_b,), daemon=True)
+    t_a.start()
+    t_b.start()
+    t_a.join()
+    t_b.join()
+
+    if _errors:
+        raise _errors[0]
 
 
 # ── Consent resolution (ADR 0013 §3) ─────────────────────────────────────────
@@ -242,12 +277,21 @@ def run_install_pipeline(
             ["chown", "mediastack:mediastack", str(community_dir)],
             check=False,
         )
-        print("[6/8] Installing Python dependencies (this may take a minute)...", flush=True)
-        backend_setup(install_dir_path)
+        # Steps [6/8] and [7/8] run in parallel — pip install and npm ci/build
+        # have no shared filesystem state:
+        #   backend_setup  → install_dir/.venv/  (pip install -r requirements.txt)
+        #   frontend_build → install_dir/frontend/node_modules/ + backend/static/
+        # Running them concurrently saves ~30s on a typical install.
+        print("[6/8] Installing Python dependencies...", flush=True)
+        print("[7/8] Building frontend... (steps 6 and 7 run in parallel)", flush=True)
+        _run_parallel(
+            lambda: backend_setup(install_dir_path),
+            lambda: frontend_build(install_dir_path),
+        )
+        # Smoke-stop checks fire after BOTH parallel steps complete.
+        # MS_SMOKE_STOP_AFTER=backend_setup or =frontend_build both stop here.
         if _smoke_check("backend_setup"):
             return 0
-        print("[7/8] Building frontend...", flush=True)
-        frontend_build(install_dir_path)
         if _smoke_check("frontend_build"):
             return 0
         print("[8/8] Installing and starting service...", flush=True)
