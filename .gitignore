@@ -43,6 +43,13 @@ Thumbs.db
 TEST_ANALYSIS.md
 ms-test.py.bak.*
 
+# Frontend build artifacts — installer always rebuilds from source on fresh clone.
+# The installer skip-on-current check (frontend.py:136) is existence-based, not
+# currency-based: committed artifacts triggered the skip on fresh installs and caused
+# the blank-page bug (rocinante, 2026-05). Gitignored in S-23-B.
+# Run `git rm -r --cached backend/static/` before next release to remove from history.
+backend/static/
+
 # Runtime audit/test data — server-local, never commit
 .ms-audit-history.json
 .ms-audit-snapshot.json
