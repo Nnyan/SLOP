@@ -645,6 +645,14 @@
                       <div class="bg-sky-500 h-1.5 rounded-full transition-all duration-500"
                         :style="{ width: ollamaSetupJob.progress + '%' }"/>
                     </div>
+                    <!-- Error detail (collapsible) -->
+                    <details v-if="ollamaSetupJob.phase === 'error' && ollamaSetupJob.errorDetail"
+                      class="text-xs">
+                      <summary class="cursor-pointer text-slate-500 hover:text-slate-700 select-none">
+                        Show error log
+                      </summary>
+                      <pre class="mt-1 p-2 bg-slate-50 border border-slate-200 rounded text-red-700 text-[11px] leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto">{{ ollamaSetupJob.errorDetail }}</pre>
+                    </details>
                     <!-- Retry on error -->
                     <button v-if="ollamaSetupJob.phase === 'error'"
                       @click="startOllamaSetup"

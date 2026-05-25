@@ -1506,7 +1506,7 @@ def wizard_setup_ollama(req: dict[str, Any]) -> dict[str, Any]:
         "message": "Starting…",
         "done": False,
         "ok": False,
-        "error": None,
+        "errorDetail": None,
         "started_at": _time.time(),
     }
     with _ollama_jobs_lock:
@@ -1557,11 +1557,11 @@ def wizard_setup_ollama(req: dict[str, Any]) -> dict[str, Any]:
                     r = _install_app("ollama")
                     if not r.ok:
                         _update(phase="error", done=True, ok=False,
-                                error=getattr(r, "detail", None) or r.error or "Ollama install failed",
+                                errorDetail=getattr(r, "detail", None) or r.error or "Ollama install failed",
                                 message=getattr(r, "detail", None) or r.error or "Install failed")
                         return
                 except Exception as e:
-                    _update(phase="error", done=True, ok=False, error=str(e),
+                    _update(phase="error", done=True, ok=False, errorDetail=str(e),
                             message=f"Install error: {e}")
                     return
             else:
@@ -1587,7 +1587,7 @@ def wizard_setup_ollama(req: dict[str, Any]) -> dict[str, Any]:
                         message=f"Waiting for Ollama API… ({elapsed}s elapsed, up to 180s)")
             else:
                 _update(phase="error", done=True, ok=False,
-                        error="Ollama API did not respond within 120s",
+                        errorDetail="Ollama API did not respond within 120s",
                         message=(
                             "Ollama started but API not reachable after 180s. "
                             "Check: docker logs ollama\n"
@@ -1624,17 +1624,17 @@ def wizard_setup_ollama(req: dict[str, Any]) -> dict[str, Any]:
             proc.wait(timeout=600)
             if proc.returncode != 0:
                 _update(phase="error", done=True, ok=False,
-                        error=f"ollama pull {model} exited with code {proc.returncode}",
+                        errorDetail=f"ollama pull {model} exited with code {proc.returncode}",
                         message=f"Model pull failed. Run: docker exec ollama ollama pull {model}")
                 return
         except _sp.TimeoutExpired:
             proc.kill()
             _update(phase="error", done=True, ok=False,
-                    error="Model download timed out after 10 minutes",
+                    errorDetail="Model download timed out after 10 minutes",
                     message="Download too slow. Try again or pick a smaller model.")
             return
         except Exception as e:
-            _update(phase="error", done=True, ok=False, error=str(e),
+            _update(phase="error", done=True, ok=False, errorDetail=str(e),
                     message=f"Pull error: {e}")
             return
 
