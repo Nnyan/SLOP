@@ -910,3 +910,74 @@ class TestAISafetyModel:
     def test_should_suggest_true_by_default(self, db_path):
         from backend.core.ai_safety import should_suggest
         assert should_suggest("restart_container") is True
+
+
+# ── Workflow 18: _SLOP_MANAGED_VARS — linter suppression ────────────────────
+
+
+class TestSlopManagedVarsLinterSuppression:
+    """_SLOP_MANAGED_VARS suppresses POSTGRES vars in the compose YAML linter.
+
+    The linter should NOT warn about POSTGRES_PASSWORD or POSTGRES_USER
+    being missing from .env — these are always written by the setup wizard.
+    Commit 1e2b6b2 added both vars to _SLOP_MANAGED_VARS.
+    """
+
+    COMPOSE_WITH_POSTGRES_VARS = """
+services:
+  mydb:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: appdb
+    ports:
+      - "5432:5432"
+"""
+
+    def test_slop_managed_vars_suppresses_postgres_warnings(self, client):
+        """POSTGRES_PASSWORD and POSTGRES_USER must NOT appear in missing_vars."""
+        r = client.post("/api/apps/lint-compose", json={"yaml": self.COMPOSE_WITH_POSTGRES_VARS})
+        assert r.status_code == 200
+        data = r.json()
+        # The YAML is structurally valid
+        assert data["valid"] is True
+        # POSTGRES_PASSWORD and POSTGRES_USER must not appear in missing_vars
+        missing = data.get("missing_vars", [])
+        assert "POSTGRES_PASSWORD" not in missing, (
+            "POSTGRES_PASSWORD appeared in missing_vars — "
+            "_SLOP_MANAGED_VARS suppression is not working"
+        )
+        assert "POSTGRES_USER" not in missing, (
+            "POSTGRES_USER appeared in missing_vars — "
+            "_SLOP_MANAGED_VARS suppression is not working"
+        )
+        # Warnings should also not mention these vars as unknown/unset
+        for w in data.get("warnings", []):
+            assert "POSTGRES_PASSWORD" not in w or "not found" not in w, (
+                "Warning incorrectly flagged POSTGRES_PASSWORD as unknown: " + w
+            )
+            assert "POSTGRES_USER" not in w or "not found" not in w, (
+                "Warning incorrectly flagged POSTGRES_USER as unknown: " + w
+            )
+
+
+class TestSlopManagedVarsCompleteness:
+    """_SLOP_MANAGED_VARS registry completeness guard.
+
+    Ensures the frozenset contains the core SLOP-managed variables so
+    future edits don't accidentally remove them.
+    """
+
+    def test_slop_managed_vars_contains_postgres_password(self):
+        from backend.api.apps import _SLOP_MANAGED_VARS
+        assert "POSTGRES_PASSWORD" in _SLOP_MANAGED_VARS
+
+    def test_slop_managed_vars_contains_postgres_user(self):
+        from backend.api.apps import _SLOP_MANAGED_VARS
+        assert "POSTGRES_USER" in _SLOP_MANAGED_VARS
+
+    def test_slop_managed_vars_contains_domain(self):
+        """DOMAIN is a core SLOP var — must always be in the set."""
+        from backend.api.apps import _SLOP_MANAGED_VARS
+        assert "DOMAIN" in _SLOP_MANAGED_VARS

@@ -56,12 +56,18 @@ _GGUF_BLOCKED_PRIVATE = [
 ]
 
 
+_BLOCKED_HOSTNAMES = frozenset({
+    "localhost", "ip6-localhost", "ip6-loopback", "127.0.0.1", "::1",
+})
+
+
 def _validate_gguf_url(url: str) -> str:
     """Raise ValueError if url is not a safe https:// or hf:// URL.
 
-    Blocks file://, http://, and direct connections to private/reserved IPs.
-    DNS rebinding is out of scope — only the scheme and literal-IP checks are
-    enforced here.
+    Blocks file://, http://, and direct connections to private/reserved IPs
+    or loopback hostnames.
+    DNS rebinding is out of scope — only the scheme, literal-IP, and
+    known-loopback-hostname checks are enforced here.
     """
     if url.startswith("hf://"):
         return url  # handled by resolve_gguf_url in gguf_validator
@@ -72,6 +78,9 @@ def _validate_gguf_url(url: str) -> str:
             "file://, http://, and other schemes are not permitted." % parsed.scheme
         )
     hostname = parsed.hostname or ""
+    # Block known loopback hostnames (covers the DNS-name bypass)
+    if hostname.lower() in _BLOCKED_HOSTNAMES:
+        raise ValueError("GGUF URL must not target localhost or loopback addresses")
     try:
         addr = ipaddress.ip_address(hostname)
         for net in _GGUF_BLOCKED_PRIVATE:
@@ -159,7 +168,7 @@ class AgentConfig(BaseModel):
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "phi4-mini"
     # llama.cpp settings
-    llamacpp_url: str = "http://llamacpp_server:8081"
+    llamacpp_url: str = "http://localhost:8081"
     llamacpp_model_file: str = ""   # filename inside models_dir
     # Agent behaviour
     confidence_threshold: float = 0.85
