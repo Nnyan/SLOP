@@ -200,3 +200,78 @@ class TestManifestCompleteness:
             assert isinstance(manifest.config_defaults, dict), (
                 f"{key}: config_defaults is {type(manifest.config_defaults).__name__}, expected dict"
             )
+
+
+# ── Unresolved placeholder guard ───────────────────────────────────────────
+
+class TestNoUnresolvedPlaceholders:
+    """Catalog YAML prose fields must not contain raw {placeholder} strings.
+
+    Single-brace {var} patterns (Python .format() style) in prose fields
+    indicate an unresolved template substitution — the placeholder was written
+    into a description or display_name but never replaced with an actual value.
+
+    Volume host paths legitimately use {config_root}/{media_root} tokens and
+    are deliberately excluded. Only top-level prose string fields are checked.
+
+    Regression source: T3-A retrospective — {domain} found in a description
+    field; guard added to prevent recurrence.
+    """
+
+    # Prose fields that MUST NOT contain raw {placeholder} tokens.
+    # URL/path fields (volumes[].host) are legitimately templated and excluded.
+    PROSE_FIELDS = (
+        "description",
+        "short_description",
+        "display_name",
+        "notes",
+        "summary",
+        "category",
+    )
+
+    def _catalog_yaml_files(self):
+        """Yield all YAML files from apps/ and community/ (if it exists)."""
+        import yaml
+        dirs = [CATALOG]
+        community = CATALOG.parent / "community"
+        if community.exists():
+            dirs.append(community)
+        for catalog_dir in dirs:
+            for f in sorted(catalog_dir.glob("*.yaml")):
+                with open(f) as fh:
+                    doc = fh.read()
+                yield f, doc
+
+    def test_no_unresolved_single_brace_in_descriptions(self):
+        """No catalog YAML prose field may contain a raw {placeholder} token."""
+        import re
+        import yaml
+
+        BRACE_RE = re.compile(r'\{[a-z_]+\}')
+        violations = []
+
+        for yaml_path, raw_text in self._catalog_yaml_files():
+            try:
+                doc = yaml.safe_load(raw_text)
+            except Exception as exc:
+                # YAML parse errors are caught by TestManifestCompleteness
+                continue
+            if not isinstance(doc, dict):
+                continue
+            for field in self.PROSE_FIELDS:
+                value = doc.get(field)
+                if not isinstance(value, str):
+                    continue
+                match = BRACE_RE.search(value)
+                if match:
+                    violations.append(
+                        f"{yaml_path.name}: field '{field}' contains unresolved "
+                        f"placeholder '{match.group()}' in value: {value!r}"
+                    )
+
+        assert not violations, (
+            "Unresolved single-brace placeholders found in catalog prose fields.\n"
+            "These look like Python .format() tokens that were never substituted.\n"
+            "Fix the YAML or add to the exclusion list if intentional.\n\n"
+            + "\n".join(violations)
+        )
