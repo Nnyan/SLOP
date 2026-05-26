@@ -97,6 +97,16 @@ _GET_ENDPOINTS = [
     "/api/v1/health/agent",
     "/api/v1/models/agent/config",
     "/api/v1/platform/prereqs",
+    pytest.param(
+        "/api/v1/platform/ollama-models",
+        marks=pytest.mark.xfail(
+            strict=True,
+            reason=(
+                "S-27 not yet merged: route absent in main, static-file middleware "
+                "intercepts and returns text/html (not JSON). Fix: merge S-27."
+            ),
+        ),
+    ),  # added by S-27
 ]
 
 _GET_IDS = [
@@ -113,6 +123,27 @@ class TestGetEndpointsReturnJson:
     def test_smoke(self, client, endpoint):
         resp = client.get(endpoint)
         _assert_json_response(resp)
+
+
+# ── Prereqs shape test ───────────────────────────────────────────────────────
+
+
+def test_prereqs_returns_expected_shape(client):
+    """Verify /prereqs response has the top-level keys the frontend destructures.
+
+    Frontend reads:
+        data.checks   — list of gate-check objects (status chips in Stage 0)
+        data.system   — dict with puid, pgid, timezone, server_ip, etc.
+
+    A missing key yields silent `undefined` in the frontend and blank form fields.
+    """
+    r = client.get("/api/v1/platform/prereqs")
+    assert r.status_code != 500, f"prereqs returned 500.\nBody: {r.text[:300]}"
+    data = r.json()
+    assert "checks" in data, f"prereqs missing 'checks' key — frontend Stage 0 chips will be empty. Got: {list(data.keys())}"
+    assert "system" in data, f"prereqs missing 'system' key — Stage 1 auto-fill (PUID/TZ) will silently fail. Got: {list(data.keys())}"
+    assert isinstance(data["checks"], list), f"prereqs 'checks' must be a list, got {type(data['checks'])}"
+    assert isinstance(data["system"], dict), f"prereqs 'system' must be a dict, got {type(data['system'])}"
 
 
 # ── POST /api/v1/platform/wizard/validate ────────────────────────────────────
