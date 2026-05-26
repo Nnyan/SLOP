@@ -347,10 +347,10 @@ class TestPayloadContracts:
         assert inp.traefik_dashboard_port == 8081
 
 
-# ── Contract: frontend Stage 9 LLM config reaches backend ────────────────
+# ── Contract: frontend Stage 5 LLM config reaches backend ────────────────
 
 class TestLLMContracts:
-    """Stage 9 selections must result in correct llm_agent_config."""
+    """Stage 5 selections must result in correct llm_agent_config."""
 
     def test_ollama_url_set_when_ollama_selected(self, tmp_path):
         """wizard_save_llm with provider=ollama must set ollama_url."""

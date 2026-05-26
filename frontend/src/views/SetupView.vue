@@ -179,13 +179,13 @@
               <div>
                 <label class="label">DNS provider</label>
                 <select v-model="form.dns_provider" class="input">
-                  <option v-for="(meta, key) in DNS_PROVIDERS" :key="key" :value="key">
+                  <option v-for="(meta, key) in effectiveDnsProviders" :key="key" :value="key">
                     {{ meta.label }}
                   </option>
                 </select>
-                <p v-if="DNS_PROVIDERS[form.dns_provider]" class="text-xs text-slate-400 mt-1">
-                  Requires: <span class="font-mono">{{ DNS_PROVIDERS[form.dns_provider].vars.join(', ') }}</span>
-                  — <a :href="DNS_PROVIDERS[form.dns_provider].link" target="_blank" rel="noopener" class="underline">get credentials ↗</a>
+                <p v-if="effectiveDnsProviders[form.dns_provider]" class="text-xs text-slate-400 mt-1">
+                  Requires: <span class="font-mono">{{ effectiveDnsProviders[form.dns_provider].vars.join(', ') }}</span>
+                  — <a :href="effectiveDnsProviders[form.dns_provider].link" target="_blank" rel="noopener" class="underline">get credentials ↗</a>
                 </p>
               </div>
             </div>
@@ -505,7 +505,7 @@
                 <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                   <span class="text-slate-500">Domain</span><span class="font-mono">{{ form.domain }}</span>
                   <span class="text-slate-500">Config root</span><span class="font-mono">{{ form.config_root }}</span>
-                  <span class="text-slate-500">DNS provider</span><span>{{ DNS_PROVIDERS[form.dns_provider]?.label }}</span>
+                  <span class="text-slate-500">DNS provider</span><span>{{ effectiveDnsProviders[form.dns_provider]?.label }}</span>
                   <span class="text-slate-500">Cert authority</span><span>{{ form.cert_resolver }}</span>
                   <span class="text-slate-500">Infra</span>
                   <span>{{ Object.entries(form.infra).filter(([,v]) => v && v !== 'none').map(([k,v]) => v).join(', ') || 'Traefik only' }}</span>
@@ -898,7 +898,8 @@ const route = useRoute()
 const forceSetup = ref(route.query.force === 'true')
 
 // ── DNS Provider metadata ─────────────────────────────────────────────────
-const DNS_PROVIDERS: Record<string, { label: string; vars: string[]; link: string }> = {
+// Fetched from GET /api/v1/platform/dns-providers on mount; kept as fallback if fetch fails.
+const DNS_PROVIDERS_FALLBACK: Record<string, { label: string; vars: string[]; link: string }> = {
   cloudflare:   { label: "Cloudflare",       vars: ["CF_DNS_API_TOKEN"],                                                      link: "https://dash.cloudflare.com/profile/api-tokens" },
   route53:      { label: "AWS Route 53",      vars: ["AWS_ACCESS_KEY_ID","AWS_SECRET_ACCESS_KEY","AWS_REGION","AWS_HOSTED_ZONE_ID"], link: "https://console.aws.amazon.com/iam/" },
   namecheap:    { label: "Namecheap",         vars: ["NAMECHEAP_API_USER","NAMECHEAP_API_KEY"],                                link: "https://ap.www.namecheap.com/settings/tools/apiaccess/" },
@@ -920,6 +921,13 @@ const DNS_PROVIDERS: Record<string, { label: string; vars: string[]; link: strin
   bunny:        { label: "Bunny DNS",         vars: ["BUNNY_API_KEY"],                                                        link: "https://panel.bunny.net/account" },
   dnspod:       { label: "DNSPod",            vars: ["DNSPOD_API_KEY","DNSPOD_SECRET_ID"],                                    link: "https://console.dnspod.cn/account/token/apikey" },
 }
+
+// Reactive ref populated on mount from /api/v1/platform/dns-providers.
+// Falls back to DNS_PROVIDERS_FALLBACK if the fetch fails or returns empty.
+const dnsProviders = ref<Record<string, { label: string; vars: string[]; link: string }>>({})
+const effectiveDnsProviders = computed(() =>
+  Object.keys(dnsProviders.value).length > 0 ? dnsProviders.value : DNS_PROVIDERS_FALLBACK
+)
 
 // ── Stage definitions ─────────────────────────────────────────────────────
 const STAGES = [
@@ -1223,8 +1231,8 @@ function hex(len = 32) {
 const requiredSecrets = computed(() => {
   const secrets: any[] = []
 
-  // DNS provider credentials — driven from DNS_PROVIDERS map so all providers are covered
-  const dnsInfo = DNS_PROVIDERS[form.dns_provider]
+  // DNS provider credentials — driven from effectiveDnsProviders so all providers are covered
+  const dnsInfo = effectiveDnsProviders.value[form.dns_provider]
   if (dnsInfo) {
     for (const varKey of dnsInfo.vars) {
       secrets.push({
@@ -2007,6 +2015,22 @@ onMounted(async () => {
     const r = await fetch('/api/v1/platform/timezones')
     const d = await r.json()
     timezones.value = d.timezones || []
+  } catch {}
+  // Load DNS providers from backend; transform list[{key,name,env}] → Record<string, {label,vars,link}>
+  try {
+    const r = await fetch('/api/v1/platform/dns-providers')
+    const d: Array<{ key: string; name: string; env: string[] }> = await r.json()
+    if (Array.isArray(d) && d.length > 0) {
+      const providers: Record<string, { label: string; vars: string[]; link: string }> = {}
+      for (const p of d) {
+        providers[p.key] = {
+          label: p.name,
+          vars: p.env,
+          link: DNS_PROVIDERS_FALLBACK[p.key]?.link ?? '',
+        }
+      }
+      dnsProviders.value = providers
+    }
   } catch {}
   // Load quick stacks (defaults + custom) from backend
   await loadStacks()
