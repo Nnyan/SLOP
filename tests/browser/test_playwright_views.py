@@ -56,7 +56,7 @@ def _wait_for_api(page: "Page", max_s: int = 10) -> bool:
     deadline = time.time() + max_s
     while time.time() < deadline:
         try:
-            resp = page.request.get("/api/platform/status")
+            resp = page.request.get("/api/v1/platform/status")
             if resp.ok:
                 return True
         except Exception:
@@ -123,7 +123,7 @@ class TestPlatformStatusDisplay:
         page.goto(base_url, wait_until="networkidle")
 
         # Get the API status
-        api_resp = page.request.get(f"{base_url}/api/platform/status")
+        api_resp = page.request.get(f"{base_url}/api/v1/platform/status")
         assert api_resp.ok, "API platform status failed"
         api_status = api_resp.json().get("status", "unknown")
 
@@ -147,7 +147,7 @@ class TestPlatformStatusDisplay:
         page.goto(base_url, wait_until="networkidle")
 
         # Trigger a platform status re-check via the API (simulates server-side change)
-        api_resp = page.request.get(f"{base_url}/api/platform/status")
+        api_resp = page.request.get(f"{base_url}/api/v1/platform/status")
         assert api_resp.ok
 
         # Status poll should happen automatically within 30s (or on route change)
@@ -274,7 +274,7 @@ class TestHealthView:
 
         content = page.content().lower()
         # If no apps installed, must not claim all healthy
-        api_resp = page.request.get(f"{base_url}/api/health/apps")
+        api_resp = page.request.get(f"{base_url}/api/v1/health/apps")
         if api_resp.ok:
             apps = api_resp.json()
             if not apps:
@@ -318,7 +318,7 @@ class TestAPIToViewContracts:
     def test_settings_values_appear_in_settings_view(self, page: "Page", base_url: str):
         """Settings view must display values from GET /api/settings."""
         # Get current settings from API
-        resp = page.request.get(f"{base_url}/api/settings")
+        resp = page.request.get(f"{base_url}/api/v1/settings")
         if not resp.ok:
             pytest.skip("Settings API not available")
 
@@ -375,7 +375,7 @@ class TestUIMatchesAPIData:
 
     def test_platform_status_matches_api(self, page: "Page", base_url: str):
         """Platform status shown in sidebar must match GET /api/platform/status."""
-        api_resp = page.request.get(f"{base_url}/api/platform/status")
+        api_resp = page.request.get(f"{base_url}/api/v1/platform/status")
         if not api_resp.ok:
             pytest.skip("Platform API not available")
 
@@ -399,7 +399,7 @@ class TestUIMatchesAPIData:
 
     def test_catalog_count_matches_api(self, page: "Page", base_url: str):
         """App count shown in catalog must match GET /api/apps/catalog."""
-        api_resp = page.request.get(f"{base_url}/api/apps/catalog")
+        api_resp = page.request.get(f"{base_url}/api/v1/catalog")
         if not api_resp.ok:
             pytest.skip("Catalog API not available")
 
@@ -461,4 +461,115 @@ class TestUIMatchesAPIData:
         critical_errors = [e for e in errors if "cannot read" in e.lower() or "undefined" in e.lower()]
         assert not critical_errors, (
             f"Vue reactivity errors after navigation: {critical_errors}"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wizard Flow — regression guard for the prereqs 500 / JSON parse failure
+# Root bug: GET /api/v1/platform/prereqs returned "Internal Server Error" as
+# plain text; frontend r.json() threw SyntaxError → Stage 0 never rendered.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSetupWizardFlow:
+    """
+    Wizard-specific flow tests.
+
+    These catch the class of bug where a backend route starts returning
+    non-JSON (e.g. 500 "Internal Server Error") and the Vue frontend
+    throws SyntaxError on r.json() — invisible to all backend tests.
+    """
+
+    def test_prereqs_api_returns_json_not_error_string(self, page: "Page", base_url: str):
+        """
+        Regression: prereqs returning plain-text 500 caused
+        SyntaxError: Unexpected token 'I', "Internal S"... is not valid JSON
+        in the Platform Setup wizard Stage 0.
+
+        This test verifies the root cause: the API endpoint must return
+        valid JSON, not a plain-text error string.
+        """
+        resp = page.request.get(f"{base_url}/api/v1/platform/prereqs")
+        assert resp.status != 500, (
+            f"prereqs endpoint returned 500. "
+            f"Body: {resp.text()[:200]}"
+        )
+        # Must be parseable as JSON — this is the exact failure mode the user hit
+        try:
+            data = resp.json()
+        except Exception as e:
+            pytest.fail(
+                f"prereqs endpoint returned non-JSON (status {resp.status}). "
+                f"Frontend will throw SyntaxError. Body: {resp.text()[:200]}. "
+                f"Parse error: {e}"
+            )
+        assert isinstance(data, dict), f"prereqs must return a JSON object, got: {type(data)}"
+
+    def test_wizard_stage_0_loads_without_js_error(self, page: "Page", base_url: str):
+        """Stage 0 (Welcome) must render without any JS console errors."""
+        js_errors = []
+        page.on("pageerror", lambda e: js_errors.append(str(e)))
+        page.on("console", lambda m: js_errors.append(f"[console.error] {m.text}") if m.type == "error" else None)
+
+        page.goto(f"{base_url}/setup", wait_until="networkidle")
+        page.wait_for_timeout(2000)  # wait for onMounted prereqs fetch
+
+        # Filter out non-critical noise (extension errors, etc.)
+        critical = [e for e in js_errors if any(
+            kw in e.lower() for kw in ("syntaxerror", "unexpected token", "undefined", "cannot read")
+        )]
+        assert not critical, (
+            f"Wizard Stage 0 has critical JS errors: {critical}\n"
+            "Most likely cause: a backend API call returned non-JSON."
+        )
+
+    def test_wizard_stage_0_to_stage_1_navigation(self, page: "Page", base_url: str):
+        """Continue button on Stage 0 must advance to Stage 1 (stack selection)."""
+        js_errors = []
+        page.on("pageerror", lambda e: js_errors.append(str(e)))
+
+        page.goto(f"{base_url}/setup", wait_until="networkidle")
+        page.wait_for_timeout(2000)
+
+        # Find and click Continue
+        continue_btn = page.locator("button:has-text('Continue'), button:has-text('Next')").first
+        if not continue_btn.is_visible():
+            pytest.skip("No Continue button visible on Stage 0 — wizard may require platform=pending state")
+
+        continue_btn.click()
+        page.wait_for_timeout(1000)
+
+        # Should now be on Stage 1 (stack selection)
+        assert not js_errors, f"JS errors after Stage 0→1 navigation: {js_errors}"
+
+        content = page.content()
+        assert any(kw in content.lower() for kw in (
+            "stack", "quick", "media", "select", "stage 1", "step 1"
+        )), "After clicking Continue, wizard did not advance to Stage 1"
+
+    def test_wizard_no_json_errors_on_mount(self, page: "Page", base_url: str):
+        """
+        Wizard onMounted makes several API calls. None should result in
+        a JSON parse failure. Catches the 'Internal Server Error' class of regression.
+        """
+        failed_requests = []
+
+        def on_response(response):
+            if "/api/v1/" in response.url:
+                content_type = response.headers.get("content-type", "")
+                if response.status >= 400 or "application/json" not in content_type:
+                    failed_requests.append({
+                        "url": response.url,
+                        "status": response.status,
+                        "content_type": content_type,
+                    })
+
+        page.on("response", on_response)
+        page.goto(f"{base_url}/setup", wait_until="networkidle")
+        page.wait_for_timeout(2000)
+
+        # Filter for non-JSON that would break the frontend
+        critical = [r for r in failed_requests if r["status"] >= 500]
+        assert not critical, (
+            f"Wizard's onMounted API calls returned 500s: {critical}\n"
+            "These will cause JSON parse errors in the frontend."
         )

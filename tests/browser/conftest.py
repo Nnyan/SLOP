@@ -18,7 +18,7 @@ def pytest_collection_modifyitems(config, items):
     base_url = getattr(getattr(config, "option", None), "base_url", None) or "http://localhost:8080"
 
     try:
-        urllib.request.urlopen(f"{base_url}/api/platform/status", timeout=3)
+        urllib.request.urlopen(f"{base_url}/api/v1/platform/prereqs", timeout=3)
         server_up = True
     except Exception:
         server_up = False
