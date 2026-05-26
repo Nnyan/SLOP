@@ -235,3 +235,140 @@ class TestListenerUsesClassifier:
         asyncio.run(install_failure_listener("sonarr", step))
         rows = _get_pending_fixes(db_path)
         assert rows == []
+
+
+# ---------------------------------------------------------------------------
+# Phase C: classify_with_llm tests
+# ---------------------------------------------------------------------------
+
+
+def _seed_fix_history(db_path: Path, sig_hash: str, fix: str) -> None:
+    """Pre-seed fix_history with a success row for the given signature_hash."""
+    import sqlite3 as _sqlite3
+    conn = _sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO fix_history "
+        "(app_key, error_type, context, suggested_fix, outcome, created_at, "
+        " diagnosis_class, signature_hash) "
+        "VALUES (?, ?, ?, ?, 'success', unixepoch(), ?, ?)",
+        ("sonarr", "IMAGE_PULL_FAIL", "", fix, "IMAGE_PULL_FAIL", sig_hash),
+    )
+    conn.commit()
+    conn.close()
+
+
+class TestClassifyWithLlm:
+
+    def test_pattern_library_hit_skips_llm(self, db_path: Path, monkeypatch) -> None:
+        """If fix_history has a matching signature_hash, LLM is never called."""
+        from backend.agent.classifier import classify_with_llm, compute_signature_hash
+        from backend.agent.taxonomy import ErrorClass
+
+        error_text = "manifest unknown for linuxserver/sonarr:latest"
+        app_key = "sonarr"
+
+        # Pre-seed fix_history with a cached success row
+        sig_hash = compute_signature_hash(ErrorClass.IMAGE_PULL_FAIL, error_text, app_key)
+        cached_fix = "Pull the image manually: docker pull linuxserver/sonarr:latest"
+        _seed_fix_history(db_path, sig_hash, cached_fix)
+
+        # Track whether the LLM helper is called
+        llm_called = []
+
+        async def _fake_llm(prompt: str):  # type: ignore[override]
+            llm_called.append(prompt)
+            return "should not be called"
+
+        monkeypatch.setattr(
+            "backend.agent.classifier._query_llm_for_diagnosis", _fake_llm
+        )
+
+        error_class, suggested_fix, confidence = asyncio.run(
+            classify_with_llm(error_text, app_key, str(db_path))
+        )
+
+        assert confidence == 0.95, f"Expected 0.95, got {confidence}"
+        assert suggested_fix == cached_fix
+        assert error_class == ErrorClass.IMAGE_PULL_FAIL
+        assert llm_called == [], "LLM must NOT be called on pattern-library hit"
+
+    def test_llm_unreachable_returns_offline_class(
+        self, db_path: Path, monkeypatch
+    ) -> None:
+        """If LLM returns None, offline class is returned with confidence=0.4."""
+        from backend.agent.classifier import classify_with_llm
+        from backend.agent.taxonomy import ErrorClass
+
+        monkeypatch.setattr(
+            "backend.agent.classifier._query_llm_for_diagnosis",
+            lambda *a, **kw: _coro(None),
+        )
+
+        error_text = "manifest unknown for linuxserver/sonarr:latest"
+        error_class, suggested_fix, confidence = asyncio.run(
+            classify_with_llm(error_text, "sonarr", str(db_path))
+        )
+
+        assert confidence == 0.4, f"Expected 0.4 (LLM unreachable), got {confidence}"
+        assert suggested_fix == ""
+        assert error_class == ErrorClass.IMAGE_PULL_FAIL
+
+    def test_llm_response_gives_suggested_fix(
+        self, db_path: Path, monkeypatch
+    ) -> None:
+        """If LLM returns text, suggested_fix is extracted and confidence=0.8."""
+        from backend.agent.classifier import classify_with_llm
+        from backend.agent.taxonomy import ErrorClass
+
+        llm_reply = "Try pulling the image manually first."
+        monkeypatch.setattr(
+            "backend.agent.classifier._query_llm_for_diagnosis",
+            lambda *a, **kw: _coro(llm_reply),
+        )
+
+        error_text = "manifest unknown for linuxserver/sonarr:latest"
+        error_class, suggested_fix, confidence = asyncio.run(
+            classify_with_llm(error_text, "sonarr", str(db_path))
+        )
+
+        assert confidence == 0.8, f"Expected 0.8 (LLM responded, non-UNKNOWN), got {confidence}"
+        assert suggested_fix != ""
+        assert "manually" in suggested_fix.lower() or suggested_fix[:5] == llm_reply[:5]
+        assert error_class == ErrorClass.IMAGE_PULL_FAIL
+
+    def test_listener_writes_suggested_fix(
+        self, db_path: Path, monkeypatch
+    ) -> None:
+        """Listener uses classify_with_llm and persists suggested_fix + confidence."""
+        from backend.agent.taxonomy import ErrorClass
+
+        monkeypatch.setattr(
+            "backend.agent.listener.classify_with_llm",
+            lambda *a, **kw: _coro(
+                (ErrorClass.IMAGE_PULL_FAIL, "Try X", 0.8)
+            ),
+        )
+
+        step = {
+            "name": "pull",
+            "status": "error",
+            "message": "Image pull failed",
+            "detail": "manifest unknown for linuxserver/sonarr:latest",
+        }
+        asyncio.run(install_failure_listener("sonarr", step))
+        rows = _get_pending_fixes(db_path)
+
+        assert len(rows) == 1, f"Expected 1 row, got {rows}"
+        assert rows[0]["suggested_fix"] == "Try X"
+        assert abs(rows[0]["confidence"] - 0.8) < 0.001
+        assert rows[0]["diagnosis_class"] == "IMAGE_PULL_FAIL"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for async monkeypatching in sync test contexts
+# ---------------------------------------------------------------------------
+
+
+async def _coro(value):
+    """Return *value* as a coroutine — for use in monkeypatch lambdas."""
+    return value
