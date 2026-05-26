@@ -237,7 +237,7 @@
       </div>
     </div>
     <div v-else-if="installedModels.length === 0" class="card card-body text-center py-6 text-slate-400 text-sm mb-6">
-      No models found. Download one below, or run <code class="font-mono bg-slate-100 px-1 rounded">ollama pull phi4-mini</code> on your server.
+      No models found. Download one below, or run <code class="font-mono bg-slate-100 px-1 rounded">ollama pull [model-name]</code> on your server.
     </div>
     <div v-else class="grid grid-cols-2 gap-2 mb-3">
       <div v-for="m in installedModels" :key="m.filename" class="card card-body !py-2.5 !px-3">
@@ -289,7 +289,7 @@
           <div>
             <label class="label">Download URL</label>
             <input v-model="customUrl" type="text" class="input"
-              placeholder="https://huggingface.co/bartowski/phi-4-mini-instruct-GGUF/resolve/main/model.gguf" />
+              placeholder="https://huggingface.co/[user]/[repo]/resolve/main/model.gguf" />
             <p class="text-xs text-slate-400 mt-1">Direct link to a .gguf file from HuggingFace or any host</p>
           </div>
           <!-- Preflight result -->
@@ -402,8 +402,8 @@
             <label class="text-xs text-slate-500 w-10 shrink-0">Model</label>
             <input v-model="providerModel" type="text" class="input text-xs font-mono flex-1"
               :placeholder="inferenceProvider === 'openrouter'
-                ? 'meta-llama/llama-3.2-3b-instruct:free'
-                : inferenceProvider === 'ollama' ? 'phi4-mini' : 'auto-detect'" />
+                ? 'meta-llama/llama-3.3-70b-instruct:free'
+                : inferenceProvider === 'ollama' ? '[model-name]' : 'auto-detect'" />
           </div>
         </div>
 
