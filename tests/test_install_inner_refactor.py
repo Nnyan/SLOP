@@ -213,6 +213,8 @@ def test_check_port_conflict_passes_when_same_app_holds_port() -> None:
     with patch("backend.manifests.executor.docker_client.ports_in_use",
                return_value={9999: "myapp"}):
         ok = _check_port_conflict("myapp", 9999, result)
+    # False would mean the same-app skip path is broken: the function
+    # would falsely flag a port owned by `key` itself as a conflict.
     assert ok is True
     assert result.ok is True
 
@@ -222,6 +224,8 @@ def test_check_port_conflict_passes_when_no_one_holds_port() -> None:
     with patch("backend.manifests.executor.docker_client.ports_in_use",
                return_value={}):
         ok = _check_port_conflict("myapp", 9999, result)
+    # False here would mean the no-conflict path falsely reports a conflict
+    # (StateDB returned an unexpected owner row, or the empty-map check broke).
     assert ok is True
 
 

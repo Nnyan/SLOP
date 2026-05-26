@@ -45,23 +45,40 @@ def _load_ms_enforce() -> object:
 def test_check_mock_discipline_runs() -> None:
     """`check_mock_discipline` AST-walks tests/ and returns (True, msg).
 
-    Returns True even when over-mocked tests exist — the check is a
-    warning, not a block. The assertion verifies the helper completes
-    without exceptions and produces a non-empty message.
+    `ok` is True by construction (the check is warning-only — it cannot
+    block), so we don't bother asserting on it. Instead we pin the
+    *message contract* so a regression in the header format, the
+    threshold phrasing, or the ADR pointer is surfaced.
     """
     module = _load_ms_enforce()
     result = module.check_mock_discipline()
     assert isinstance(result, tuple) and len(result) == 2
     ok, msg = result
-    assert ok is True  # warning-only by design
-    assert isinstance(msg, str) and len(msg) > 0
+    assert isinstance(ok, bool)
+    assert isinstance(msg, str) and msg
+    # Message header is the rule contract: "<n> test(s) stack more than 3
+    # internal mocks (boundary mocks are fine; see docs/adr/0002-mocking-policy.md)".
+    # If any of these phrases drift, ms-enforce output formatting has changed
+    # and Tier 2 dashboards/log scrapers will silently miss the warning.
+    assert "more than 3 internal mocks" in msg
+    assert "boundary mocks are fine" in msg
+    assert "docs/adr/0002-mocking-policy.md" in msg
 
 
 def test_check_mock_discipline_threshold_documented() -> None:
-    """The threshold of 3 is documented in ADR 0002 — verify the docstring
-    or implementation surfaces it so changes don't go unnoticed."""
+    """The threshold of 3 is documented in ADR 0002 — verify the source
+    pins the literal AND the canonical comparison so a silent loosening
+    (e.g. bumping to 5 with no ADR update) trips this test.
+
+    Replaces an earlier `" 3" in src` substring check that matched any
+    space-3 sequence anywhere in the file — vacuous by construction.
+    """
     module = _load_ms_enforce()
-    src = Path(module.__file__).read_text() if module.__file__ else ""
-    # The threshold integer should appear in the function body as either a
-    # comparison (`> 3`) or a literal assignment (`threshold = 3`).
-    assert "threshold = 3" in src or "> 3" in src or " 3" in src
+    assert module.__file__, "ms-enforce module has no __file__"
+    src = Path(module.__file__).read_text()
+    assert "threshold = 3" in src, "threshold literal `threshold = 3` missing"
+    assert "if internal > threshold" in src, (
+        "canonical `if internal > threshold` comparison missing — "
+        "if you loosened the comparison, update ADR 0002 too"
+    )
+    assert "Rule 4.12" in src, "Rule 4.12 ADR attribution missing from ms-enforce"
