@@ -1770,7 +1770,7 @@ def wizard_stack_app_keys(stack_ids: str = "") -> dict[str, Any]:
     return {"keys": list(dict.fromkeys(keys))}  # deduplicated, order preserved
 @router.post("/wizard/save-llm")
 def wizard_save_llm(req: dict[str, Any]) -> dict[str, Any]:
-    """Stage 9: persist LLM provider choice and API key to settings."""
+    """Stage 5: persist LLM provider choice and API key to settings."""
     from backend.core.state import StateDB
     import json as _json
 
@@ -1828,6 +1828,62 @@ def wizard_save_llm(req: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True, "message": f"AI monitoring configured: {provider}"}
     except Exception as e:
         return {"ok": False, "message": str(e)}
+
+
+@router.get("/cloud-models")
+async def get_cloud_models(provider: str, api_key: str = "") -> dict[str, Any]:
+    """Fetch available model IDs from a cloud LLM provider's /v1/models endpoint.
+
+    SSRF guard: only hardcoded provider base URLs are used — the caller cannot
+    supply an arbitrary URL.  Timeout: 5 s.  Never raises 500; always returns
+    ``{"models": [], "error": "<message>"}`` on failure.
+
+    Supported providers: openai, anthropic, openrouter, groq
+    """
+    import httpx as _httpx
+
+    # --- SSRF allowlist: only these URLs are ever contacted ---
+    _PROVIDER_URLS: dict[str, tuple[str, str]] = {
+        "openai":     ("https://api.openai.com/v1/models",          "bearer"),
+        "anthropic":  ("https://api.anthropic.com/v1/models",       "x-api-key"),
+        "openrouter": ("https://openrouter.ai/api/v1/models",       "bearer"),
+        "groq":       ("https://api.groq.com/openai/v1/models",     "bearer"),
+    }
+
+    if provider not in _PROVIDER_URLS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown provider: {provider!r}. Allowed: {sorted(_PROVIDER_URLS)}",
+        )
+
+    if not api_key or len(api_key) < 10:
+        raise HTTPException(status_code=400, detail="api_key must be at least 10 characters")
+
+    url, auth_style = _PROVIDER_URLS[provider]
+
+    headers: dict[str, str] = {}
+    if auth_style == "bearer":
+        headers["Authorization"] = f"Bearer {api_key}"
+    else:  # x-api-key (Anthropic)
+        headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+
+    try:
+        async with _httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(url, headers=headers)
+            if r.status_code != 200:
+                return {"models": [], "error": f"Provider returned HTTP {r.status_code}"}
+            data = r.json()
+            # Both OpenAI-style and Anthropic-style wrap model objects under "data"
+            models: list[str] = sorted(
+                m["id"] for m in data.get("data", [])
+                if isinstance(m, dict) and "id" in m
+            )
+            return {"models": models, "error": None}
+    except _httpx.TimeoutException:
+        return {"models": [], "error": "Request timed out after 5 s"}
+    except Exception as exc:
+        return {"models": [], "error": str(exc)}
 
 
 @router.get("/ollama-models")
