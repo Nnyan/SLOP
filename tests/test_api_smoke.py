@@ -96,25 +96,7 @@ _GET_ENDPOINTS = [
     "/api/v1/health/summary",
     "/api/v1/health/agent",
     "/api/v1/models/agent/config",
-    # ── Known failure (strict xfail) ─────────────────────────────────────
-    # platform_prereqs crashes with NameError: name '_cfg' is not defined
-    # at platform.py:1366.  When profile is not None (real system info
-    # obtained), the return dict references `_cfg.data_dir` but _cfg is
-    # never imported inside platform_prereqs — only inside sibling
-    # functions.  Surfaces as HTTP 500 in production when Docker is running.
-    # Root cause: missing `from backend.core.config import config as _cfg`
-    # in the platform_prereqs function body.
-    # TODO: see TODO.md item "Bug: platform_prereqs NameError _cfg"
-    pytest.param(
-        "/api/v1/platform/prereqs",
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason=(
-                "platform.py:1366 NameError: '_cfg' is not defined — "
-                "missing import inside platform_prereqs() when profile is not None"
-            ),
-        ),
-    ),
+    "/api/v1/platform/prereqs",
 ]
 
 _GET_IDS = [

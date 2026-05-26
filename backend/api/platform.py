@@ -1159,7 +1159,6 @@ def platform_prereqs(request: Request) -> dict[str, Any]:
     import json as _json
     from backend.core.system_eval import get_cached_profile as _get_profile
     from backend.core.state import StateDB as _SDB
-    from backend.core.config import config as _cfg
 
     # Use cached profile — avoids re-running all subprocesses on every stage visit
     _force = request.query_params.get("force") == "1" if hasattr(request, "query_params") else False
@@ -1347,6 +1346,7 @@ def platform_prereqs(request: Request) -> dict[str, Any]:
             log.warning("system_profile store failed: %s", _se)
 
     # ── Return to frontend ─────────────────────────────────────────────────
+    from backend.core.config import config as _cfg  # noqa: PLC0415
     system = {}
     if profile:
         system = {
