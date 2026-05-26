@@ -1828,3 +1828,42 @@ def wizard_save_llm(req: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         return {"ok": False, "message": str(e)}
 
+
+@router.get("/ollama-models")
+async def get_ollama_models(ollama_url: str = "http://localhost:11434") -> dict[str, Any]:
+    """Fetch available models from a running Ollama instance.
+
+    Returns list of model names, or empty list if Ollama is unreachable.
+    Query param: ollama_url (default http://localhost:11434)
+
+    SSRF guard: only localhost/127.0.0.1/::1 targets are permitted.
+    The wizard always targets the user's own machine; remote Ollama URLs
+    that pass through this endpoint would allow scanning arbitrary hosts.
+    """
+    import urllib.parse as _up
+    import httpx as _httpx
+
+    # SSRF guard — only localhost targets allowed
+    _ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "ip6-localhost"})
+    try:
+        parsed = _up.urlparse(ollama_url)
+        host = (parsed.hostname or "").lower().strip("[]")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid ollama_url")
+
+    if host not in _ALLOWED_HOSTS:
+        raise HTTPException(
+            status_code=400,
+            detail="ollama_url must target localhost (localhost, 127.0.0.1, or ::1)",
+        )
+
+    try:
+        async with _httpx.AsyncClient(timeout=3.0) as client:
+            r = await client.get(f"{ollama_url}/api/tags")
+            if r.status_code == 200:
+                data = r.json()
+                return {"models": [m["name"] for m in data.get("models", [])], "live": True}
+    except Exception:
+        pass
+    return {"models": [], "live": False}
+

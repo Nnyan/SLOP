@@ -404,6 +404,8 @@
                       <option value="llama3-70b-8192">Llama 3 70B — balanced</option>
                     </select>
                   </div>
+                  <a href="https://console.groq.com/docs/models" target="_blank" rel="noopener"
+                    class="text-xs text-sky-600 underline">Browse all Groq models ↗</a>
                 </div>
                 <!-- Cloud: Awan -->
                 <div v-if="form.llm_provider === 'awan'" class="space-y-2">
@@ -417,6 +419,8 @@
                       <option value="Meta-Llama-3.1-70B-Instruct">Llama 3.1 70B — best quality</option>
                     </select>
                   </div>
+                  <a href="https://www.awanllm.com/models" target="_blank" rel="noopener"
+                    class="text-xs text-sky-600 underline">Browse all Awan models ↗</a>
                 </div>
                 <!-- Cloud: Cerebras -->
                 <div v-if="form.llm_provider === 'cerebras'" class="space-y-2">
@@ -430,6 +434,8 @@
                       <option value="llama3.1-8b">Llama 3.1 8B — fastest</option>
                     </select>
                   </div>
+                  <a href="https://inference-docs.cerebras.ai/api-reference/chat#model" target="_blank" rel="noopener"
+                    class="text-xs text-sky-600 underline">Browse all Cerebras models ↗</a>
                 </div>
                 <!-- Cloud: OpenAI -->
                 <div v-if="form.llm_provider === 'openai'" class="space-y-2">
@@ -443,6 +449,8 @@
                       <option value="gpt-4o">GPT-4o — best quality</option>
                     </select>
                   </div>
+                  <a href="https://platform.openai.com/docs/models" target="_blank" rel="noopener"
+                    class="text-xs text-sky-600 underline">Browse all OpenAI models ↗</a>
                 </div>
                 <!-- Local: llama.cpp -->
                 <div v-if="form.llm_provider === 'llamacpp'" class="space-y-2">
@@ -454,7 +462,7 @@
                   <div class="flex items-center gap-2">
                     <label class="text-xs text-slate-500 w-20 shrink-0">Model name:</label>
                     <input v-model="form.llamacpp_model" type="text"
-                      placeholder="phi-4-mini" class="input text-xs flex-1 font-mono" />
+                      placeholder="e.g. phi-4-mini, mistral:7b, llama3:8b" class="input text-xs flex-1 font-mono" />
                   </div>
                 </div>
                 <!-- Local: Ollama — model selection here; install runs in Stage 9 after deploy -->
@@ -478,6 +486,8 @@
                       </option>
                     </select>
                   </div>
+                  <p v-if="liveOllamaModels !== null" class="text-xs text-emerald-600">✓ fetched from Ollama</p>
+                  <p v-else-if="ollamaFetchDone" class="text-xs text-amber-500">Ollama not running — showing common models</p>
                   <p class="text-xs text-slate-400 italic">
                     Ollama will be installed and the model downloaded after deploy (Step 9).
                     <span v-if="ollamaModelSizeInfo"> {{ ollamaModelSizeInfo }}.</span>
@@ -1666,6 +1676,8 @@ async function installStacks() {
 const ollamaSetupJobId = ref<string | null>(null)
 const ollamaSetupJob = ref<any>(null)
 let ollamaSetupPoll: ReturnType<typeof setInterval> | null = null
+const liveOllamaModels = ref<string[] | null>(null)
+const ollamaFetchDone = ref(false)
 
 // Model metadata — kept in sync with backend LLM_MODEL_RAM_MB
 const ALL_OLLAMA_MODELS = [
@@ -1680,8 +1692,31 @@ const ollamaModelOptions = computed(() => {
   // Use backend available_models list when present (accounts for GPU, bandwidth, stack)
   const backendModels = systemProfile.value?.available_models as string[] | undefined
   const recommended = systemProfile.value?.recommended_model || ''
-  const gpu = systemProfile.value?.gpu_name || ''
+  const live = liveOllamaModels.value
 
+  // When live fetch succeeded: show installed models first, then static extras as "not installed"
+  if (live !== null && live.length > 0) {
+    const liveSet = new Set(live)
+    const liveItems = live.map(name => ({
+      value: name,
+      label: `${name} — ✓ installed`,
+      _recommended: name === recommended,
+      _loaded: true,
+      _approved: true,
+    }))
+    const staticExtra = ALL_OLLAMA_MODELS
+      .filter(m => !liveSet.has(m.value))
+      .map(m => ({
+        ...m,
+        label: `${m.label} — not installed`,
+        _recommended: m.value === recommended,
+        _loaded: false,
+        _approved: !backendModels || backendModels.includes(m.value),
+      }))
+    return [...liveItems, ...staticExtra]
+  }
+
+  // Fallback: static list with backend-based filtering (Ollama not running or not yet fetched)
   const models = ALL_OLLAMA_MODELS.map(m => {
     const backendApproved = !backendModels || backendModels.includes(m.value)
     const isRecommended = m.value === recommended
@@ -1771,6 +1806,24 @@ watch(
   },
   { immediate: true }
 )
+
+// Fetch live model list when Ollama is selected. Retries on each provider switch
+// while liveOllamaModels is still null (covers the case where Ollama starts up later).
+watch(() => form.llm_provider, async (provider) => {
+  if (provider === 'ollama' && liveOllamaModels.value === null) {
+    ollamaFetchDone.value = false
+    try {
+      const ollamaBase = form.ollama_url || 'http://localhost:11434'
+      const url = encodeURIComponent(ollamaBase)
+      const r = await fetch(`/api/v1/platform/ollama-models?ollama_url=${url}`)
+      if (r.ok) {
+        const data = await r.json()
+        liveOllamaModels.value = data.live ? data.models : null
+      }
+    } catch { /* fall back to static list */ }
+    ollamaFetchDone.value = true
+  }
+}, { immediate: false })
 
 async function retryFailedApps() {
   const failed = stackAppsToInstall.value.filter(k => appInstallStatus[k] === 'error')
