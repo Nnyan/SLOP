@@ -162,10 +162,23 @@
                         </div>
                         <div>
                           <label class="label text-xs">Model</label>
-                          <select v-model="llmModels[String(key)]" class="input text-xs">
-                            <option v-for="m in (p.models || [])" :key="m.id" :value="m.id">
-                              {{ m.label }}
-                            </option>
+                          <!-- Loading state while fetching live models -->
+                          <div v-if="cloudModelFetching[String(key)]" class="input text-xs text-slate-400 flex items-center gap-1">
+                            <span class="animate-spin inline-block w-3 h-3 border border-slate-400 border-t-transparent rounded-full"></span>
+                            Fetching models…
+                          </div>
+                          <!-- Error + free-text fallback -->
+                          <div v-else-if="cloudModelError[String(key)] && !(cloudModelList[String(key)]?.length)" class="space-y-1">
+                            <p class="text-xs text-amber-600">⚠ Could not fetch models — enter model ID manually</p>
+                            <input v-model="llmModels[String(key)]" class="input text-xs font-mono" :placeholder="(p.models?.[0]?.id) || 'e.g. gpt-4o-mini'"/>
+                          </div>
+                          <!-- Live models from provider API -->
+                          <select v-else-if="cloudModelList[String(key)]?.length" v-model="llmModels[String(key)]" class="input text-xs">
+                            <option v-for="m in cloudModelList[String(key)]" :key="m" :value="m">{{ m }}</option>
+                          </select>
+                          <!-- Static fallback: provider's curated model list -->
+                          <select v-else v-model="llmModels[String(key)]" class="input text-xs">
+                            <option v-for="m in (p.models || [])" :key="m.id" :value="m.id">{{ m.label }}</option>
                           </select>
                         </div>
                       </div>
@@ -1016,6 +1029,10 @@ const llmTesting = ref<string|null>(null)
 const llmTestResults = ref<Record<string,any>>({})
 const savingLLM = ref(false)
 const llmSaveOk = ref(false)
+// Dynamic cloud model fetching (Task B — S-33-LLM-MODELS)
+const cloudModelList    = ref<Record<string, string[]>>({})
+const cloudModelFetching = ref<Record<string, boolean>>({})
+const cloudModelError   = ref<Record<string, string | null>>({})
 
 const PROVIDER_KEY_LINKS: Record<string,string> = {
   groq:       'https://console.groq.com/keys',
@@ -1162,6 +1179,45 @@ function toggleCascade(key: string) {
   if (i >= 0) llmCascade.value.splice(i, 1)
   else llmCascade.value.push(key)
 }
+
+// Fetch live model list from the provider's /v1/models endpoint (S-33-LLM-MODELS)
+async function fetchCloudModels(key: string) {
+  const apiKey = llmApiKeys.value[key] || ''
+  if (apiKey.length < 10) return
+  cloudModelFetching.value[key] = true
+  cloudModelError.value[key] = null
+  try {
+    const r = await fetch(
+      `/api/v1/platform/cloud-models?provider=${encodeURIComponent(key)}&api_key=${encodeURIComponent(apiKey)}`
+    )
+    const data = await r.json()
+    if (data.error) {
+      cloudModelError.value[key] = data.error
+      cloudModelList.value[key] = []
+    } else {
+      cloudModelList.value[key] = data.models || []
+      // Keep existing selection if it's in the new list; else pick first
+      if (cloudModelList.value[key].length && !cloudModelList.value[key].includes(llmModels.value[key])) {
+        llmModels.value[key] = cloudModelList.value[key][0]
+      }
+    }
+  } catch (e) {
+    cloudModelError.value[key] = String(e)
+    cloudModelList.value[key] = []
+  } finally {
+    cloudModelFetching.value[key] = false
+  }
+}
+
+// Re-fetch when the primary provider or its API key changes
+watch(
+  [llmPrimary, llmApiKeys],
+  ([newProvider]) => {
+    const apiKey = llmApiKeys.value[String(newProvider)] || ''
+    if (apiKey.length >= 10) fetchCloudModels(String(newProvider))
+  },
+  { deep: true }
+)
 
 async function loadSecrets() {
   loadingSecrets.value = true
