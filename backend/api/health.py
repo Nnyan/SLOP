@@ -439,7 +439,7 @@ def get_pending_actions() -> list[PendingAction]:
             priority="warning",
             title="AI health monitoring inactive",
             description="No LLM model installed — health issues won't have AI-powered diagnosis.",
-            action="Install Ollama and download phi-4-mini",
+            action="Install Ollama and download a model (see /models)",
             link="/models",
             icon="🤖",
         ))
@@ -1212,7 +1212,7 @@ async def ping_llm() -> dict[str, Any]:
         model = cfg.get("ollama_model", "")
 
     INSTALL = {
-        "ollama":      "curl -fsSL https://ollama.com/install.sh | sh && ollama pull phi4-mini",
+        "ollama":      "curl -fsSL https://ollama.com/install.sh | sh && ollama pull [model-name]",
         "llamacpp":    "# Build llama-server: cmake llama.cpp -B build -DGGML_CUDA=ON && cmake --build build -t llama-server\n./build/bin/llama-server -m /path/to/model.gguf --port 8081",
         "shimmy":      "curl -L https://github.com/Michael-A-Kuykendall/shimmy/releases/latest/download/shimmy-linux-x86_64 -o shimmy\nchmod +x shimmy && ./shimmy serve --bind 0.0.0.0:11435",
         "localai":     "docker run -p 8080:8080 localai/localai:latest-aio-cpu",

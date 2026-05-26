@@ -113,7 +113,7 @@
               </div>
               <div>
                 <label class="label text-xs">Model</label>
-                <input v-model="form.llm_model" class="input text-xs" placeholder="phi4-mini"/>
+                <input v-model="form.llm_model" class="input text-xs" placeholder="e.g. phi4-mini"/>
               </div>
             </div>
             <p class="text-xs text-slate-400">

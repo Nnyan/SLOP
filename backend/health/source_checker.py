@@ -399,7 +399,7 @@ Respond ONLY with the JSON object, no other text."""
                 _defaults = {
                     "groq": "llama-3.3-70b-versatile",
                     "cerebras": "llama-3.3-70b",
-                    "openrouter": "meta-llama/llama-3.2-3b-instruct:free",
+                    "openrouter": "meta-llama/llama-3.3-70b-instruct:free",
                     "gai": "gemini-2.0-flash",
                 }
                 model = cfg.get("ollama_model") or _defaults.get(provider, "")
