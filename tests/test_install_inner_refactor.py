@@ -154,7 +154,7 @@ def test_validate_install_continues_when_container_missing() -> None:
 
 
 def test_ensure_config_dir_creates_directory_and_flags_new(tmp_path: Path) -> None:
-    platform = SimpleNamespace(config_root=str(tmp_path))
+    platform = SimpleNamespace(config_root=str(tmp_path), puid=1000, pgid=1000)
     result = _result()
     out = _ensure_config_dir(platform, "myapp", result)
     assert out is not None
@@ -168,7 +168,7 @@ def test_ensure_config_dir_reports_existing_as_not_new(tmp_path: Path) -> None:
     """A pre-existing config dir should set created_now=False so the deploy
     step doesn't delete the user's data on a failed install."""
     (tmp_path / "myapp").mkdir()
-    platform = SimpleNamespace(config_root=str(tmp_path))
+    platform = SimpleNamespace(config_root=str(tmp_path), puid=1000, pgid=1000)
     result = _result()
     out = _ensure_config_dir(platform, "myapp", result)
     assert out is not None
