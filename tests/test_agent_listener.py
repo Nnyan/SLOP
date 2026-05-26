@@ -64,7 +64,11 @@ def _get_pending_fixes(db_path: Path) -> list[dict]:
 class TestInstallFailureListener:
 
     def test_error_step_writes_pending_fix(self, db_path: Path) -> None:
-        """Error step creates a pending_fixes row with diagnosis_class='UNKNOWN'."""
+        """Error step creates a pending_fixes row with a real diagnosis_class.
+
+        Phase B: 'permission denied' is classified as EPERM_VOLUME by the
+        offline regex classifier, so the row no longer carries 'UNKNOWN'.
+        """
         asyncio.run(
             install_failure_listener("sonarr", _error_step("permission denied on /config"))
         )
@@ -74,7 +78,7 @@ class TestInstallFailureListener:
         assert row["app_key"] == "sonarr"
         assert row["check_name"] == "install_monitor"
         assert row["action_type"] == "diagnose"
-        assert row["diagnosis_class"] == "UNKNOWN"
+        assert row["diagnosis_class"] == "EPERM_VOLUME"  # Phase B: regex-classified
         assert row["status"] == "pending"
         assert row["confidence"] == 0.0
         assert "permission denied" in row["problem"]
