@@ -95,6 +95,23 @@ def _broadcast_step_to_db(op_key: str, step: "StepLog") -> None:
     except Exception as e:
         log.debug("Could not persist step to DB: %s", e)
 
+
+def _broadcast_step_to_agent(app_key: str, step: "StepLog") -> None:
+    """Fire-and-forget: hand error steps to the LLM agent listener (Phase A).
+
+    Uses asyncio.ensure_future so the install pipeline is never blocked.
+    If there is no running event loop (e.g. CLI invocation), the exception
+    is caught and logged at DEBUG level — never propagated.
+    """
+    try:
+        from backend.agent.listener import install_failure_listener
+        asyncio.ensure_future(
+            install_failure_listener(app_key, step.__dict__)
+        )
+    except Exception as _e:
+        log.debug("Could not fire install_failure_listener for %s: %s", app_key, _e)
+
+
 @dataclass
 class ExecutionResult:
     ok: bool
@@ -110,6 +127,9 @@ class ExecutionResult:
             self.error = message
         # Write to DB immediately so the progress polling endpoint sees it in real-time
         _broadcast_step_to_db(self.app_key, step)
+        # Fire-and-forget: notify the LLM agent listener on error steps (Phase A)
+        if status == "error":
+            _broadcast_step_to_agent(self.app_key, step)
 
     def fail(self, name: str, message: str, detail: str = "") -> "ExecutionResult":
         self.add(name, "error", message, detail)
