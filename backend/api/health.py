@@ -567,7 +567,7 @@ Respond as a helpful assistant in plain language. Be concise — 2-3 sentences p
         "ok": True,
         "summary": (
             f"Found {error_count} error(s) and {warning_count} warning(s). "
-            f"{'Install Ollama and a model to get AI-powered analysis.' if not llm_available else ''}"
+            "Install Ollama and a model to get AI-powered analysis."
         ),
         "provider": None,
         "action_count": len(actions),
