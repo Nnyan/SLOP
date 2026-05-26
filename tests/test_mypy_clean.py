@@ -1,6 +1,6 @@
 """tests/test_mypy_clean.py — Step 1.2 enforcement test for Core Rule 5.20.
 
-Two tests, both marked @pytest.mark.slow (declared in pyproject.toml):
+Two tests (formerly @pytest.mark.slow — removed 2026-05-25, mypy runs ~20s):
 
   test_mypy_strict_clean         — happy path: backend/ passes mypy --strict
   test_mypy_catches_real_error   — negative path (Core Rule 2.2): verifies
@@ -22,7 +22,6 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 
 
-@pytest.mark.slow
 def test_mypy_strict_clean() -> None:
     """backend/ passes mypy --strict cleanly with project config."""
     result = subprocess.run(
@@ -35,7 +34,6 @@ def test_mypy_strict_clean() -> None:
     )
 
 
-@pytest.mark.slow
 def test_mypy_catches_real_error(tmp_path: Path) -> None:
     """Negative test: confirms mypy actually catches errors (Core Rule 2.2).
 
