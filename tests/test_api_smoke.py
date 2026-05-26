@@ -97,16 +97,7 @@ _GET_ENDPOINTS = [
     "/api/v1/health/agent",
     "/api/v1/models/agent/config",
     "/api/v1/platform/prereqs",
-    pytest.param(
-        "/api/v1/platform/ollama-models",
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason=(
-                "S-27 not yet merged: route absent in main, static-file middleware "
-                "intercepts and returns text/html (not JSON). Fix: merge S-27."
-            ),
-        ),
-    ),  # added by S-27
+    "/api/v1/platform/ollama-models",   # SSRF-guarded Ollama model fetch; live if Ollama running
 ]
 
 _GET_IDS = [

@@ -652,60 +652,60 @@ import pytest
 import re as _re
 
 
-@pytest.mark.skipif(not HYPOTHESIS_AVAILABLE, reason="hypothesis not installed")
-class TestPropertyBasedSanitization:
-    """Prove security properties hold for all possible inputs — Core Rule 3.8."""
+if HYPOTHESIS_AVAILABLE:
+    class TestPropertyBasedSanitization:
+        """Prove security properties hold for all possible inputs — Core Rule 3.8."""
 
-    @given(raw_key=st.text(min_size=0, max_size=200))
-    @settings(max_examples=500)
-    def test_sanitize_key_never_path_traversal(self, raw_key):
-        """Property: sanitized key NEVER contains path traversal chars."""
-        key = _re.sub(r'[^a-z0-9_]', '_', raw_key.lower().strip())[:64]
-        assert '..' not in key, f"Path traversal in sanitized key: {key!r}"
-        assert '/' not in key, f"Slash in sanitized key: {key!r}"
-        assert '\\' not in key, f"Backslash in sanitized key: {key!r}"
-        assert '\x00' not in key, f"Null byte in sanitized key: {key!r}"
+        @given(raw_key=st.text(min_size=0, max_size=200))
+        @settings(max_examples=500)
+        def test_sanitize_key_never_path_traversal(self, raw_key):
+            """Property: sanitized key NEVER contains path traversal chars."""
+            key = _re.sub(r'[^a-z0-9_]', '_', raw_key.lower().strip())[:64]
+            assert '..' not in key, f"Path traversal in sanitized key: {key!r}"
+            assert '/' not in key, f"Slash in sanitized key: {key!r}"
+            assert '\\' not in key, f"Backslash in sanitized key: {key!r}"
+            assert '\x00' not in key, f"Null byte in sanitized key: {key!r}"
 
-    @given(raw_key=st.text(min_size=0, max_size=200))
-    @settings(max_examples=500)
-    def test_sanitize_key_always_safe_length(self, raw_key):
-        """Property: sanitized key is always ≤ 64 chars."""
-        key = _re.sub(r'[^a-z0-9_]', '_', raw_key.lower().strip())[:64]
-        assert len(key) <= 64
+        @given(raw_key=st.text(min_size=0, max_size=200))
+        @settings(max_examples=500)
+        def test_sanitize_key_always_safe_length(self, raw_key):
+            """Property: sanitized key is always ≤ 64 chars."""
+            key = _re.sub(r'[^a-z0-9_]', '_', raw_key.lower().strip())[:64]
+            assert len(key) <= 64
 
-    @given(raw_key=st.text(min_size=0, max_size=200))
-    @settings(max_examples=200)
-    def test_sanitize_key_only_safe_chars(self, raw_key):
-        """Property: sanitized key contains only [a-z0-9_]."""
-        key = _re.sub(r'[^a-z0-9_]', '_', raw_key.lower().strip())[:64]
-        for char in key:
-            assert char in 'abcdefghijklmnopqrstuvwxyz0123456789_', (
-                f"Unsafe char {char!r} in key {key!r}"
-            )
+        @given(raw_key=st.text(min_size=0, max_size=200))
+        @settings(max_examples=200)
+        def test_sanitize_key_only_safe_chars(self, raw_key):
+            """Property: sanitized key contains only [a-z0-9_]."""
+            key = _re.sub(r'[^a-z0-9_]', '_', raw_key.lower().strip())[:64]
+            for char in key:
+                assert char in 'abcdefghijklmnopqrstuvwxyz0123456789_', (
+                    f"Unsafe char {char!r} in key {key!r}"
+                )
 
-    @given(port=st.integers(min_value=-100000, max_value=200000))
-    @settings(
-        max_examples=200,
-        # Phase 1 fix: db is function-scoped (per-test fresh DB) — Hypothesis
-        # warns because each example shares the same DB. That's fine for this
-        # property (the assertion is "no raise"; isolation between examples
-        # isn't needed). Suppress the warning explicitly.
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
-    def test_port_value_handling_never_raises(self, port, db):
-        """Property: port conflict check handles any integer without raising."""
-        from backend.core.state import StateDB
-        # Inserting any integer port must not raise — only valid ports (1-65535) matter
-        try:
-            with StateDB() as s:
-                s.upsert_app("testapp", display_name="Test", category="tools",
-                              image="nginx", container_name="testapp",
-                              status="running", host_port=port if 1 <= port <= 65535 else 8080)
-            with StateDB() as s:
-                rows = s._c.execute("SELECT host_port FROM apps WHERE key='testapp'").fetchall()
-            # Didn't raise — property holds
-        except Exception as e:
-            # Only ValueError/TypeError on invalid port is acceptable
-            assert "port" in str(e).lower() or "check" in str(e).lower(), (
-                f"Unexpected exception for port={port}: {e}"
-            )
+        @given(port=st.integers(min_value=-100000, max_value=200000))
+        @settings(
+            max_examples=200,
+            # Phase 1 fix: db is function-scoped (per-test fresh DB) — Hypothesis
+            # warns because each example shares the same DB. That's fine for this
+            # property (the assertion is "no raise"; isolation between examples
+            # isn't needed). Suppress the warning explicitly.
+            suppress_health_check=[HealthCheck.function_scoped_fixture],
+        )
+        def test_port_value_handling_never_raises(self, port, db):
+            """Property: port conflict check handles any integer without raising."""
+            from backend.core.state import StateDB
+            # Inserting any integer port must not raise — only valid ports (1-65535) matter
+            try:
+                with StateDB() as s:
+                    s.upsert_app("testapp", display_name="Test", category="tools",
+                                  image="nginx", container_name="testapp",
+                                  status="running", host_port=port if 1 <= port <= 65535 else 8080)
+                with StateDB() as s:
+                    rows = s._c.execute("SELECT host_port FROM apps WHERE key='testapp'").fetchall()
+                # Didn't raise — property holds
+            except Exception as e:
+                # Only ValueError/TypeError on invalid port is acceptable
+                assert "port" in str(e).lower() or "check" in str(e).lower(), (
+                    f"Unexpected exception for port={port}: {e}"
+                )
