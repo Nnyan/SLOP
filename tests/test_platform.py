@@ -401,3 +401,137 @@ class TestPlatformAPI:
     def test_catalog_unknown_key(self, api_client: TestClient):
         r = api_client.get("/api/catalog/doesnotexist")
         assert r.status_code == 404
+
+
+# ── Platform Stack CRUD ───────────────────────────────────────────────────
+
+
+class TestPlatformStackCRUD:
+    """Tests for the four uncovered stack CRUD endpoints:
+    POST /api/v1/platform/stacks
+    PUT  /api/v1/platform/stacks/{stack_id}
+    DELETE /api/v1/platform/stacks/{stack_id}
+    POST /api/v1/platform/stacks/{stack_id}/restore
+    """
+
+    def test_create_custom_stack(self, api_client: TestClient):
+        """POST /stacks with a valid body creates a new custom stack."""
+        payload = {
+            "label": "My Test Stack",
+            "app_keys": ["sonarr", "radarr"],
+            "ram_gb": 4,
+            "ram_note": "~4GB RAM",
+        }
+        r = api_client.post("/api/v1/platform/stacks", json=payload)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        stack = data["stack"]
+        assert stack["label"] == "My Test Stack"
+        assert stack["app_keys"] == ["sonarr", "radarr"]
+        assert stack["ram_gb"] == 4
+        assert stack["is_custom"] is True
+        assert "id" in stack
+
+        # Confirm it appears in the GET listing
+        listing = api_client.get("/api/v1/platform/stacks").json()["stacks"]
+        ids = [s["id"] for s in listing]
+        assert stack["id"] in ids
+
+    def test_edit_custom_stack(self, api_client: TestClient):
+        """PUT /stacks/{id} updates label and app_keys on an existing custom stack."""
+        # Create the stack first
+        create_r = api_client.post("/api/v1/platform/stacks", json={
+            "label": "Stack Before Edit",
+            "app_keys": ["ollama"],
+            "ram_gb": 8,
+        })
+        assert create_r.status_code == 200
+        stack_id = create_r.json()["stack"]["id"]
+
+        # Edit the stack
+        edit_r = api_client.put(
+            f"/api/v1/platform/stacks/{stack_id}",
+            json={"label": "Stack After Edit", "app_keys": ["ollama", "open_webui"]},
+        )
+        assert edit_r.status_code == 200
+        assert edit_r.json()["ok"] is True
+
+        # Verify the change is reflected in the listing
+        listing = api_client.get("/api/v1/platform/stacks").json()["stacks"]
+        updated = next((s for s in listing if s["id"] == stack_id), None)
+        assert updated is not None
+        assert updated["label"] == "Stack After Edit"
+        assert "open_webui" in updated["app_keys"]
+
+    def test_delete_custom_stack(self, api_client: TestClient):
+        """DELETE /stacks/{id} removes a custom stack; it no longer appears in GET."""
+        # Create a stack to delete
+        create_r = api_client.post("/api/v1/platform/stacks", json={
+            "label": "Stack To Delete",
+            "app_keys": ["dozzle"],
+            "ram_gb": 1,
+        })
+        assert create_r.status_code == 200
+        stack_id = create_r.json()["stack"]["id"]
+
+        # Delete it
+        del_r = api_client.delete(f"/api/v1/platform/stacks/{stack_id}")
+        assert del_r.status_code == 200
+        data = del_r.json()
+        assert data["ok"] is True
+        assert data["action"] == "deleted"
+
+        # Confirm it is gone from the listing
+        listing = api_client.get("/api/v1/platform/stacks").json()["stacks"]
+        ids = [s["id"] for s in listing]
+        assert stack_id not in ids
+
+    def test_restore_hidden_default_stack(self, api_client: TestClient):
+        """Hide a default stack via DELETE, then POST /restore makes it visible again."""
+        default_id = "monitoring"
+
+        # Confirm it is visible before we hide it
+        before = api_client.get("/api/v1/platform/stacks").json()["stacks"]
+        assert any(s["id"] == default_id for s in before), "monitoring must be visible initially"
+
+        # Hide the default stack
+        hide_r = api_client.delete(f"/api/v1/platform/stacks/{default_id}")
+        assert hide_r.status_code == 200
+        assert hide_r.json()["action"] == "hidden"
+
+        # Confirm it is gone from the listing
+        after_hide = api_client.get("/api/v1/platform/stacks").json()["stacks"]
+        assert not any(s["id"] == default_id for s in after_hide)
+
+        # Restore it
+        restore_r = api_client.post(f"/api/v1/platform/stacks/{default_id}/restore")
+        assert restore_r.status_code == 200
+        assert restore_r.json()["ok"] is True
+
+        # Confirm it is visible again
+        after_restore = api_client.get("/api/v1/platform/stacks").json()["stacks"]
+        assert any(s["id"] == default_id for s in after_restore)
+
+    def test_delete_nonexistent_stack_returns_404(self, api_client: TestClient):
+        """DELETE /stacks/{unknown_id} returns 404."""
+        r = api_client.delete("/api/v1/platform/stacks/does_not_exist_xyz")
+        assert r.status_code == 404
+
+    def test_edit_nonexistent_stack_returns_404(self, api_client: TestClient):
+        """PUT /stacks/{unknown_id} returns 404 when the ID is not custom or default."""
+        r = api_client.put(
+            "/api/v1/platform/stacks/does_not_exist_xyz",
+            json={"label": "Ghost"},
+        )
+        assert r.status_code == 404
+
+    def test_create_stack_missing_label_returns_422(self, api_client: TestClient):
+        """POST /stacks without a label returns 422."""
+        r = api_client.post("/api/v1/platform/stacks", json={"app_keys": ["sonarr"]})
+        assert r.status_code == 422
+
+    def test_create_stack_empty_app_keys_returns_422(self, api_client: TestClient):
+        """POST /stacks with an empty app_keys list returns 422."""
+        r = api_client.post("/api/v1/platform/stacks", json={"label": "Empty", "app_keys": []})
+        assert r.status_code == 422
