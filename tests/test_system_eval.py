@@ -129,6 +129,8 @@ class TestQuickRAMCheck:
         fake_mem = {"MemAvailable": 8 * 1024 * 1024}  # 8GB in kB
         with patch("backend.core.system_eval.read_meminfo", return_value=fake_mem):
             ok, warning = quick_ram_check(2500)
+        # False would mean the 2500MB+512MB headroom threshold rejected 8GB —
+        # the sufficient-RAM path is broken (regression in the headroom math).
         assert ok is True
         assert warning is None
 
@@ -145,6 +147,8 @@ class TestQuickRAMCheck:
         fake_mem = {"MemAvailable": 3012 * 1024}
         with patch("backend.core.system_eval.read_meminfo", return_value=fake_mem):
             ok, _ = quick_ram_check(2500)
+        # False here would mean the boundary is off-by-one (strict > vs >=).
+        # The threshold is model + 512MB headroom; exactly that should pass.
         assert ok is True
 
 

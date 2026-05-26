@@ -352,6 +352,8 @@ class TestStorageSourceDB:
 class TestVerifyMount:
     def test_existing_accessible_path(self, tmp_path: Path):
         ok, msg = verify_mount(str(tmp_path))
+        # False would mean verify_mount() rejected a real, accessible tmp_path —
+        # likely a regression in the os.access/stat check or the message contract.
         assert ok is True
         assert "accessible" in msg.lower()
 
