@@ -14,6 +14,11 @@ Phase C change: replaced classify_offline() with classify_with_llm().
   Graceful degrade: if classify_with_llm() raises, falls back to
   classify_offline() + empty suggested_fix + confidence=0.0.
 
+Phase F extension: install_failure_listener() is now also called by
+  backend/agent/watcher.py (Docker event watcher) for runtime container
+  failures (die, oom, health_status=unhealthy).  The step_log format is
+  identical so the classifier + DB write path is reused unchanged.
+
 Invariant: this module MUST be a no-op if anything goes wrong — it
 must never propagate exceptions back into the install pipeline.
 """
