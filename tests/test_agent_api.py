@@ -150,10 +150,13 @@ def test_diagnoses_excludes_empty_fix(client: TestClient, db_path: Path) -> None
     )
 
 
-def test_apply_stub_returns_501(client: TestClient) -> None:
-    """POST /agent/fixes/1/apply returns HTTP 501 (Phase E stub)."""
+def test_apply_fix_missing_returns_404(client: TestClient) -> None:
+    """POST /agent/fixes/1/apply with no matching row returns 404 (Phase E).
+
+    The Phase D stub returned 501 unconditionally.  Phase E replaced the stub
+    with real lookup logic — a missing fix ID now returns 404 instead.
+    """
     resp = client.post("/api/v1/agent/fixes/1/apply")
-    assert resp.status_code == 501
+    assert resp.status_code == 404
     data = resp.json()
     assert "detail" in data
-    assert "Phase E" in data["detail"] or "not yet" in data["detail"].lower()

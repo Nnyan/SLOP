@@ -1,9 +1,9 @@
 """backend/agent/api.py
 
-Agent REST endpoints — Phase D.
+Agent REST endpoints — Phase D/E.
 
 GET  /api/v1/agent/diagnoses       — pending LLM-generated diagnoses
-POST /api/v1/agent/fixes/{id}/apply — stub; returns 501 (Phase E)
+POST /api/v1/agent/fixes/{id}/apply — safe auto-apply tier (Phase E)
 
 This router is registered in backend/api/main.py via _mount().
 """
@@ -86,18 +86,70 @@ def get_diagnoses() -> DiagnosesResponse:
 
 
 # ---------------------------------------------------------------------------
-# POST /fixes/{id}/apply — Phase E stub
+# POST /fixes/{id}/apply — Phase E: safe auto-apply tier
 # ---------------------------------------------------------------------------
 
 
-@router.post("/fixes/{fix_id}/apply", status_code=501)
+@router.post("/fixes/{fix_id}/apply", status_code=200)
 def apply_fix(fix_id: int) -> Any:
-    """Stub endpoint — auto-apply is not yet implemented (Phase E).
+    """Apply a suggested fix (Phase E: safe auto-apply tier only).
 
-    Returns HTTP 501 with a human-readable detail string.  The frontend
-    renders this as an amber banner so users know the feature is coming.
+    Safe fix types (handled automatically):
+      restart_container  — docker restart <app_key>
+      repull_restart     — docker pull + docker restart
+      env_var_format     — compose fragment substitution (Phase H, future)
+
+    Unsafe/unknown fix types → HTTP 422 (requires human review).
+    Missing fix record      → HTTP 404.
+    Docker command failure  → HTTP 500 with error detail.
     """
-    return JSONResponse(
-        status_code=501,
-        content={"detail": "Auto-apply not yet implemented (Phase E)"},
-    )
+    from backend.agent.apply import SAFE_FIX_TYPES, apply_safe_fix, get_fix_type
+
+    # 1. Fetch the fix record.
+    with StateDB() as db:
+        row = db.execute(
+            """
+            SELECT id, app_key, diagnosis_class, suggested_fix, fix_metadata,
+                   status
+            FROM   pending_fixes
+            WHERE  id = ?
+            """,
+            (fix_id,),
+        ).fetchone()
+
+    if row is None:
+        return JSONResponse(status_code=404, content={"detail": f"Fix {fix_id} not found"})
+
+    # 2. Derive fix_type and check it is in the safe tier.
+    fix_type = get_fix_type(row["diagnosis_class"])
+    if fix_type not in SAFE_FIX_TYPES:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": (
+                    f"Fix type '{fix_type or row['diagnosis_class']}' requires human approval "
+                    "(not in safe auto-apply tier)"
+                )
+            },
+        )
+
+    # 3. Execute the fix.
+    import subprocess
+
+    try:
+        result = apply_safe_fix(fix_id, row)
+    except subprocess.CalledProcessError as exc:
+        log.warning("apply_fix: docker command failed for fix_id=%s: %s", fix_id, exc)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Docker command failed: {exc}"},
+        )
+    except subprocess.TimeoutExpired as exc:
+        log.warning("apply_fix: docker command timed out for fix_id=%s: %s", fix_id, exc)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Docker command timed out: {exc}"},
+        )
+
+    # 4. Return result.
+    return result
