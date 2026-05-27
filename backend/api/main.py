@@ -387,6 +387,11 @@ from backend.api import audit as audit_router  # noqa: E402
 
 _mount(audit_router, "audit", "Audit")
 
+# Phase D — LLM agent diagnoses REST endpoints.
+from backend.agent import api as agent_api_router  # noqa: E402
+
+_mount(agent_api_router, "agent", "Agent")
+
 
 # ── System health endpoint ────────────────────────────────────────────────
 
