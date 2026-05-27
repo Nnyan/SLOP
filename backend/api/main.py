@@ -227,10 +227,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from backend.health.scheduler import start_scheduler, stop_scheduler
     start_scheduler()
 
+    # Phase F: Docker event watcher — detects container die/oom/unhealthy at runtime.
+    from backend.agent.watcher import start_docker_event_watcher, stop_docker_event_watcher
+    _asyncio.create_task(start_docker_event_watcher())
+
     yield
 
-    # Graceful shutdown — cancel the scheduler task
+    # Graceful shutdown — cancel the scheduler task and docker event watcher
     stop_scheduler()
+    await stop_docker_event_watcher()
     log.info("Mediastack backend stopping")
 
 
