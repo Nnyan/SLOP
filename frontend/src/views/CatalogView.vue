@@ -40,6 +40,30 @@
       <button v-if="activeCats.size > 0" @click="resetCats" class="text-xs text-slate-400 hover:text-slate-600 ml-1">✕</button>
     </div>
 
+    <!-- Diagnoses panel — LLM-generated fix suggestions for install failures -->
+    <Transition
+      enter-from-class="opacity-0 -translate-y-1"
+      enter-active-class="transition-all duration-200"
+      leave-to-class="opacity-0 -translate-y-1"
+      leave-active-class="transition-all duration-200"
+    >
+      <div v-if="diagnoses.length > 0" class="mb-4 space-y-3">
+        <DiagnosisCard
+          v-for="d in diagnoses"
+          :key="d.id"
+          :id="d.id"
+          :app-key="d.app_key"
+          :problem="d.problem"
+          :diagnosis-class="d.diagnosis_class"
+          :suggested-fix="d.suggested_fix"
+          :confidence="d.confidence"
+          :status="d.status"
+          :created-at="d.created_at"
+          @dismiss="dismissDiagnosis"
+        />
+      </div>
+    </Transition>
+
     <!-- App list — compact rows grouped by category -->
     <div style="min-height: 60vh">
 
@@ -284,8 +308,39 @@ import { catalog, apps as appsApi } from '../api/client'
 import { catalogCache, installedCache, setCatalogCache, setInstalledCache } from '../catalogCache'
 import { useToast } from '@/composables/useToast'
 import type { CatalogEntry, AppStatus } from '../api/client'
+import DiagnosisCard from '../components/DiagnosisCard.vue'
 
 const toast = useToast()
+
+// ── Diagnoses (LLM-generated fix suggestions) ────────────────────────────
+interface DiagnosisItem {
+  id: number
+  app_key: string
+  problem: string
+  diagnosis_class: string
+  suggested_fix: string
+  confidence: number
+  status: string
+  created_at: number
+}
+
+const diagnoses = ref<DiagnosisItem[]>([])
+
+async function loadDiagnoses() {
+  try {
+    const res = await fetch('/api/v1/agent/diagnoses')
+    if (res.ok) {
+      const data = await res.json()
+      diagnoses.value = data.diagnoses ?? []
+    }
+  } catch {
+    // Diagnoses panel is best-effort — never surface errors to the user
+  }
+}
+
+function dismissDiagnosis(id: number) {
+  diagnoses.value = diagnoses.value.filter(d => d.id !== id)
+}
 
 const CAT_LABELS: Record<string, string> = {
   arr: 'Arr', media: 'Media', ai: 'AI',
@@ -677,6 +732,7 @@ onUnmounted(() => {
 })
 
 onMounted(async () => {
+  loadDiagnoses()
   loadSourceIssues()
 
   // If cache already primed (by App.vue prefetch or prior visit), render instantly
