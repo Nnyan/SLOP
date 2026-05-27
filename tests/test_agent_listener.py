@@ -68,6 +68,10 @@ class TestInstallFailureListener:
 
         Phase B: 'permission denied' is classified as EPERM_VOLUME by the
         offline regex classifier, so the row no longer carries 'UNKNOWN'.
+
+        Phase C update: classify_with_llm() is now called; when the LLM is
+        unreachable (test environment), it gracefully degrades to
+        confidence=0.4 and suggested_fix="".
         """
         asyncio.run(
             install_failure_listener("sonarr", _error_step("permission denied on /config"))
@@ -78,11 +82,12 @@ class TestInstallFailureListener:
         assert row["app_key"] == "sonarr"
         assert row["check_name"] == "install_monitor"
         assert row["action_type"] == "diagnose"
-        assert row["diagnosis_class"] == "EPERM_VOLUME"  # Phase B: regex-classified
+        assert row["diagnosis_class"] == "EPERM_VOLUME"  # regex-classified (offline)
         assert row["status"] == "pending"
-        assert row["confidence"] == 0.0
+        # Phase C: LLM unreachable in test env → confidence=0.4, suggested_fix=""
+        assert row["confidence"] == pytest.approx(0.4)
         assert "permission denied" in row["problem"]
-        assert "Diagnosis pending" in row["suggested_fix"]
+        assert row["suggested_fix"] == ""
 
     def test_non_error_step_is_ignored(self, db_path: Path) -> None:
         """Non-error steps (running, done) do not write pending_fixes."""

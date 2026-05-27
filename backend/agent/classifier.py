@@ -1,8 +1,8 @@
 """backend/agent/classifier.py
 
-Offline error classifier for the LLM agent pipeline (Phase B).
+Error classifier for the LLM agent pipeline (Phase B/C).
 
-Provides two pure functions — no DB calls, no I/O, no side effects:
+Public API:
 
   classify_offline(error_text) → ErrorClass
       Iterates DETECTION_PATTERNS in priority order.  Returns the first
@@ -12,12 +12,17 @@ Provides two pure functions — no DB calls, no I/O, no side effects:
   compute_signature_hash(error_class, error_text, app_key) → str (SHA1 hex)
       Normalises error_text (strip digits, UUIDs, hex container IDs,
       filesystem paths, ISO-8601 timestamps) then hashes the triple
-      ``"<class>:<normalised>:<app_key>"``.  Used by Phase C for the
-      pattern-library lookup.  Implemented here so the hash is consistent
-      across phases; Phase C adds the DB SELECT that uses it.
+      ``"<class>:<normalised>:<app_key>"``.  Stable lookup key for the
+      pattern-library cache in fix_history.
+
+  classify_with_llm(error_text, app_key, db_path) → Coroutine[tuple[ErrorClass, str, float]]
+      Three-step fallback: pattern-library hit → offline classifier → LLM call.
+      Gracefully degrades to (offline_class, "", 0.4) when LLM is unreachable.
+      Added in Phase C.
 
 Usage:
     from backend.agent.classifier import classify_offline, compute_signature_hash
+    from backend.agent.classifier import classify_with_llm
 """
 from __future__ import annotations
 
@@ -124,3 +129,134 @@ def compute_signature_hash(
 
     payload = error_class.value + ":" + normalised + ":" + app_key
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Phase C: LLM-enriched classifier
+# ---------------------------------------------------------------------------
+
+
+async def _query_llm_for_diagnosis(prompt: str) -> str | None:
+    """Call the configured LLM backend with *prompt*. Returns raw text or None.
+
+    Uses the same provider abstraction (ollama / cloud / openai-compatible) as
+    the existing health checker.  All exceptions are swallowed — returns None
+    if the LLM is unreachable, misconfigured, or times out.
+
+    Deferred imports prevent circular-import issues with ``backend.core.state``
+    and ``backend.health.checker``.
+    """
+    try:
+        import json as _json
+        import httpx
+        from backend.core.state import StateDB
+        from backend.health.checker import _dispatch_llm_call, _load_provider_config
+
+        provider, api_key, model, cloud_providers = _load_provider_config()
+
+        with StateDB() as _db:
+            cfg_raw = _db.get_setting("llm_agent_config")
+        cfg = _json.loads(cfg_raw) if cfg_raw else {}
+        if provider == "llamacpp":
+            base_url = cfg.get("llamacpp_url", "http://localhost:8081")
+        else:
+            base_url = cfg.get("ollama_url", "http://localhost:11434")
+        if not model:
+            model = cfg.get("ollama_model", "phi4-mini")
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            return await _dispatch_llm_call(
+                client, prompt, base_url, provider, api_key, model, cloud_providers
+            )
+    except Exception:
+        return None
+
+
+async def classify_with_llm(
+    error_text: str,
+    app_key: str,
+    db_path: str,
+) -> tuple[ErrorClass, str, float]:
+    """Classify *error_text* using a three-step fallback strategy.
+
+    Returns ``(error_class, suggested_fix, confidence)`` where:
+    - ``confidence=0.95``  — pattern-library exact-hash hit (LLM skipped)
+    - ``confidence=0.8``   — LLM responded and regex class was not UNKNOWN
+    - ``confidence=0.5``   — LLM responded but class is UNKNOWN
+    - ``confidence=0.4``   — LLM unreachable; offline result kept, no suggestion
+
+    Three-step fallback:
+    1. **Pattern-library hit** — query ``fix_history`` for a prior successful
+       fix with the same ``signature_hash``.  If found, return cached fix with
+       ``confidence=0.95`` (no LLM call made).
+    2. **Offline class + LLM enrichment** — run ``classify_offline`` to get
+       the error class, then call the LLM for a human-readable suggested fix.
+    3. **Graceful degrade** — if the LLM is unreachable at any point, return
+       ``(offline_class, "", 0.4)``.
+
+    Args:
+        error_text: Raw error string from a failing install step.
+        app_key:    Catalog key of the failing app (e.g. ``"sonarr"``).
+        db_path:    Path to the SQLite state database file.  Used for the
+                    pattern-library ``fix_history`` lookup.
+
+    Returns:
+        ``(ErrorClass, suggested_fix_str, confidence_float)`` — never raises.
+    """
+    import sqlite3
+
+    # Compute offline class and stable hash — pure, always succeeds.
+    error_class = classify_offline(error_text)
+    sig_hash = compute_signature_hash(error_class, error_text, app_key)
+
+    # Step 1 — pattern-library lookup (exact hash hit on prior successful fix).
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT suggested_fix FROM fix_history "
+                "WHERE signature_hash=? AND outcome='success' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (sig_hash,),
+            ).fetchone()
+            conn.close()
+            if row:
+                return (error_class, row["suggested_fix"], 0.95)
+        except Exception:
+            pass  # DB missing or column not yet added — fall through to LLM
+
+    # Step 2 — build context and call LLM.
+    # Deferred import: assemble_context may reference backend.core.state internally.
+    from backend.health.context_assembler import assemble_context
+
+    context_block = assemble_context(
+        app_key,
+        "install_monitor",
+        runtime={"error_class": error_class.value, "error_text": error_text[:500]},
+    )
+    prompt = (
+        "You are a Docker install troubleshooter. "
+        "Diagnose the following installation failure and suggest a fix.\n\n"
+        + context_block
+        + "\n\nError class: "
+        + error_class.value
+        + "\nError: "
+        + error_text[:500]
+        + "\n\nReply with one short paragraph (plain text, ≤200 chars) describing the fix."
+    )
+
+    raw = await _query_llm_for_diagnosis(prompt)
+
+    if raw is None:
+        # Step 3 — graceful degrade: LLM unreachable.
+        return (error_class, "", 0.4)
+
+    # Parse: first non-empty paragraph, truncate to 200 chars.
+    first_para = next(
+        (p.strip() for p in raw.split("\n\n") if p.strip()),
+        raw.strip(),
+    )
+    suggested_fix = first_para[:200]
+    confidence = 0.8 if error_class != ErrorClass.UNKNOWN else 0.5
+    return (error_class, suggested_fix, confidence)
