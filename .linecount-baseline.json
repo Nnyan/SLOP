@@ -1,0 +1,148 @@
+{
+  "caps": {
+    "api_routers": 800,
+    "cli_installer": 800,
+    "frontend_other": 500,
+    "production_code": 500,
+    "tests": 1000,
+    "vue_views": 600
+  },
+  "files": [
+    {
+      "category": "api_routers",
+      "lines": 1729,
+      "path": "backend/api/apps.py"
+    },
+    {
+      "category": "api_routers",
+      "lines": 1866,
+      "path": "backend/api/health.py"
+    },
+    {
+      "category": "api_routers",
+      "lines": 1095,
+      "path": "backend/api/models.py"
+    },
+    {
+      "category": "api_routers",
+      "lines": 1926,
+      "path": "backend/api/platform.py"
+    },
+    {
+      "category": "production_code",
+      "lines": 578,
+      "path": "backend/core/cloud_llm.py"
+    },
+    {
+      "category": "production_code",
+      "lines": 597,
+      "path": "backend/core/compose.py"
+    },
+    {
+      "category": "production_code",
+      "lines": 840,
+      "path": "backend/core/state.py"
+    },
+    {
+      "category": "production_code",
+      "lines": 1076,
+      "path": "backend/core/system_eval.py"
+    },
+    {
+      "category": "production_code",
+      "lines": 1497,
+      "path": "backend/health/checker.py"
+    },
+    {
+      "category": "production_code",
+      "lines": 990,
+      "path": "backend/health/context_assembler.py"
+    },
+    {
+      "category": "production_code",
+      "lines": 541,
+      "path": "backend/infra/providers/management_alternatives.py"
+    },
+    {
+      "category": "production_code",
+      "lines": 2011,
+      "path": "backend/manifests/executor.py"
+    },
+    {
+      "category": "production_code",
+      "lines": 613,
+      "path": "backend/manifests/loader.py"
+    },
+    {
+      "category": "production_code",
+      "lines": 1126,
+      "path": "backend/platform/wizard.py"
+    },
+    {
+      "category": "vue_views",
+      "lines": 616,
+      "path": "frontend/src/views/AppDetailView.vue"
+    },
+    {
+      "category": "vue_views",
+      "lines": 777,
+      "path": "frontend/src/views/CatalogView.vue"
+    },
+    {
+      "category": "vue_views",
+      "lines": 795,
+      "path": "frontend/src/views/HealthView.vue"
+    },
+    {
+      "category": "vue_views",
+      "lines": 1187,
+      "path": "frontend/src/views/ModelsView.vue"
+    },
+    {
+      "category": "vue_views",
+      "lines": 1757,
+      "path": "frontend/src/views/SettingsView.vue"
+    },
+    {
+      "category": "vue_views",
+      "lines": 2038,
+      "path": "frontend/src/views/SetupView.vue"
+    },
+    {
+      "category": "tests",
+      "lines": 1099,
+      "path": "installer/tests/test_main.py"
+    },
+    {
+      "category": "tests",
+      "lines": 1390,
+      "path": "installer/tests/test_uninstall.py"
+    },
+    {
+      "category": "cli_installer",
+      "lines": 862,
+      "path": "installer/uninstall.py"
+    },
+    {
+      "category": "tests",
+      "lines": 1202,
+      "path": "tests/test_api_coverage.py"
+    },
+    {
+      "category": "tests",
+      "lines": 2933,
+      "path": "tests/test_comprehensive_contracts.py"
+    },
+    {
+      "category": "tests",
+      "lines": 5295,
+      "path": "tests/test_generated_behavioral.py"
+    },
+    {
+      "category": "tests",
+      "lines": 1184,
+      "path": "tests/test_runtime_bugs.py"
+    }
+  ],
+  "generated_at": "2026-05-28T04:16:34+00:00"
+}

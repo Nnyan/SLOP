@@ -521,6 +521,27 @@ def check_no_adhoc_create() -> tuple[bool, str]:
     return True, "no ad-hoc CREATE TABLE IF NOT EXISTS outside permitted files"
 
 
+def check_file_size_ratchet() -> tuple[bool, str]:
+    """Tier 1: file-size ratchet (wave S-45-RATCHET).
+
+    Runs `tools/check_linecount.py` to enforce tiered caps on new files and
+    the per-file baseline ceiling on existing oversize files. The baseline
+    is committed at `.linecount-baseline.json`. Tests over 1000 lines print
+    a WARNING but do NOT fail.
+    """
+    script = REPO / "tools" / "check_linecount.py"
+    if not script.exists():
+        return True, "ratchet script not present (skip)"
+    rc, out = _run(["python3", str(script)], timeout=30)
+    if rc == 0:
+        warnings = [line for line in out.splitlines() if line.startswith("WARNING")]
+        if warnings:
+            return True, f"{len(warnings)} test file(s) over 1000 lines (informational)"
+        return True, "all source files within tiered caps + baseline"
+    bad = [line for line in out.splitlines() if line.strip()][:10]
+    return False, "ratchet violations:\n" + "\n".join(f"    {line}" for line in bad)
+
+
 def check_pytest_scratch_cleanup() -> tuple[bool, str]:
     """Tier 2: pyproject.toml basetemp is set and ms-update has the cleanup line."""
     pyproject = REPO / "pyproject.toml"
@@ -872,6 +893,8 @@ TIER_1: list[tuple[str, object]] = [
     ("Migration .py API  (Core Rule 6.1)",          check_py_migration_api),
     ("Schema.sql sync    (Core Rule 6.1)",          check_schema_sql_sync),
     ("No ad-hoc CREATE TABLE (Core Rule 6.1)",      check_no_adhoc_create),
+    # ── File-size ratchet (wave S-45-RATCHET) ─────────────────────────────
+    ("File-size ratchet (wave S-45-RATCHET)",       check_file_size_ratchet),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
