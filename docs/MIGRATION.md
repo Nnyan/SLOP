@@ -172,7 +172,7 @@ sudo systemctl disable mediastack
 
 ```bash
 cd /srv/mediastack
-curl -fsSL https://raw.githubusercontent.com/Nnyan/SLOP/main/docker-compose.option-b.yml \
+curl -fsSL https://raw.githubusercontent.com/Nnyan/SLOP/main/docker-compose.yml \
   -o docker-compose.yml
 ```
 
