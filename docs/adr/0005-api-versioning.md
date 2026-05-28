@@ -5,6 +5,7 @@
 **Supersedes:** none — pre-3.2, all routes lived at `/api/<area>` with no version.
 
 **See also:** cleanup step 3.2, Core Rule 4.18 (API Versioning Discipline) — enforced by ms-enforce
+**Review by:** 2026-11-08
 
 ---
 

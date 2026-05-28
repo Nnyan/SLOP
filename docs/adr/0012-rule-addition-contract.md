@@ -3,6 +3,8 @@
 - **Date:** 2026-05-10
 - **Status:** Accepted
 - **Deciders:** operator, Claude Code (v4.2 execution)
+- **See also:** none
+- **Review by:** 2027-05-10
 
 ## Context
 

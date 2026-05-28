@@ -2,6 +2,8 @@
 
 One-command install that turns a fresh Ubuntu or Debian server into a running self-hosted platform with a web UI and a catalog of 50+ apps to deploy.
 
+See [docs/MAP.md](docs/MAP.md) for the full documentation index.
+
 ## What is this?
 
 Run one command, get a working service on port 8080. Point your browser at it, walk through the setup wizard, then deploy self-hosted apps from the built-in catalog — Jellyfin, Sonarr, Radarr, Immich, Vaultwarden, Ollama, and more — without touching Docker manually. S.L.O.P. handles the container lifecycle, keeps things labeled and tracked, and gives you clean uninstall/purge commands when you want to start over.

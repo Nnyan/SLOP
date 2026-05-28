@@ -4,6 +4,7 @@
 **Decided by:** OPUS during cleanup step 2.5.b (backfill)
 **Supersedes:** none
 **See also:** [ADR 0006 (SQLite for the state store)](0006-sqlite-vs-postgres.md), [ADR 0010 (No plugin system)](0010-no-plugin-system.md), Core Rule 4.21 (Audit Trail Discipline) — enforced by ms-enforce
+**Review by:** 2028-05-08
 
 > Enforcement: [manual — architectural assumption that pervades many design choices (no auth on admin UI, `audit_log.actor='local'`, settings as global key/value, no tenant column on tables). It is not one drift-detectable property; introducing auth, RBAC, or per-tenant data isolation would be its supersession via a new ADR, not a check-detectable regression.]
 
