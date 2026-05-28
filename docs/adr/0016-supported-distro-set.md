@@ -1,6 +1,6 @@
 # ADR 0016 — Supported Distro Set for v5.0
 
-## 1. Status
+## Status
 
 **Status:** Accepted — 2026-05-16
 
@@ -9,7 +9,7 @@ the implicit distro set inherited from `V5_INSTALLER_PLAN.md` Direction Decision
 D4 ("Supported distros for v5.0: Debian 12+ and Ubuntu 22.04+ only"), which was
 carried forward from v4.x without an explicit policy review.
 
-## 2. Context
+## Context
 
 ### 2.1 The inherited assumption
 
@@ -79,7 +79,7 @@ categories are invisible to it by construction."* Distro version policy is one
 such category. It needs its own structural artifact with a defined lifecycle,
 reviewed at every release boundary. This ADR is that artifact.
 
-## 3. Decision
+## Decision
 
 v5.0.0 ships supporting the following three distros:
 
@@ -227,7 +227,7 @@ Shape B follows Canonical's own readiness signal (the .1 release is when
 operator-side optionality: anyone running 26.04 today can run mediastack v5.0.1
 once 26.04.1 ships, by upgrading via Canonical's supported path.
 
-## 5. Consequences
+## Consequences
 
 ### 5.1 install.sh changes (Sonnet implements)
 

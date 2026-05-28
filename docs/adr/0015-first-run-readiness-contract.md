@@ -26,6 +26,8 @@ Out of scope and tracked elsewhere:
 - *Health-monitoring beyond first-run.* The mediastack backend has its own health subsystem (`backend/health/`), Prometheus instrumentation (`/metrics`), and K8s-style probes (`/healthz`, `/readyz`, `/startupz`). Those probes are *inputs* to this contract — the smoke test reads them — but their own evolution is the backend's concern, not the installer's. If the backend changes a probe's response shape, this ADR's §3 needs an amendment; that's a known coupling point.
 - *Selecting the specific QuickStart endpoint URL for §1 predicate P5.* The QuickStart router exists at `/api/v1/quickstart/...` (dual-mounted at `/api/quickstart/...` for legacy compatibility) per `backend/api/main.py`. The exact non-mutating GET endpoint within the router that the smoke test probes is Step 3.2's first design call: it must be safe to call before the wizard is touched, must not require auth state, and must return a documented JSON shape. Naming it here would couple this contract to a specific router internal; the contract names the property ("a non-mutating QuickStart GET returns 200 with `Content-Type: application/json`") and Step 3.2 picks the URL.
 
+## Decision
+
 ## §1 — Readiness predicates
 
 Five predicates, evaluated in order. Each is independently observable; later predicates depend on earlier ones being true but are not implied by them. The order is the order Step 3.2 implements; earlier failures short-circuit later checks because they make later checks meaningless (a port that isn't bound can't serve `/healthz`).
