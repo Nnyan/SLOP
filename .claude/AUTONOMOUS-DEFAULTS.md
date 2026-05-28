@@ -117,6 +117,20 @@ attempted push and what it was trying to accomplish.
 **Default:** In Robot mode, NEVER delete a file. Move it to `.claude/run/proposed-deletions/<path>.txt` (a manifest line) for morning review.
 **Escalate:** always — deletions are reviewed.
 
+### Wave file explicitly directs a deletion
+**Default:** Check the wave file for an **"Authorized deletions"** section. If
+the path being deleted appears in that section *with a one-line rationale*,
+the wave's authorization overrides the default — proceed with the deletion.
+If no Authorized deletions section exists, or the path is not listed in it,
+apply the orphan-deletion default above (queue to proposed-deletions, do NOT
+delete).
+**Escalate when:** the path is listed but the rationale is missing or ambiguous —
+queue to proposed-deletions and log a decision file.
+**Lesson:** S-46 wave instructed deletion of `backend/requirements.txt` without
+an Authorized deletions section. Stream A correctly deferred. The wave file
+convention added 2026-05-28 closes this gap: future waves authorize deletions
+explicitly or have them deferred.
+
 ### Rename or move a tracked file
 **Default:** Allowed if the wave explicitly calls for it. Update all inbound
 references in the same commit.

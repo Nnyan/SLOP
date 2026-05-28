@@ -190,23 +190,44 @@ timestamp: 2026-05-27T22:33:14Z
 
 ## Launching a Robot run
 
-The user (or orchestrator) starts each wave coordinator in its own session with:
+### Architecture (revised 2026-05-28)
+
+**The orchestrator session IS the coordinator.** Instead of the user launching
+a separate Claude Code session per wave coordinator, the user asks the
+orchestrator session (e.g., this Claude session) to fire the wave. The
+orchestrator reads the wave file and dispatches each stream directly as a
+subagent (Agent tool, isolation:worktree, model per the wave file's
+Parallelization section). No nested coordinator layer.
+
+Invocation pattern (from the user, in the orchestrator session):
 
 ```
-in Robot mode: execute the wave defined in .claude/waves/S-NN-TOPIC.md as coordinator.
+in Robot mode: execute the wave defined in .claude/waves/S-NN-TOPIC.md as orchestrator (you ARE the coordinator; dispatch streams directly).
 ```
 
-The "in Robot mode" prefix is the signal. The coordinator:
+### Orchestrator startup sequence
 
-1. Reads ROBOT.md (this file) — confirms it's about to operate under the rules.
-2. Reads `.claude/AUTONOMOUS-DEFAULTS.md` — loads the decision register.
-3. Reads its wave file — confirms streams, models, deliverables.
-4. Creates `.claude/run/status/<wave>.md` with start-time.
-5. Dispatches its subagent streams (concurrent, as the wave's Parallelization
-   section dictates). Each subagent gets a one-line "in Robot mode" preamble
-   to its task prompt.
-6. Watches for blocker/decision file events as streams return.
-7. Merges streams to `wave/<S-NN>-<topic>` (NOT main).
+1. Read ROBOT.md (this file) — confirm operating under the rules.
+2. Read `.claude/AUTONOMOUS-DEFAULTS.md` — load the decision register.
+3. Read the wave file end-to-end — confirm streams, models, deliverables.
+4. **Pre-flight fact-check:** spot-check the wave file's factual claims
+   against the actual repo. At minimum: every named file path exists with the
+   content the wave claims; every named inbound-reference count is current.
+   This catches wave-design errors before they propagate (S-47 lesson: the
+   wave had docker-compose labels inverted).
+5. Create `.claude/run/status/<wave>.md` with start-time.
+6. **Worktree venv setup:** for each stream worktree created by the Agent
+   tool, before the subagent runs, symlink the project venv:
+   `ln -sf /home/stack/code/slop/.venv .venv` inside the worktree. This lets
+   the subagent run `pytest`, `ms-enforce`, etc. against the same installed
+   packages as the main repo. Skipping this causes `ModuleNotFoundError`
+   failures unrelated to the wave's work (S-50 lesson).
+7. Dispatch the streams concurrently as Agent subagent calls (single message,
+   multiple Agent tool uses). Each subagent gets a one-line "in Robot mode"
+   preamble to its task prompt and `model:` per the wave's Parallelization
+   section.
+8. Watch for blocker/decision file events as streams return.
+9. Merge streams to `wave/<S-NN>-<topic>` (NOT main).
 8. Updates status to COMPLETE.
 9. Exits.
 
@@ -223,6 +244,51 @@ When the user wakes up:
 6. Once a wave is merged to main, archive its run files: `mv .claude/run
    .claude/run-archive/<date>` (or delete).
 7. Launch any Round-2 waves that were waiting on Round 1.
+
+## Wave file conventions
+
+### "Authorized deletions" section
+
+If a wave's deliverables include deleting any file, the wave file MUST include
+an **"Authorized deletions"** section listing each path with a one-line
+rationale and a pre-validated inbound-reference scan result. Without this
+section, the AUTONOMOUS-DEFAULTS "no deletions in Robot mode" rule applies and
+the agent will defer the deletion to morning review.
+
+Example section in a wave file:
+
+```markdown
+## Authorized deletions
+
+The following files may be deleted by this wave's streams:
+
+- `backend/requirements.txt` — stale fossil pinning fastapi==0.115.6; not
+  referenced by installer (`installer/backend.py:109` reads the root file).
+  `grep -rn "backend/requirements" .` returns 0 inbound refs as of YYYY-MM-DD.
+- `<other-path>` — <one-line rationale + inbound-ref status>
+```
+
+This makes deletions visible at wave-design time (when errors can be caught)
+and lets the agent proceed autonomously when the wave designer has
+deliberately authorized them.
+
+### Post-wave operator handoff
+
+The Robot deny list blocks `git checkout main`, `git switch main`, and `git push*`.
+This is intentional during a wave (prevents accidental main checkout / push by
+an agent in the middle of work) but it also blocks the orchestrator from doing
+the final merge-to-main and push when the wave is done.
+
+Two operating patterns; pick whichever fits the moment:
+
+- **Handoff pattern (default):** the user does `git checkout main` before
+  merge work and `git push origin main` after. The orchestrator does everything
+  in between (merges, doctrine updates, cleanup).
+- **Lift pattern (faster, one-time):** the user lifts the relevant denies in
+  `.claude/settings.local.json` (and adds matching allows) before the
+  orchestrator starts the post-wave batch. The orchestrator does everything
+  end-to-end, then restores the denies as the final step. Useful when there
+  are multiple waves to merge in one sitting.
 
 ## How Robot mode improves over time
 
