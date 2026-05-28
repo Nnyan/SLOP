@@ -323,7 +323,7 @@ def _frag_env(linuxserver: bool, puid: int, pgid: int, timezone: str,
 
 
 def _frag_volumes(config_path: str, media_root: str | None,
-                  extra_volumes: list[dict[str, str]] | None) -> list[str]:
+                  extra_volumes: list[dict[str, Any]] | None) -> list[str]:
     """Assemble the `volumes:` block. `/config` always present;
     `/data` added when media_root is set; extra_volumes appended raw."""
     volumes = [f"{config_path}:/config"]
@@ -386,7 +386,7 @@ def build_service_fragment(
     cert_resolver: str = "letsencrypt",
     lan_subnet: str | None = None,
     tinyauth_enabled: bool = False,
-    extra_volumes: list[dict[str, str]] | None = None,
+    extra_volumes: list[dict[str, Any]] | None = None,
     capabilities: list[str] | None = None,
     security_opt: list[str] | None = None,
     devices: list[str] | None = None,

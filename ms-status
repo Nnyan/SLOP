@@ -417,8 +417,12 @@ def main():
     args = p.parse_args()
 
     if not PLAN_PATH.exists():
-        print(f"ERROR: {PLAN_PATH} not found. Run from repo root.", file=sys.stderr)
-        sys.exit(2)
+        if args.json:
+            import json as _j
+            print(_j.dumps({"steps": [], "note": f"{PLAN_PATH} not present in this repo"}))
+        else:
+            print(f"NOTE: {PLAN_PATH} not present in this repo — status unavailable.", file=sys.stderr)
+        sys.exit(0)
 
     text = PLAN_PATH.read_text()
     steps = classify_steps(parse_plan(text))

@@ -5,6 +5,8 @@
 **Supersedes:** none
 **See also:** `frontend/`, `frontend/src/api/client.ts`, [ADR 0005 (API versioning)](0005-api-versioning.md)
 
+> Enforcement: [manual — framework choice is implicit in `frontend/package.json`'s `vue` ^3.x dependency and the SFC structure of `frontend/src/**/*.vue`. Replacing Vue would be a rewrite; reviewers flag any non-Vue UI framework introduced in a PR.]
+
 ---
 
 ## Context

@@ -114,7 +114,14 @@ def test_health_scheduler_summary_shape_when_present(client, snapshot) -> None:
 
 # ── CLI snapshot — ms-status --json ────────────────────────────────
 
+_PLAN_PATH = Path(__file__).resolve().parent.parent / "docs" / "cleanup" / "PROJECT_CLEANUP.md"
+_plan_absent = pytest.mark.skipif(
+    not _PLAN_PATH.exists(),
+    reason="docs/cleanup/PROJECT_CLEANUP.md not present in this repo (lives in slop-process)",
+)
 
+
+@_plan_absent
 def test_ms_status_json_top_level_shape(snapshot) -> None:
     """`ms-status --json` is the cross-session continuity output (the
     `--handoff` prompt's machine-readable cousin). Its top-level keys
@@ -138,6 +145,7 @@ def test_ms_status_json_top_level_shape(snapshot) -> None:
     assert sorted(data.keys()) == snapshot
 
 
+@_plan_absent
 def test_ms_status_step_entry_shape(snapshot) -> None:
     """Each step entry in ms-status --json has a stable key set."""
     import json

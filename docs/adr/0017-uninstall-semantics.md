@@ -4,6 +4,8 @@
 - **Status:** Accepted
 - **Deciders:** operator, Claude Opus 4.7 (v5 Tier 4.1 design session)
 
+> Enforcement: [manual — verified by `installer/tests/test_uninstall.py` (unit + integration coverage of the three subcommands' semantics) and the v5.0.0 audit gate's INV-12 through INV-16 checks (`docs/cleanup/COMPLETION_AUDIT_v5_0_0.md`). Uninstall is installer-scoped and runs against a real host's filesystem, outside ms-enforce's backend-repo drift surface.]
+
 ## Context
 
 v5.0's uninstall subcommands are the inverse of the install pipeline in goal but not in shape. ADR 0013 §1 Scope, §3 boundary 4, and INV-4 forward-reference "ADR 0014" for uninstall semantics; ADR 0015 INV-11 forward-references the same number for `POST_INSTALL.txt` lifecycle. The number 0014 was assigned to the frontend build release policy at Tier 2 close (commit a8a6d51, Proposed status), so the uninstall ADR takes the next free number, 0017. This document fills the forward-reference debt under its actual number; the paired-commit housekeeping in the Consequences section retags those forward references in ADR 0013, ADR 0015, and V5_INSTALLER_PLAN.md so future readers do not chase a wrong number.

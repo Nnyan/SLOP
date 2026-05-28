@@ -4,6 +4,8 @@
 - **Status:** Accepted
 - **Deciders:** operator, Claude Opus 4.7 (v5 Tier 3.1 design session)
 
+> Enforcement: [manual — verified by `installer/tests/test_smoke.py` (per-predicate unit tests) and `installer/smoke.py` run as the final step of `install.sh` on a real host; INV-7 through INV-11 are checked by the v5.0.0 audit gate against three target distros. ms-enforce's scope is the backend repo's drift surface; install-time readiness is the installer's own quality bar.]
+
 ## Context
 
 Tier 2 of the v5.0 installer arc closed at commit b95016b with the install pipeline producing a `mediastack` system user, a populated `/opt/mediastack`, a populated `/var/lib/mediastack`, a running `mediastack.service` systemd unit, and a state file at `phase: "installed"`. None of those facts answer the question "can an operator open a browser to the wizard right now." A systemd unit that is `active (running)` can be a backend that has crashed and is restarting, or a process that has bound a port without yet serving requests, or a process serving requests against an empty SPA build with no UI to drive. The Tier 2 close exit code was 0; the operator's browser experience was unverified.

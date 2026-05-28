@@ -189,7 +189,7 @@ def _container_info(c: Any) -> ContainerInfo:
     # containers.get() / inspect returns State as a dict with Health etc.
     # Handle both so this function is safe for both call paths.
     raw_state = attrs.get("State", {})
-    state: dict = raw_state if isinstance(raw_state, dict) else {}
+    state: dict[str, Any] = raw_state if isinstance(raw_state, dict) else {}
 
     health = (state.get("Health") or {}).get("Status", "none")
 

@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS fix_history (
     outcome     TEXT NOT NULL DEFAULT 'pending',  -- pending | success | failure
     thumbs      INTEGER DEFAULT NULL,             -- 1=up, -1=down, NULL=no feedback
     created_at  INTEGER NOT NULL
-);
+, diagnosis_class TEXT NOT NULL DEFAULT 'UNKNOWN', signature_hash TEXT NOT NULL DEFAULT '');
 
 CREATE TABLE IF NOT EXISTS health_check_history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS pending_fixes (
     status      TEXT    NOT NULL DEFAULT 'pending',
     model       TEXT,
     created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
-    resolved_at INTEGER,
+    resolved_at INTEGER, diagnosis_class TEXT NOT NULL DEFAULT 'UNKNOWN', fix_metadata TEXT NOT NULL DEFAULT '{}',
     UNIQUE(app_key, check_name, action_type)
 );
 
@@ -286,7 +286,7 @@ CREATE TABLE IF NOT EXISTS platform (
     domain          TEXT,           -- e.g. nyrdalyrt.com
     wildcard_domain TEXT,           -- e.g. *.nyrdalyrt.com
     network_name    TEXT NOT NULL DEFAULT 'mediastack',
-    config_root     TEXT NOT NULL DEFAULT '/var/lib/mediastack/config',
+    config_root     TEXT NOT NULL DEFAULT '/srv/mediastack/config',
     media_root      TEXT NOT NULL DEFAULT '/mnt/media',
     puid            INTEGER NOT NULL DEFAULT 1000,
     pgid            INTEGER NOT NULL DEFAULT 1000,
@@ -377,7 +377,11 @@ CREATE INDEX IF NOT EXISTS idx_cloud_usage_provider ON cloud_llm_usage (provider
 
 CREATE INDEX IF NOT EXISTS idx_fix_history_app ON fix_history (app_key);
 
+CREATE INDEX IF NOT EXISTS idx_fix_history_class_app ON fix_history(diagnosis_class, app_key);
+
 CREATE INDEX IF NOT EXISTS idx_fix_history_error ON fix_history (error_type, outcome);
+
+CREATE INDEX IF NOT EXISTS idx_fix_history_signature ON fix_history(signature_hash);
 
 CREATE INDEX IF NOT EXISTS idx_hch_key ON health_check_history (subject_key, check_name, checked_at);
 

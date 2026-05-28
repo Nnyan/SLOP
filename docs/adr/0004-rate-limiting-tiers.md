@@ -5,6 +5,8 @@
 **Supersedes:** none (no rate limiting existed pre-2.4)
 **See also:** [`docs/cleanup/STEP_2_4_RATE_LIMITING_STRATEGY.md`](../cleanup/STEP_2_4_RATE_LIMITING_STRATEGY.md), [Core Rule 4.14 (Rate Limiting Discipline)](../CORE_RULES.md#414-rate-limiting-discipline)
 
+> Enforcement: [automated — ms-coverage RULE `rate-limiting-discipline` anchored at `tests/test_rate_limiting.py::test_heavy_mutation_blocks_after_5`; six-case suite verifies the 429 path and the localhost bypass]
+
 ## Context
 
 Pre-2.4 the FastAPI surface had zero rate limiting. The runaway-script failure mode is realistic: a misconfigured frontend retry loop, a buggy `ms-test` bisector, or an external client written without backoff can hit `/api/apps/{key}/install` hundreds of times per second. The single-process backend would queue, OOM, or deadlock on the install lock.

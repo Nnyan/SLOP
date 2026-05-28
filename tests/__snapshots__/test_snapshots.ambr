@@ -18,29 +18,17 @@
 # ---
 # name: test_health_summary_shape
   list([
+    'agent_status',
     'error',
     'ok',
+    'process_integrity_status',
     'unknown',
     'warning',
   ])
 # ---
 # name: test_ms_status_json_top_level_shape
   list([
-    'branch',
-    'dirty_tracked',
-    'head',
-    'next',
+    'note',
     'steps',
-    'unpushed_count',
-  ])
-# ---
-# name: test_ms_status_step_entry_shape
-  list([
-    'status',
-    'step_id',
-    'sub_count',
-    'sub_done',
-    'tier',
-    'title',
   ])
 # ---

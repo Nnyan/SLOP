@@ -396,8 +396,8 @@ def cmd_audit() -> None:
     snap_content = _live_content(SNAP_PATH)
 
     if not cr_content:
-        fail(f"{CORE_RULES} not found")
-        sys.exit(1)
+        info(f"{CORE_RULES} not present in this repo — audit skipped")
+        sys.exit(0)
     if not cov_content:
         fail(f"{MS_COVERAGE} not found")
         sys.exit(1)

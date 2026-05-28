@@ -358,3 +358,33 @@ class TestAddedHeadingIdsDiffAware:
         result = tool.added_heading_ids(diff)
         assert "5.21" in result, f"renumbered new ID must be detected; got {result}"
         assert "5.20" not in result, f"old ID must not be treated as addition; got {result}"
+
+
+# ── meta-no-hollow-constraints: every accepted ADR has enforcement ────────────
+
+import re as _re
+
+
+def test_every_accepted_adr_has_enforcement() -> None:
+    """Every accepted ADR must have its number referenced in ms-enforce or ms-coverage."""
+    adr_dir = REPO / "docs" / "adr"
+    enforce_text = (REPO / "ms-enforce").read_text()
+    coverage_text = (REPO / "ms-coverage").read_text()
+    combined = enforce_text + coverage_text
+
+    unmatched = []
+    for path in sorted(adr_dir.glob("*.md")):
+        m = _re.match(r"^(\d{4})-", path.name)
+        if not m:
+            continue
+        content = path.read_text()
+        if "Status: Accepted" not in content and "**Status:** Accepted" not in content:
+            continue
+        num = m.group(1)
+        if num not in combined:
+            unmatched.append(f"ADR {num} ({path.name})")
+
+    assert not unmatched, (
+        f"{len(unmatched)} accepted ADR(s) have no enforcement reference in ms-enforce or ms-coverage:\n"
+        + "\n".join(f"  - {x}" for x in unmatched)
+    )

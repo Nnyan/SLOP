@@ -35,7 +35,7 @@ router = APIRouter()
 #   app_keys — catalog app slugs to install (lowercased, underscored)
 #   ram_note — human-readable RAM hint string
 #   ram_gb   — numeric RAM threshold for the low-RAM warning
-_DEFAULT_STACKS: list[dict] = [
+_DEFAULT_STACKS: list[dict[str, Any]] = [
     {"id": "arr_basic",    "label": "Arr Stack",                 "app_keys": ["sonarr", "radarr", "prowlarr", "sabnzbd"],    "ram_note": "~2GB RAM",                                "ram_gb": 2},
     {"id": "debrid",       "label": "Debrid Stack",              "app_keys": ["decypharr", "zilean", "dumb"],                "ram_note": "~1GB RAM · Real-Debrid / TorBox / AllDebrid", "ram_gb": 1},
     {"id": "media_server", "label": "Jellyfin Media Server",     "app_keys": ["jellyfin", "seerr"],                         "ram_note": "~4GB RAM",                                "ram_gb": 4},
@@ -46,17 +46,17 @@ _DEFAULT_STACKS: list[dict] = [
 ]
 
 
-def _load_stacks_from_db(db: "StateDB") -> tuple[list[dict], list[str]]:
+def _load_stacks_from_db(db: "StateDB") -> tuple[list[dict[str, Any]], list[str]]:
     """Return (custom_stacks, hidden_default_ids) from the settings table."""
     import json as _json
     raw_custom = db.get_setting("custom_stacks")
     raw_hidden = db.get_setting("hidden_stacks")
-    custom: list[dict] = _json.loads(raw_custom) if raw_custom else []
+    custom: list[dict[str, Any]] = _json.loads(raw_custom) if raw_custom else []
     hidden: list[str] = _json.loads(raw_hidden) if raw_hidden else []
     return custom, hidden
 
 
-def _save_custom_stacks(db: "StateDB", stacks: list[dict]) -> None:
+def _save_custom_stacks(db: "StateDB", stacks: list[dict[str, Any]]) -> None:
     import json as _json
     db.set_setting("custom_stacks", _json.dumps(stacks))
 
@@ -66,9 +66,9 @@ def _save_hidden_stacks(db: "StateDB", hidden: list[str]) -> None:
     db.set_setting("hidden_stacks", _json.dumps(hidden))
 
 
-def _build_stacks_response(custom: list[dict], hidden: list[str]) -> list[dict]:
+def _build_stacks_response(custom: list[dict[str, Any]], hidden: list[str]) -> list[dict[str, Any]]:
     """Merge defaults + custom into the full stacks list for the API."""
-    result: list[dict] = []
+    result: list[dict[str, Any]] = []
     # Defaults come first (unless hidden); a custom entry with the same id overrides the default
     custom_ids = {s["id"] for s in custom}
     for s in _DEFAULT_STACKS:
@@ -110,7 +110,7 @@ def create_stack(req: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="app_keys must be a non-empty list")
     import time as _time
     stack_id = f"custom_{int(_time.time())}"
-    new_stack: dict = {"id": stack_id, "label": label, "app_keys": app_keys, "ram_note": ram_note, "ram_gb": ram_gb}
+    new_stack: dict[str, Any] = {"id": stack_id, "label": label, "app_keys": app_keys, "ram_note": ram_note, "ram_gb": ram_gb}
     with StateDB() as db:
         custom, hidden = _load_stacks_from_db(db)
         custom.append(new_stack)

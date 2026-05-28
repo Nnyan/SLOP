@@ -132,7 +132,10 @@ def get_health_summary() -> dict[str, Any]:
     Response shape:
       ok / warning / error / unknown  — integer counts of app health checks
       agent_status                    — string status of the SLOP Agent itself
+      process_integrity_status        — string status of SLOP's rule-enforcement
+                                        coverage (executive-manager dimension)
     """
+    from backend.core.agent import AGENT_INTEGRITY_KEY, AGENT_SUBJECT_TYPE_INTEGRITY
     from backend.core.state import StateDB
     with StateDB() as db:
         app_rows = db.execute(
@@ -144,11 +147,20 @@ def get_health_summary() -> dict[str, Any]:
             "WHERE subject_type='agent' AND subject_key='slop_agent' "
             "AND check_name='agent_status' LIMIT 1"
         ).fetchone()
+        integrity_row = db.execute(
+            "SELECT status FROM health_checks "
+            "WHERE subject_type=? AND subject_key=? "
+            "ORDER BY checked_at DESC LIMIT 1",
+            (AGENT_SUBJECT_TYPE_INTEGRITY, AGENT_INTEGRITY_KEY),
+        ).fetchone()
     counts: dict[str, Any] = {"ok": 0, "warning": 0, "error": 0, "unknown": 0}
     for r in app_rows:
         if r["status"] in counts:
             counts[r["status"]] = r["n"]
     counts["agent_status"] = agent_row["status"] if agent_row else "unknown"
+    counts["process_integrity_status"] = (
+        integrity_row["status"] if integrity_row else "unknown"
+    )
     return counts
 
 @router.get("/llm-agent", response_model=LLMAgentStatus)

@@ -1463,4 +1463,35 @@ async def run_health_cycle(
     except Exception as _ae:
         log.warning("Agent connectivity check failed: %s", _ae)
 
+    # Executive-manager responsibility: report SLOP's own rule-enforcement
+    # coverage as a first-class health dimension (subject_type='process_integrity').
+    try:
+        from backend.agent.integrity import run_process_integrity_check
+        from backend.core.agent import (
+            AGENT_INTEGRITY_KEY,
+            AGENT_SUBJECT_TYPE_INTEGRITY,
+        )
+
+        loop = asyncio.get_running_loop()
+        integrity = await loop.run_in_executor(None, run_process_integrity_check)
+        if integrity.critical_gaps > 0:
+            integrity_status = "critical"
+        elif integrity.high_gaps > 0:
+            integrity_status = "degraded"
+        else:
+            integrity_status = "ok"
+        try:
+            with StateDB() as _db:
+                _db.upsert_health_check(
+                    subject_type=AGENT_SUBJECT_TYPE_INTEGRITY,
+                    subject_key=AGENT_INTEGRITY_KEY,
+                    check_name="enforcement_coverage",
+                    status=integrity_status,
+                    summary=integrity.summary,
+                )
+        except Exception as _we:
+            log.warning("Failed to write process_integrity health check: %s", _we)
+    except Exception as _ie:
+        log.warning("Process integrity check failed: %s", _ie)
+
     return run

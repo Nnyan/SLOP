@@ -52,3 +52,11 @@ asyncio_mode = "strict"
 # addopts removed: --basetemp=/srv/tmp/pytest-base hardcoded server path blocked fresh worktrees + CI
 tmp_path_retention_policy = "all"
 timeout = 30   # pytest-timeout (requirements-dev.txt): kill any test that hangs
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+    "pytest-asyncio>=1.4.0",
+    "syrupy==5.1.0",
+    "types-pyyaml>=6.0.12.20260518",
+]

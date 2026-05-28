@@ -50,7 +50,7 @@ DIAGNOSIS_TO_FIX_TYPE: dict[str, str] = {
 # All other fix types → 422 (requires human review).
 SAFE_FIX_TYPES: set[str] = {"restart_container", "repull_restart", "env_var_format"}
 
-ApplyResult = dict  # {"ok": bool, "message": str, "fix_type": str}
+ApplyResult = dict[str, Any]  # {"ok": bool, "message": str, "fix_type": str}
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ def _restart_container(app_key: str) -> ApplyResult:
     }
 
 
-def _repull_restart(app_key: str, metadata: dict) -> ApplyResult:
+def _repull_restart(app_key: str, metadata: dict[str, Any]) -> ApplyResult:
     """Run `docker pull <image>` then `docker restart <app_key>`.
 
     Image defaults to app_key if not found in metadata.

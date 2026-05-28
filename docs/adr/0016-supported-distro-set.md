@@ -1,5 +1,7 @@
 # ADR 0016 — Supported Distro Set for v5.0
 
+> Enforcement: [manual — `install.sh`'s distro guard rejects out-of-set versions at install time, and `installer/SUPPORTED_DISTROS.md` + `installer/readiness_manifest.yaml` are the policy artifacts. The supported set is reviewed at every release close per §6.3, not via static repo check.]
+
 ## Status
 
 **Status:** Accepted — 2026-05-16

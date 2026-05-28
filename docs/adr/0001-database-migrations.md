@@ -5,6 +5,8 @@
 **Supersedes:** none
 **See also:** [`docs/cleanup/STEP_1_1_DB_MIGRATIONS_STRATEGY.md`](../cleanup/STEP_1_1_DB_MIGRATIONS_STRATEGY.md), [Core Rule 6.1 (Migration Discipline)](../CORE_RULES.md#61-migration-discipline)
 
+> Enforcement: [automated — ms-enforce checks `check_migration_sequence`, `check_py_migration_api`, `check_schema_sql_sync`, `check_no_adhoc_create`; `tests/test_migrations.py` exercises the runner]
+
 ## Context
 
 Pre-1.1, `init_db()` was called on every startup and ran `CREATE TABLE IF NOT EXISTS` plus a sequence of inline `ALTER TABLE` patches. Three production bugs shipped because of this pattern:

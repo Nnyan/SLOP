@@ -1,6 +1,9 @@
 """backend/core/agent.py
 
-SLOP Agent — tier-0 system component registration and health connectivity.
+SLOP Agent is the SLOP application core executive manager — its primary
+responsibility is ensuring SLOP itself is running and healthy; it monitors all
+managed components, detects failures, and drives automated remediation.
+It is NOT merely a diagnostic add-on.
 
 This module owns the canonical constants for the SLOP Agent and provides:
   ensure_agent_registered()  — startup hook; idempotent DB bootstrap
@@ -9,9 +12,9 @@ This module owns the canonical constants for the SLOP Agent and provides:
   _write_agent_health()      — sync helper to persist a status string + summary
 
 The SLOP Agent is NOT a Docker-based catalog app.  It is the backend process
-itself acting as an autonomous monitor and remediator.  Its DB record
-(tier=0, category="agent") is the anchor for health checks, operations, and
-future pattern/remediation storage.
+itself acting as the executive manager: authoritative monitor and remediator
+for every component SLOP owns.  Its DB record (tier=0, category="agent") is
+the anchor for health checks, operations, and remediation storage.
 
 Tier meanings:
   0  — system component (SLOP Agent, future core services)
@@ -22,6 +25,7 @@ Tier meanings:
 from __future__ import annotations
 
 import json as _json
+from typing import Any
 
 from backend.core.logging import get_logger
 from backend.core.state import StateDB
@@ -33,10 +37,16 @@ log = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 AGENT_KEY: str = "slop_agent"
-AGENT_DISPLAY_NAME: str = "SLOP Agent"
+AGENT_DISPLAY_NAME: str = "SLOP Agent — Executive Manager"
+AGENT_ROLE: str = "executive_manager"
 AGENT_TIER: int = 0
 AGENT_CATEGORY: str = "agent"
 AGENT_SUBJECT_TYPE: str = "agent"
+
+# Process-integrity dimension — tracked alongside LLM connectivity so SLOP's
+# own rule-enforcement coverage is observable as a first-class health signal.
+AGENT_SUBJECT_TYPE_INTEGRITY: str = "process_integrity"
+AGENT_INTEGRITY_KEY: str = "enforcement_coverage"
 
 HEALTH_CHECK_AGENT_STATUS: str = "agent_status"
 
@@ -151,7 +161,7 @@ async def check_agent_connectivity() -> str:
     try:
         with StateDB() as _db:
             _raw = _db.get_setting("llm_agent_config")
-        cfg: dict = _json.loads(_raw) if _raw else {}
+        cfg: dict[str, Any] = _json.loads(_raw) if _raw else {}
     except Exception:
         cfg = {}
 
@@ -195,7 +205,7 @@ async def check_agent_connectivity() -> str:
         probe_path = "/v1/models"
 
     api_key = (cfg.get("api_key", "") or "").strip()
-    headers: dict = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    headers: dict[str, str] = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     try:
         async with _httpx.AsyncClient(timeout=5.0) as client:

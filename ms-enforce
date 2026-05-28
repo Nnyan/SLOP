@@ -351,6 +351,59 @@ def check_rule_contract() -> tuple[bool, str]:
     return True, "rule-addition contract audit clean"
 
 
+def check_stale_xfails() -> tuple[bool, str]:
+    """Stale xfail discipline: no pytest.mark.xfail older than 30 days without an issue link."""
+    rc, out = _run(["python3", "tools/check_xfail_age.py"], timeout=30)
+    if rc != 0:
+        return False, out.strip() or "stale xfails detected"
+    return True, "no stale xfails"
+
+
+_ADR_ENFORCEMENT_ANNOTATION_RE = re.compile(
+    r"^>\s*Enforcement:\s*\[(?:manual|automated)\s+—",
+    re.MULTILINE,
+)
+
+
+def check_adr_enforcement() -> tuple[bool, str]:
+    """Every accepted ADR is accounted for by ONE of:
+      (a) its ADR number appears in ms-enforce or ms-coverage (check label,
+          RULES[] rationale, or explicit mapping comment), OR
+      (b) the ADR file itself carries an annotation line of the form
+          '> Enforcement: [manual — <rationale>]' or
+          '> Enforcement: [automated — <check name>]'.
+
+    The annotation form lets architectural decisions that are not machine-checkable
+    (or that are checked outside ms-enforce, e.g., installer-only tests) declare
+    their enforcement story durably in the ADR file rather than via a stub check.
+    """
+    adr_dir = REPO / "docs" / "adr"
+    if not adr_dir.exists():
+        return True, "no docs/adr/ directory — skip"
+
+    enforce_text = (REPO / "ms-enforce").read_text()
+    coverage_text = (REPO / "ms-coverage").read_text()
+
+    unmatched: list[str] = []
+    for path in sorted(adr_dir.glob("*.md")):
+        m = re.match(r"^(\d{4})-", path.name)
+        if not m:
+            continue
+        content = path.read_text()
+        if "Status: Accepted" not in content and "**Status:** Accepted" not in content:
+            continue
+        num = m.group(1)  # e.g. "0012"
+        if _ADR_ENFORCEMENT_ANNOTATION_RE.search(content):
+            continue  # ADR declares its own enforcement story
+        if num not in enforce_text and num not in coverage_text:
+            unmatched.append(f"ADR {num} ({path.name}) — no matching check label or RULES entry")
+
+    if unmatched:
+        detail = "\n".join(unmatched)
+        return True, f"{len(unmatched)} accepted ADR(s) lack automated enforcement coverage:\n{detail}"
+    return True, "all accepted ADRs have enforcement coverage"
+
+
 
 # ── Migration checks (Core Rule 5.19 / 6.1) ──────────────────────────────
 
@@ -813,6 +866,7 @@ TIER_1: list[tuple[str, object]] = [
     ("Refactor coverage (Core Rule 2.10)",         check_refactor_coverage),
     ("Repository structure (Core Rule 5.23)",       check_repository_structure),
     ("Rule-Addition Contract (ADR 0012)",           check_rule_contract),
+    ("Stale xfails — issue link required after 30d", check_stale_xfails),
     # ── Migration discipline (Core Rule 6.1) added by step 1.1.g ──────────
     ("Migration sequence (Core Rule 6.1)",         check_migration_sequence),
     ("Migration .py API  (Core Rule 6.1)",          check_py_migration_api),
@@ -829,6 +883,7 @@ TIER_2: list[tuple[str, object]] = [
     ("Dead code (Rule 4.17) — warning only",      check_dead_code),
     ("ADR-present for breaking change (Rule 4.15) — warning only",
                                                   check_adr_present_for_breaking_change),
+    ("ADR enforcement coverage — warning only",   check_adr_enforcement),
 ]
 
 

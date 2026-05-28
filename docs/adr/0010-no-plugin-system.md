@@ -5,6 +5,8 @@
 **Supersedes:** none
 **See also:** [ADR 0009 (Infra-slot abstraction)](0009-infra-slot-abstraction.md), [ADR 0011 (Single-tenant assumption)](0011-single-tenant-assumption.md)
 
+> Enforcement: [manual — architectural negation; the absence of a plugin loader, `mediastack-plugin-*` discovery, or `@before_install`-style hook decorators is the proof. Reviewers reject PRs that introduce a runtime hook/entry-point/plugin-discovery surface.]
+
 ---
 
 ## Context

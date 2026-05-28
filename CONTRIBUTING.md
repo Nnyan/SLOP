@@ -4,11 +4,13 @@ This document covers the conventions that aren't already enforced by `ms-enforce
 
 ## Pre-merge checklist
 
-- [ ] `ms-enforce` (or `ms-enforce --fast` for pre-commit) passes locally.
-- [ ] New behaviour has a test (Core Rule 2.5: regression test in the same commit as the bug fix; Core Rule 4.11: snapshot test for stable outputs).
-- [ ] `mypy --strict` clean for any backend file you touched (Core Rule 5.20).
-- [ ] Commit subjects follow Conventional Commits 1.0 (Core Rule 7.1) — the commit-msg hook rejects malformed subjects.
-- [ ] If you introduced a new architectural constraint, codify it in `ms-coverage` as a rule entry (Core Rule 4.1).
+- [ ] `ms-enforce` (or `ms-enforce --fast` for pre-commit) passes locally. *(enforcement: `ms-enforce` is the gate itself; CI also runs it)*
+- [ ] New behaviour has a test (Core Rule 2.5: regression test in the same commit as the bug fix; Core Rule 4.11: snapshot test for stable outputs). *(enforcement: Rule 4.11 by `ms-enforce check_snapshots`; Rule 2.5 [manual — "same commit as the fix" is a git-history invariant that cannot be statically checked without false positives])*
+- [ ] `mypy --strict` clean for any backend file you touched (Core Rule 5.20). *(enforcement: `ms-enforce check_mypy`)*
+- [ ] Commit subjects follow Conventional Commits 1.0 (Core Rule 7.1) — the commit-msg hook rejects malformed subjects. *(enforcement: `tools/commit_msg_hook.py` at commit time; `tests/test_commit_format.py` catches `--no-verify` bypass on next CI run)*
+- [ ] If you introduced a new architectural constraint, codify it in `ms-coverage` as a rule entry (Core Rule 4.1). *(enforcement: `ms-enforce check_rule_contract` — ADR 0012 staged check via `ms-rule-contract --audit`)*
+- [ ] Any pre-existing failing test is either fixed in this commit, or marked `pytest.mark.xfail(strict=True, reason='github.com/Nnyan/SLOP/issues/N')` with a GitHub issue created. *(enforcement: `ms-enforce check_stale_xfails` rejects xfails older than 30 days without an issue link)*
+- [ ] Every new architectural constraint (ADR, Core Rule, checklist item) names its automated enforcement check or is explicitly tagged [manual] with a one-line rationale — bare intentions without enforcement are not mergeable. *(enforcement: `ms-enforce check_adr_enforcement` — accepts the `> Enforcement: [manual — ...]` or `> Enforcement: [automated — ...]` annotation in the ADR file as the matching signal)*
 
 ## Snapshot tests (Core Rule 4.11)
 

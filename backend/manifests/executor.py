@@ -1214,13 +1214,13 @@ def _deploy_companions(manifest: AppManifest, platform: Any) -> dict[str, str]:
                 ro = ":ro" if v.get("readonly") else ""
                 if not os.path.exists(host):
                     os.makedirs(host, exist_ok=True)
-                    if _has_uid:
+                    if _has_uid and _run_uid is not None and _run_gid is not None:
                         os.chown(host, int(_run_uid), int(_run_gid))
                         os.chmod(host, 0o755)
                     else:
                         os.chmod(host, 0o777)  # fallback: UID unknown
                 elif os.path.isdir(host):
-                    if _has_uid:
+                    if _has_uid and _run_uid is not None and _run_gid is not None:
                         os.chown(host, int(_run_uid), int(_run_gid))
                         os.chmod(host, 0o755)
                     else:

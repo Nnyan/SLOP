@@ -18,16 +18,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from backend.agent.listener import install_failure_listener
+from backend.core.logging import get_logger
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 # Module-level reference to the long-running watcher task.
-_watcher_task: Optional[asyncio.Task] = None
+_watcher_task: Optional[asyncio.Task[None]] = None
 
 _FILTER_ACTIONS = frozenset({"die", "oom", "health_status"})
 
@@ -47,7 +47,7 @@ def _extract_app_key(container_name: str) -> Optional[str]:
     return None
 
 
-async def _handle_event(event: dict) -> None:
+async def _handle_event(event: dict[str, Any]) -> None:
     """Process one parsed Docker event dict.
 
     Filters by action (die/oom/health_status=unhealthy) and by container
@@ -93,6 +93,7 @@ async def _watch_loop() -> None:
                 "docker", "events", "--format", "json",
                 stdout=asyncio.subprocess.PIPE,
             )
+            assert proc.stdout is not None
             async for raw_line in proc.stdout:
                 line = raw_line.strip()
                 if not line:

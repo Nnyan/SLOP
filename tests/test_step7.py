@@ -135,14 +135,13 @@ class TestNewProviders:
             providers = list_providers(slot)
             assert len(providers) >= 1, f"Slot '{slot}' has no registered providers"
 
-    def test_tailscale_deploy_fails_gracefully(self):
+    def test_tailscale_deploy_fails_gracefully(self, db):
         from backend.infra.providers.tunnel_tailscale import TailscaleProvider
-        from backend.core.state import StateDB
         p = TailscaleProvider()
         with patch("backend.infra.providers.tunnel_tailscale.write_fragment") as mock_frag:
             mock_frag.return_value = Path("/tmp/tailscale.yaml")
-            with patch("backend.infra.providers.tunnel_tailscale.subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=1, stderr="error", stdout="")
+            with patch("backend.infra.providers.tunnel_tailscale.compose_up") as mock_up:
+                mock_up.return_value = (1, "error: failed to bring up tailscale")
                 result = p.deploy({"auth_key": "tskey-test"})
         assert result.ok is False
         assert "failed" in result.message.lower() or "error" in result.detail.lower()
@@ -155,13 +154,16 @@ class TestNewProviders:
             result = p.verify()
         assert result.ok is False
 
-    def test_homepage_deploy_writes_fragment(self, db):
+    def test_homepage_deploy_writes_fragment(self, db, tmp_path):
         from backend.infra.providers.dashboard_homepage import HomepageProvider
+        from backend.core.state import StateDB
+        with StateDB() as _db:
+            _db.update_platform(config_root=str(tmp_path / "config"))
         p = HomepageProvider()
         with patch("backend.infra.providers.dashboard_homepage.write_fragment") as mock_frag:
             mock_frag.return_value = Path("/tmp/homepage.yaml")
-            with patch("backend.infra.providers.dashboard_homepage.subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0)
+            with patch("backend.infra.providers.dashboard_homepage.compose_up") as mock_up:
+                mock_up.return_value = (0, "")
                 result = p.deploy({"domain": "example.com"})
         assert result.ok is True
         assert mock_frag.called

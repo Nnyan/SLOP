@@ -24,12 +24,12 @@ must never propagate exceptions back into the install pipeline.
 """
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from backend.agent.classifier import classify_offline, classify_with_llm
+from backend.core.logging import get_logger
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 _CHECK_NAME = "install_monitor"
 _ACTION_TYPE = "diagnose"

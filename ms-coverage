@@ -1449,6 +1449,28 @@ RULES: list[dict] = [
         "test_fn": "test_detects_hardcoded_opt_mediastack",
         "test_file": "tests/test_structural_antipatterns.py",
     },
+    # ── Meta: no hollow constraints ───────────────────────────────────────────
+    {
+        "id": "meta-no-hollow-constraints",
+        "label": "every accepted ADR maps to an automated check or explicit [manual] tag",
+        "rationale": (
+            "the pre-existing-failure recurrence pattern (S-43 and earlier) proves that rules "
+            "without enforcement are not rules — they are intentions that accumulate and are "
+            "repeatedly rediscovered"
+        ),
+        "risk": "high",
+        "file": "docs/adr/",
+        "test_fn": "test_every_accepted_adr_has_enforcement",
+        "test_file": "tests/test_rule_contract.py",
+    },
+    {
+        "id": "agent-executive-integrity",
+        "label": "Agent reports process integrity (enforcement coverage) as health dimension",
+        "risk": "high",
+        "file": "backend/agent/integrity.py",
+        "test_fn": "test_agent_process_integrity_produces_health_record",
+        "test_file": "tests/test_agent_integrity.py",
+    },
 ]
 
 

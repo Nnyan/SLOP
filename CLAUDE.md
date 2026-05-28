@@ -55,9 +55,13 @@ Steps in `operation_steps` DB table. `clear_op_steps()` runs before each new ins
 Stable architectural truths. Moved here from HANDOFF.md on 2026-05-24 (S2a split).
 
 **SLOP AI Agent ≠ User LLM catalog apps.** Critical distinction:
-- **SLOP AI Agent**: tier-0 core system — monitors all of SLOP, analyzes errors, remediates.
+- **SLOP AI Agent**: the core executive manager of the SLOP application — responsible for
+  SLOP's own continuity. It is NOT a catalog app health watcher bolted on as an afterthought.
+  Its primary responsibility is ensuring SLOP itself is running and healthy: it monitors all
+  managed components, detects failures, and drives automated remediation.
   DB record: `key="slop_agent"`, `tier=0`, `category="agent"`, `status="running"`.
-  Module: `backend/core/agent.py` — `ensure_agent_registered()` runs at every startup.
+  Module: `backend/core/agent.py` — `AGENT_ROLE = "executive_manager"`;
+  `ensure_agent_registered()` runs at every startup.
   Health: `subject_type="agent"` (never mixes with app health checks, `subject_type="app"`).
   API: `GET /api/v1/health/agent` + `agent_status` field in `/api/v1/health/summary`.
   `get_all_apps(include_system=False)` excludes tier=0 from all user-facing lists.
