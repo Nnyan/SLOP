@@ -82,3 +82,10 @@ data/state.db.bak.*
 # .claude/AUTONOMOUS-DEFAULTS.md.
 .claude/run/
 .claude/run-archive/
+
+# Tooling caches — local to each dev environment, never shared
+.mypy_cache/
+# ruff lint/format cache — regenerated on every run
+.ruff_cache/
+# Per-agent worktree isolation scratch — never shared across contributors
+.claude/worktrees/
