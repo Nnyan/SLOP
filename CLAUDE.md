@@ -7,6 +7,10 @@ Backend: FastAPI + Python (`backend/`). Frontend: Vue 3 + TypeScript (`frontend/
 Catalog: YAML manifests for 56 installable apps (`catalog/apps/`).
 Backend tests run against a local venv; no external server required for unit tests.
 
+## Test & tool failures
+
+Fix every pre-existing test or tool failure encountered in a session — pytest, `ms-enforce`, linters, type checkers. Do not skip, defer, or label them "pre-existing and unrelated." If a fix requires broader changes (install a package, adjust a fixture), do it as part of the current work.
+
 ## Frontend architecture rule — NO business logic in view files
 
 **View files (`frontend/src/views/*.vue`) must contain only:**
