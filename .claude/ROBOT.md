@@ -40,6 +40,13 @@ prefixing the prompt. Regular interactive sessions are unaffected.
    deny list backs this up; if you somehow construct a command that would
    prompt, settings will halt the call.
 
+3a. **NEVER use the Write tool to create a new file in Robot mode.** Use Bash
+    heredocs instead (`cat > file <<'EOF' ... EOF`). The Write tool requires
+    a prior Read of the file via the Read tool, even for files that don't
+    exist yet; Bash `touch` does NOT satisfy this. See "File creation pattern"
+    in "Launching a Robot run" below. For editing EXISTING files, the
+    standard Read-then-Edit/Write pattern is fine.
+
 4. **On hard blocker** (genuinely cannot proceed — failed install, unrecoverable
    merge conflict, missing file you can't synthesize):
    - Write `.claude/run/blockers/<wave>-<stream>.md` with what blocked, what
@@ -215,21 +222,88 @@ in Robot mode: execute the wave defined in .claude/waves/S-NN-TOPIC.md as orches
    content the wave claims; every named inbound-reference count is current.
    This catches wave-design errors before they propagate (S-47 lesson: the
    wave had docker-compose labels inverted).
-5. Create `.claude/run/status/<wave>.md` with start-time.
-6. **Worktree venv setup:** for each stream worktree created by the Agent
-   tool, before the subagent runs, symlink the project venv:
-   `ln -sf /home/stack/code/slop/.venv .venv` inside the worktree. This lets
-   the subagent run `pytest`, `ms-enforce`, etc. against the same installed
-   packages as the main repo. Skipping this causes `ModuleNotFoundError`
-   failures unrelated to the wave's work (S-50 lesson).
-7. Dispatch the streams concurrently as Agent subagent calls (single message,
-   multiple Agent tool uses). Each subagent gets a one-line "in Robot mode"
-   preamble to its task prompt and `model:` per the wave's Parallelization
-   section.
-8. Watch for blocker/decision file events as streams return.
-9. Merge streams to `wave/<S-NN>-<topic>` (NOT main).
-8. Updates status to COMPLETE.
-9. Exits.
+5. Create `.claude/run/status/<wave>.md` with start-time. **Use a Bash heredoc,
+   not the Write tool, for any new file** (see "File creation pattern" below).
+6. Dispatch the streams concurrently as Agent subagent calls (single message,
+   multiple Agent tool uses). Each subagent gets `model:` per the wave's
+   Parallelization section, plus the **subagent preamble** (see below) injected
+   at the top of the task prompt. The preamble carries the "in Robot mode"
+   signal AND the venv-symlink + file-creation rules — subagents won't read
+   ROBOT.md on their own.
+7. Watch for blocker/decision file events as streams return.
+8. Merge streams to `wave/<S-NN>-<topic>` (NOT main). Use Bash heredocs for
+   commit messages too (avoids any new-file prompts even though commits
+   themselves don't create files).
+9. Update status to COMPLETE.
+10. Exit.
+
+### Subagent preamble (REQUIRED in every Agent dispatch)
+
+The orchestrator includes this verbatim as the first paragraph of every
+subagent's task prompt:
+
+```
+You are operating in Robot mode (see /home/stack/code/slop/.claude/ROBOT.md).
+Before any other action, run these two Bash commands in your worktree cwd:
+  ln -sf /home/stack/code/slop/.venv .venv
+  ls -la .venv | head -2
+The symlink gives you access to the project venv (pytest, ms-enforce,
+structlog, etc.). Verify it resolves before proceeding. Without this, any
+pytest/ms-enforce invocation will fail with ModuleNotFoundError.
+
+For new file creation, use Bash heredocs (cat > file <<'EOF' ... EOF), NOT
+the Write tool — the Write tool requires a prior Read of the file (even for
+new files) and Bash touch does NOT satisfy that requirement. For existing
+files, Read then Edit is fine.
+
+Do not call AskUserQuestion. Do not git push. Do not git checkout main. On
+hard blocker, write .claude/run/blockers/<wave>-<stream>.md and halt only
+your stream.
+```
+
+### File creation pattern (empirically verified 2026-05-28)
+
+The Claude Code Write tool requires the file to have been Read via the Read
+tool first — even for new files that don't exist yet. Bash `touch` does NOT
+satisfy this; the harness tracks Read-tool calls, not filesystem state.
+
+**Use Bash heredocs for new file creation:**
+```bash
+cat > .claude/run/status/S-NN.md <<'EOF'
+# Wave status content goes here
+...
+EOF
+```
+
+This avoids the Write tool's Read-first requirement entirely, runs under
+`Bash(cat *)` allow, and is silent under `defaultMode: "bypassPermissions"`.
+
+For SHORT content, `echo`/`printf` redirect also works:
+```bash
+echo "single-line content" > path/to/new-file.md
+```
+
+For EXISTING file edits, the standard pattern still applies: Read first via
+the Read tool, then Edit (or Write).
+
+### Worktree behavior (empirically verified 2026-05-28)
+
+Subagents launched with `isolation: "worktree"` create their worktree under
+`/home/stack/code/slop/.claude/worktrees/agent-<id>/` regardless of the
+orchestrator's cwd. The Agent tool anchors to the project's git root, not the
+parent agent's working directory. This is the desired behavior for SLOP
+Robot mode — wave work always lands in the SLOP repo — but worth knowing if
+ever sandbox-testing from outside SLOP.
+
+### Verified zero-prompt configuration (2026-05-28)
+
+`.claude/settings.local.json` with `defaultMode: "bypassPermissions"` + the
+77-rule deny list produces ZERO permission/safety prompts for the
+operation set used by Robot mode (Bash including brace expansion, heredocs,
+command substitution, cd-prefix git, pipes, glob, symlinks; Read tool
+including /etc/passwd; Edit tool; Agent tool with and without worktree
+isolation; WebFetch on allowed domains). Validated against 20-test battery
+in fresh Opus session.
 
 ## Morning review workflow
 
