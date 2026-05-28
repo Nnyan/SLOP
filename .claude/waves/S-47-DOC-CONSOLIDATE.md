@@ -88,3 +88,29 @@ After all three streams merge:
 - ADR `review-by:` field (S-50 Stream A)
 - `docs/MAP.md` index (S-50 Stream B)
 - Track-status invariant gate (S-48)
+
+## Robot mode (autonomous overnight execution)
+
+When this wave is launched with the prefix "in Robot mode" in the user's prompt,
+this wave operates under `.claude/ROBOT.md` doctrine and the default decision
+register at `.claude/AUTONOMOUS-DEFAULTS.md`. Both files must be read before
+dispatching any subagent. Summary of binding rules (see ROBOT.md for full text):
+
+1. NEVER call `AskUserQuestion`. Write a decision file instead and continue.
+2. NEVER enter plan mode.
+3. NEVER use interactive Bash (`sudo`, `-i` flags).
+4. On hard blocker, write `.claude/run/blockers/S-47-<stream>.md` and halt
+   only that stream — other streams continue.
+5. Maintain `.claude/run/status/S-47.md` continuously.
+6. Merge streams to branch `wave/S-47-doc-consolidate`, **NOT** `main`. The
+   wave branch stays local; morning review handles the merge to main.
+7. NEVER `git push`. Settings deny it.
+8. Pass `model: "sonnet"` in each subagent `Agent` call (per Parallelization
+   section above). Add an "in Robot mode" preamble to each subagent's prompt.
+9. Forked content in MIGRATION.md: default is to prefer `docs/MIGRATION.md`
+   as canonical and merge unique content from the root version. Surface every
+   non-trivial merge decision as a decision file. See AUTONOMOUS-DEFAULTS.md
+   § "documentation consolidation".
+10. No scope creep — log adjacent issues to `.claude/run/observations/`.
+
+Robot mode invocation: `in Robot mode: execute the wave defined in .claude/waves/S-47-DOC-CONSOLIDATE.md as coordinator.`

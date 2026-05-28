@@ -141,3 +141,30 @@ After all three streams merge:
 - Rules-to-tests migration (S-50)
 - Splitting any oversize file (parked in OPTIONAL-FILE-SIZE-REMEDIATION.md)
 - Auto-fixing orphan files — flagging only (humans triage)
+
+## Robot mode (autonomous overnight execution)
+
+When this wave is launched with the prefix "in Robot mode" in the user's prompt,
+this wave operates under `.claude/ROBOT.md` doctrine and the default decision
+register at `.claude/AUTONOMOUS-DEFAULTS.md`. Both files must be read before
+dispatching any subagent. Summary of binding rules (see ROBOT.md for full text):
+
+1. NEVER call `AskUserQuestion`. Write a decision file instead and continue.
+2. NEVER enter plan mode.
+3. NEVER use interactive Bash (`sudo`, `-i` flags).
+4. On hard blocker, write `.claude/run/blockers/S-48-<stream>.md` and halt
+   only that stream — other streams continue.
+5. Maintain `.claude/run/status/S-48.md` continuously.
+6. Merge streams to branch `wave/S-48-track-gate`, **NOT** `main`. The wave
+   branch stays local; morning review handles the merge to main.
+7. NEVER `git push`. Settings deny it.
+8. Pass `model: "sonnet"` in each subagent `Agent` call (per Parallelization
+   section above). Add an "in Robot mode" preamble to each subagent's prompt.
+9. Stream C deletes/untracks files (`backend/static`, `data/tailscale/*`).
+   In Robot mode: instead of running `git rm --cached` autonomously, write
+   `.claude/run/proposed-deletions/<paths>.txt` with the deletion list and
+   continue Stream C's other tasks. Morning review approves the deletions.
+   See AUTONOMOUS-DEFAULTS.md § "file deletion / rename / move".
+10. No scope creep — log adjacent issues to `.claude/run/observations/`.
+
+Robot mode invocation: `in Robot mode: execute the wave defined in .claude/waves/S-48-TRACK-GATE.md as coordinator. S-46 must be on main first.`

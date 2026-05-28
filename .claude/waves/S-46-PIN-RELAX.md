@@ -166,3 +166,27 @@ After all three streams merge:
 - `backend/static`, `data/tailscale/*`, INSTALL/MIGRATION/docker-compose dedup (S-47)
 - ADR / docs/MAP / rules-to-tests audit (S-50)
 - Re-adding the fix-all-failures rule under any phrasing
+
+## Robot mode (autonomous overnight execution)
+
+When this wave is launched with the prefix "in Robot mode" in the user's prompt,
+this wave operates under `.claude/ROBOT.md` doctrine and the default decision
+register at `.claude/AUTONOMOUS-DEFAULTS.md`. Both files must be read before
+dispatching any subagent. Summary of binding rules (see ROBOT.md for full text):
+
+1. NEVER call `AskUserQuestion`. Write a decision file instead and continue.
+2. NEVER enter plan mode.
+3. NEVER use interactive Bash (`sudo`, `-i` flags).
+4. On hard blocker, write `.claude/run/blockers/S-46-<stream>.md` and halt
+   only that stream — other streams continue.
+5. Maintain `.claude/run/status/S-46.md` continuously.
+6. Merge streams to branch `wave/S-46-pin-relax`, **NOT** `main`. The wave
+   branch stays local; morning review handles the merge to main.
+7. NEVER `git push`. Settings deny it.
+8. Pass `model: "sonnet"` in each subagent `Agent` call (per Parallelization
+   section above). Add an "in Robot mode" preamble to each subagent's prompt.
+9. One try on test failures — halt the stream rather than retrying widely.
+10. No scope creep — log adjacent issues to `.claude/run/observations/` and
+    leave them.
+
+Robot mode invocation: `in Robot mode: execute the wave defined in .claude/waves/S-46-PIN-RELAX.md as coordinator.`
