@@ -10,8 +10,7 @@ version: "1.0"
 # No "business edition" — all features free forever (GPL-3).
 # Architecture: Core (API + UI) + Periphery (lightweight agent per server).
 # For single-server setups, Periphery is a companion deployed alongside Core.
-# Uses FerretDB v1.x (MongoDB wire protocol over SQLite) for storage.
-# FerretDB v1.x is pinned because v2.x dropped SQLite support and requires PostgreSQL.
+# Uses MongoDB Community Edition 7 for storage (migrated from FerretDB v1.x in S-42).
 #
 # After deploy:
 #   1. Open http://komodo:9120
@@ -48,27 +47,27 @@ companions:
       PERIPHERY_ROOT_DIRECTORY: /etc/komodo
       PERIPHERY_PASSKEY: "${KOMODO_PASSKEY}"
 
-  - key: komodo-ferretdb
-    image: ghcr.io/ferretdb/ferretdb
-    image_tag: "1"
-    container_name: komodo-ferretdb
-    run_as_uid: 1000   # ferretdb user (uid 1000 in ghcr.io/ferretdb/ferretdb)
-    run_as_gid: 1000
+  - key: komodo-mongo
+    image: mongo
+    image_tag: "7"
+    container_name: komodo-mongo
+    run_as_uid: 999    # mongodb user in official mongo image
+    run_as_gid: 999
     volumes:
-      - host: "{config_root}/komodo/ferretdb"
-        container: /state/ferretdb
+      - host: "{config_root}/komodo/mongodb"
+        container: /data/db
     env:
-      FERRETDB_HANDLER: sqlite
-      FERRETDB_SQLITE_URL: "file:///state/ferretdb/"
-      FERRETDB_TEST_DISABLE_AUTH: "true"
-      FERRETDB_STATE_DIR: /state
+      MONGO_INITDB_ROOT_USERNAME: komodo
+      MONGO_INITDB_ROOT_PASSWORD: "${KOMODO_DB_PASSWORD}"
 
 env:
   TZ: "${TZ}"
   KOMODO_HOST: "https://komodo.${DOMAIN}"
   KOMODO_TITLE: Komodo
   KOMODO_FIRST_SERVER: "https://komodo-periphery:8120"
-  KOMODO_DATABASE_ADDRESS: "komodo-ferretdb:27017"
+  KOMODO_DATABASE_ADDRESS: "komodo-mongo:27017"
+  KOMODO_DATABASE_USERNAME: komodo
+  KOMODO_DATABASE_PASSWORD: "${KOMODO_DB_PASSWORD}"
   KOMODO_JWT_SECRET: "${KOMODO_JWT_SECRET}"
   KOMODO_PASSKEY: "${KOMODO_PASSKEY}"
 
@@ -76,6 +75,8 @@ auto_secrets:
   - key: KOMODO_JWT_SECRET
     length: 32
   - key: KOMODO_PASSKEY
+    length: 32
+  - key: KOMODO_DB_PASSWORD
     length: 32
 
 traefik:
