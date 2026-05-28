@@ -189,6 +189,15 @@ export interface RecommendedModel {
   notes: string
 }
 
+export interface IntegrityStatus {
+  status: string
+  critical_gaps: number
+  high_gaps: number
+  total_rules: number
+  summary: string
+  checked_at: number
+}
+
 // ── Platform ───────────────────────────────────────────────────────────────
 
 export const platform = {
@@ -236,6 +245,7 @@ export const health = {
   app: (key: string) => request<HealthCheck[]>(`/health/apps/${key}`),
   agentChecks: () => request<AgentHealthCheck[]>('/health/agent'),
   llmAgent: () => request<{ status: string; description: string; last_error: string; last_error_type: string; ollama_url: string; model_tried: string; consecutive_failures: number; consecutive_slow: number; last_success_at: number; configured_provider: string }>('/health/llm-agent'),
+  integrity: () => request<IntegrityStatus>('/health/integrity'),
   runCycle: () => request('/health/run', { method: 'POST' }),
   scheduler: () => request('/health/scheduler'),
   pauseScheduler: () => request('/health/scheduler/pause', { method: 'POST' }),

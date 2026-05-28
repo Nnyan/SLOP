@@ -163,6 +163,48 @@ def get_health_summary() -> dict[str, Any]:
     )
     return counts
 
+class IntegrityStatusOut(BaseModel):
+    status: str
+    critical_gaps: int
+    high_gaps: int
+    total_rules: int
+    summary: str
+    checked_at: int
+
+
+@router.get("/integrity", response_model=IntegrityStatusOut)
+def get_integrity_status() -> IntegrityStatusOut:
+    """Return the latest process-integrity health dimension for the SLOP Agent."""
+    from backend.core.agent import AGENT_INTEGRITY_KEY, AGENT_SUBJECT_TYPE_INTEGRITY
+    import json as _json
+    with StateDB() as db:
+        row = db.execute(
+            "SELECT status, summary, detail, checked_at FROM health_checks "
+            "WHERE subject_type=? AND subject_key=? "
+            "ORDER BY checked_at DESC LIMIT 1",
+            (AGENT_SUBJECT_TYPE_INTEGRITY, AGENT_INTEGRITY_KEY),
+        ).fetchone()
+    if not row:
+        return IntegrityStatusOut(
+            status="unknown", critical_gaps=0, high_gaps=0,
+            total_rules=0, summary="", checked_at=0,
+        )
+    counts: dict[str, int] = {}
+    if row["detail"]:
+        try:
+            counts = _json.loads(row["detail"])
+        except (ValueError, TypeError):
+            pass
+    return IntegrityStatusOut(
+        status=row["status"],
+        critical_gaps=counts.get("critical_gaps", 0),
+        high_gaps=counts.get("high_gaps", 0),
+        total_rules=counts.get("total_rules", 0),
+        summary=row["summary"] or "",
+        checked_at=row["checked_at"] or 0,
+    )
+
+
 @router.get("/llm-agent", response_model=LLMAgentStatus)
 def get_llm_agent_status() -> LLMAgentStatus:
     status = _llm_state.get("status", "unknown")

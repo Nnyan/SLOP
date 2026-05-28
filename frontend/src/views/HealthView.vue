@@ -1,7 +1,6 @@
 <template>
   <div class="p-4 max-w-4xl mx-auto w-full">
 
-    <!-- Header -->
     <div class="mb-4">
       <h1 class="page-title">Health</h1>
       <p class="page-subtitle">AI-powered app diagnostics and auto-healing</p>
@@ -11,7 +10,6 @@
     <div class="card mb-4">
       <div class="card-body !py-2.5 flex items-center gap-4 flex-wrap">
 
-        <!-- Scheduler -->
         <div class="flex items-center gap-2 shrink-0">
           <span :class="['w-2 h-2 rounded-full shrink-0',
             schedulerStatus?.running ? 'bg-green-400' : 'bg-slate-300']"/>
@@ -25,7 +23,6 @@
 
         <span class="text-slate-200 hidden sm:block">|</span>
 
-        <!-- LLM agent -->
         <div v-if="llmStatus" class="flex items-center gap-2 shrink-0">
           <span class="text-xs text-slate-500">🤖</span>
           <span class="text-xs text-slate-600 font-medium capitalize">
@@ -49,7 +46,6 @@
           <span class="text-xs text-amber-600">AI inactive — install Ollama or add a cloud key in Settings → AI</span>
         </div>
 
-        <!-- Stats -->
         <div class="flex items-center gap-3 ml-auto shrink-0">
           <span class="text-xs font-medium text-green-600">✓ {{ counts.ok }} healthy</span>
           <span v-if="counts.warning" class="text-xs font-medium text-amber-500">⚠ {{ counts.warning }} warning</span>
@@ -104,6 +100,13 @@
         <p v-if="check.last_checked" class="text-xs text-slate-300 mt-1">
           Last checked {{ check.last_checked }}
         </p>
+      </div>
+      <div v-if="integrityStatus" class="card card-body !py-3 border-l-2 mb-2" :class="integrityStatus.status==='ok'?'border-l-green-400':integrityStatus.status==='critical'?'border-l-red-400':integrityStatus.status==='degraded'?'border-l-amber-300':'border-l-slate-300'">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2"><span class="text-base">🛡</span><span class="text-sm font-medium text-slate-800">Process Integrity</span></div>
+          <span :class="['text-xs font-medium', integrityColor]">{{ integrityLabel }}</span>
+        </div>
+        <p v-if="integrityStatus.status==='degraded'||integrityStatus.status==='critical'" class="text-xs text-slate-400 mt-1 truncate">{{ integrityStatus.summary }}</p>
       </div>
     </div>
 
@@ -414,10 +417,12 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 const toast = useToast()
+import { useAgentIntegrity } from '@/composables/useAgentIntegrity'
 import { health } from '../api/client'
 import { healthCache, setHealthCache } from '../appCache'
 import type { HealthCheck, AgentHealthCheck } from '../api/client'
 
+const { integrityStatus, fetchIntegrity, integrityLabel, integrityColor } = useAgentIntegrity()
 const checks = ref<HealthCheck[]>(healthCache ?? [])
 const agentChecks = ref<AgentHealthCheck[]>([])
 const llmStatus = ref<{ status: string; description: string; configured_provider?: string; last_error_type?: string; last_error?: string; model_tried?: string } | null>(null)
@@ -701,18 +706,15 @@ const checkProgress = ref<{ app: string; status: 'running' | 'ok' | 'warning' | 
 
 async function runCycle() {
   running.value = true
-  // Seed progress from existing checks if we have them, otherwise placeholder
   const appKeys = [...new Set(checks.value.map(c => c.app_key ?? ''))].filter(Boolean)
   checkProgress.value = appKeys.map(k => ({ app: k, status: 'running' as const, detail: '' }))
 
   try {
-    // Await and READ the cycle response — it contains apps_checked and per-app results
     const cycleResult: any = await health.runCycle()
     const appsChecked: number = cycleResult?.apps_checked ?? 0
     const appsHealthy: number = cycleResult?.apps_healthy ?? 0
     const cycleResults: any[] = cycleResult?.results ?? []
 
-    // Build progress from actual results returned by the cycle
     if (cycleResults.length > 0) {
       checkProgress.value = cycleResults.map((r: any) => ({
         app: r.app,
@@ -723,12 +725,10 @@ async function runCycle() {
       checkProgress.value = []
     }
 
-    // Refresh checks from DB — now has results written by the cycle
     checks.value = await health.allApps()
     setHealthCache(checks.value)
     await loadPendingFixes()
 
-    // Toast with honest counts
     const nonRunning: string[] = cycleResult?.non_running_apps ?? []
     if (appsChecked === 0) {
       if (nonRunning.length > 0)
@@ -753,7 +753,6 @@ onUnmounted(() => {
 })
 
 onMounted(async () => {
-  // Scheduler status
   try {
     const r = await fetch('/api/v1/health/scheduler')
     schedulerStatus.value = await r.json()
@@ -765,6 +764,7 @@ onMounted(async () => {
     fetch('/api/v1/health/anomalies').then(r => r.json()),
     health.agentChecks(),
   ])
+  fetchIntegrity()
   if (a.status === 'fulfilled') anomalies.value = Array.isArray(a.value) ? a.value : []
   if (c.status === 'fulfilled') { checks.value = c.value; setHealthCache(c.value) }
   if (l.status === 'fulfilled') {

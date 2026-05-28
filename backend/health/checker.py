@@ -1481,6 +1481,12 @@ async def run_health_cycle(
         else:
             integrity_status = "ok"
         try:
+            import json as _json
+            _detail = _json.dumps({
+                "critical_gaps": integrity.critical_gaps,
+                "high_gaps": integrity.high_gaps,
+                "total_rules": integrity.total_rules,
+            })
             with StateDB() as _db:
                 _db.upsert_health_check(
                     subject_type=AGENT_SUBJECT_TYPE_INTEGRITY,
@@ -1488,6 +1494,7 @@ async def run_health_cycle(
                     check_name="enforcement_coverage",
                     status=integrity_status,
                     summary=integrity.summary,
+                    detail=_detail,
                 )
         except Exception as _we:
             log.warning("Failed to write process_integrity health check: %s", _we)

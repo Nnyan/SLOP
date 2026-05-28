@@ -25,6 +25,9 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+from fastapi.testclient import TestClient
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.agent import integrity as integ_mod
@@ -149,6 +152,51 @@ def test_integrity_summary_is_non_empty(tmp_path, monkeypatch):
     missing = run_process_integrity_check()
     assert missing.ok is False
     assert isinstance(missing.summary, str) and missing.summary.strip()
+
+
+def test_integrity_endpoint_shape(test_db):
+    """GET /api/v1/health/integrity returns correct shape with status='unknown' when no record."""
+    import backend.core.state as sm
+    import backend.core.config as cm
+    from backend.api.main import app
+
+    with patch.object(type(cm.config), "db_path", property(lambda self: test_db)):
+        sm.configure(test_db)
+        with TestClient(app) as client:
+            # No record yet — must return unknown with all fields present
+            resp = client.get("/api/v1/health/integrity")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "status" in data
+            assert "critical_gaps" in data
+            assert "high_gaps" in data
+            assert "total_rules" in data
+            assert "summary" in data
+            assert "checked_at" in data
+            assert data["status"] == "unknown"
+            assert isinstance(data["critical_gaps"], int)
+            assert isinstance(data["high_gaps"], int)
+            assert isinstance(data["total_rules"], int)
+
+            # Write a record and verify the endpoint returns it
+            from backend.core.state import StateDB
+            with StateDB() as db:
+                db.upsert_health_check(
+                    subject_type=AGENT_SUBJECT_TYPE_INTEGRITY,
+                    subject_key=AGENT_INTEGRITY_KEY,
+                    check_name="enforcement_coverage",
+                    status="ok",
+                    summary="all 76 rules covered (no critical or high gaps)",
+                    detail=json.dumps({"critical_gaps": 0, "high_gaps": 0, "total_rules": 76}),
+                )
+            resp2 = client.get("/api/v1/health/integrity")
+            assert resp2.status_code == 200
+            d2 = resp2.json()
+            assert d2["status"] == "ok"
+            assert d2["total_rules"] == 76
+            assert d2["critical_gaps"] == 0
+            assert d2["high_gaps"] == 0
+            assert "76 rules" in d2["summary"]
 
 
 def test_integrity_check_never_raises_on_missing_script(tmp_path, monkeypatch):
