@@ -1,0 +1,7 @@
+# Files allowed to exist untracked. Each entry MUST end with `# reason: ...`.
+# `git add` your file unless it's per-developer scratch or contains secrets.
+
+memory/**                # reason: auto-memory output if user has it pointed here (deprecated; canonical path is ~/.claude/projects/)
+.venv                    # reason: per-worktree symlink to project venv, created at runtime by Robot mode orchestrator
+.venv/**                 # reason: per-worktree venv contents, created at runtime by Robot mode orchestrator
+.claude/settings.local.json*.bak*  # reason: user backup file from settings cleanup, not for tracking

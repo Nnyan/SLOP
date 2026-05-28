@@ -555,6 +555,23 @@ def check_file_size_ratchet() -> tuple[bool, str]:
     return False, "ratchet violations:\n" + "\n".join(f"    {line}" for line in bad)
 
 
+def check_track_status() -> tuple[bool, str]:
+    """Tier 1: track-status invariant gate (wave S-48-TRACK-GATE).
+
+    Runs `tools/check_track_status.py` to ensure every on-disk file is either
+    tracked, gitignored, or listed in `.track-allowlist` with a reason comment.
+    Entries in `.track-allowlist` without '# reason:' are themselves an error.
+    """
+    script = REPO / "tools" / "check_track_status.py"
+    if not script.exists():
+        return True, "track-status script not present (skip)"
+    rc, out = _run(["python3", str(script)], timeout=30)
+    if rc == 0:
+        return True, "all untracked paths are covered by .gitignore or .track-allowlist"
+    bad = [line for line in out.splitlines() if line.strip()][:10]
+    return False, "untracked file(s) not covered:\n" + "\n".join(f"    {line}" for line in bad)
+
+
 def check_pytest_scratch_cleanup() -> tuple[bool, str]:
     """Tier 2: pyproject.toml basetemp is set and ms-update has the cleanup line."""
     pyproject = REPO / "pyproject.toml"
@@ -908,6 +925,8 @@ TIER_1: list[tuple[str, object]] = [
     ("No ad-hoc CREATE TABLE (Core Rule 6.1)",      check_no_adhoc_create),
     # ── File-size ratchet (wave S-45-RATCHET) ─────────────────────────────
     ("File-size ratchet (wave S-45-RATCHET)",       check_file_size_ratchet),
+    # ── Track-status invariant gate (wave S-48-TRACK-GATE) ─────────────────
+    ("Track-status gate (wave S-48-TRACK-GATE)",    check_track_status),
     # ── ADR doc-decay (wave S-50-MENTAL-MODEL-FOUNDATIONS) ─────────────────
     ("ADR doc-decay — review-by dates (warn only)", check_doc_decay),
 ]
