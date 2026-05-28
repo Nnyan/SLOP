@@ -54,7 +54,7 @@ These apply to every package and every distro; they are not repeated per-entry.
 
 **Network availability.** The installer assumes the host has working internet at install time. It must, to reach apt mirrors, NodeSource, Docker's convenience script, and the mediastack git repo. Network failures during dep install are diagnosable and recoverable (re-run resumes from where it failed; see §Idempotency Contract); they do not corrupt host state.
 
-**Architecture.** v5.0 assumes x86_64. Production Python dependencies in `backend/requirements.txt` all have manylinux x86_64 wheels available on PyPI; the installer therefore does **not** install build tooling (no `gcc`, no `python3-dev`, no `libffi-dev`). If a wheel is unavailable, pip falls back to source compilation and fails loudly — that is the contract, and the correct failure mode (loud, recoverable, no invisible 150MB of build tools dragged in). ARM64 is not detection-blocked (per `installer/SUPPORTED_DISTROS.md` Global Constraints) but is unaudited; an ARM64 install may require build tooling that v5.0 does not provide. ARM64 audit is deferred.
+**Architecture.** v5.0 assumes x86_64. Production Python dependencies in `requirements.txt` all have manylinux x86_64 wheels available on PyPI; the installer therefore does **not** install build tooling (no `gcc`, no `python3-dev`, no `libffi-dev`). If a wheel is unavailable, pip falls back to source compilation and fails loudly — that is the contract, and the correct failure mode (loud, recoverable, no invisible 150MB of build tools dragged in). ARM64 is not detection-blocked (per `installer/SUPPORTED_DISTROS.md` Global Constraints) but is unaudited; an ARM64 install may require build tooling that v5.0 does not provide. ARM64 audit is deferred.
 
 **Pre-existing Python environments.** The installer uses whatever `python3` resolves to as root on the host. If the operator runs `sudo ./install.sh` from a shell where pyenv, conda, or asdf has shimmed `python3` into PATH, the shim is what the installer will use. In practice this rarely happens — those tools are per-user and root shells don't inherit them unless the operator deliberately exports them — but the contract is explicit: the installer is agnostic to host-level Python managers. The `.venv` it creates at `<install_dir>/.venv` is the only Python environment mediastack actually runs against; the system `python3` is only the bootstrap interpreter that creates that venv. Hosts with non-distro Python *can* work; if they break, the remediation is "run the installer with a clean PATH or temporarily disable the manager."
 
@@ -292,7 +292,7 @@ INV-D2 is the mechanical-parity check that makes drift between this doc and the 
 
 **Add Docker version-floor check to `prereq.py` so the failure happens before any side effect.** Considered. Rejected for v5.0. `prereq.py` is currently distro-agnostic (kernel, disk, ports, root, systemd); adding Docker version logic would duplicate the 24.0 floor across `prereq.py` and `ensure_docker()`, repeating the audit risk R5 pattern (knowledge duplicated across two enforcement sites). v5.0 accepts the slightly-worse failure UX — fail at the deps install step rather than at the prereq step — in exchange for keeping the floor in one place. v5.1 may revisit if real-world operator feedback shows the late failure is friction.
 
-**Install build tooling (`gcc`, `python3-dev`, `libffi-dev`) defensively in case a Python wheel is unavailable.** Considered. Rejected. `backend/requirements.txt` is small and every package has manylinux x86_64 wheels on PyPI; pip will not fall back to source compilation on x86_64. Installing build tooling preemptively would add ~150MB of packages the installer does not actually need. If a wheel disappears upstream, pip fails loudly and the operator can install `build-essential` themselves — the correct failure mode is loud and recoverable, not bundled invisibly.
+**Install build tooling (`gcc`, `python3-dev`, `libffi-dev`) defensively in case a Python wheel is unavailable.** Considered. Rejected. `requirements.txt` is small and every package has manylinux x86_64 wheels on PyPI; pip will not fall back to source compilation on x86_64. Installing build tooling preemptively would add ~150MB of packages the installer does not actually need. If a wheel disappears upstream, pip fails loudly and the operator can install `build-essential` themselves — the correct failure mode is loud and recoverable, not bundled invisibly.
 
 **Use `apt` vs `apt-get`.** `apt-get` is the scripted-use interface; `apt` is interactive-first per its own man page warnings about unstable output for scripts. `install.sh` uses `apt-get`; the deps module matches.
 
@@ -303,3 +303,58 @@ INV-D2 is the mechanical-parity check that makes drift between this doc and the 
 **Target Node 24 LTS instead of Node 22 LTS.** Considered. Node 24 became Active LTS in October 2025 and is supported through April 2028 — a longer support window than Node 22 (Maintenance LTS until April 2027). Rejected for v5.0: Vite 8's release notes explicitly call out "20.19+, 22.12+" as the supported range, naming 22 explicitly; Node 22 has had ~18 months of LTS production soak by v5.0 ship while Node 24 has had ~7 months; the support window on Node 22 (~1 year remaining as of v5.0) comfortably exceeds v5.0's expected support life given that v5.1 is on the roadmap and could bump the NodeSource line. A v5.0.x patch could switch `setup_22.x` to `setup_24.x` if a real-world issue surfaces, with a one-line change in `installer/deps_debian.py`.
 
 **Target `setup_lts.x` instead of pinning to `setup_22.x`.** Considered. NodeSource's `setup_lts.x` always points to the current LTS, which would auto-upgrade Node across major versions over time. Rejected. Auto-upgrading Node across majors is exactly the kind of silent system mutation the installer otherwise avoids (see the Docker D3 consent decision). Pinning the major in the setup script URL makes the major a deliberate choice that requires a CHANGELOG entry to bump.
+
+## Dependency-version policy
+
+This section governs how Python package versions are expressed in `requirements.txt` and
+`pyproject.toml` and how the committed `uv.lock` is managed. Established in wave S-46-PIN-RELAX.
+
+### Intent vs. resolution
+
+- **`requirements.txt`** declares **intent**: the range of versions SLOP supports. Every
+  entry uses floor-only `>=` by default. The floor is the version that shipped with the
+  commit that added or last updated the entry (verified against the resolved `uv.lock` at
+  that time). Floors are bumped deliberately, not speculatively.
+
+- **`uv.lock`** declares **resolution**: the exact versions chosen for a consistent,
+  reproducible install. It is committed to the repository. All production installs and CI
+  runs derive from the lockfile. The lockfile is the reproducibility guarantee; `requirements.txt`
+  alone is not.
+
+### Cap discipline
+
+Upper caps (`<N`) are discouraged. Add a cap only when a specific incompatibility is
+documented. Every cap must be accompanied by a one-line comment naming what breaks above
+it. Example:
+
+```
+# Pydantic — cap at <3: v3 removes v1-compat shims used by manifest validators.
+pydantic>=2.10.4,<3
+```
+
+Undocumented caps accumulate silently and block security updates. When in doubt, use
+floor-only and let the lockfile hold the resolution.
+
+### Bumping floors and caps
+
+- **Minor/patch bump**: update the floor in `requirements.txt` and `pyproject.toml`, run
+  `uv lock`, commit both files. No special review required.
+- **Major-version bump**: always requires a written justification entry in this section
+  naming the package, the old and new major, and any breaking changes reviewed. The bump
+  lands in a dedicated dependency-refresh commit, not bundled with feature work.
+- **Removing a cap**: requires verifying the breaking-change rationale is resolved. Update
+  this section to note the resolution and the version where it was cleared.
+
+### Dependency-refresh train
+
+Routine version bumps (minor/patch, transitive updates) land together on a periodic
+dependency-refresh wave (forward reference: S-49). Ad-hoc bumps are allowed for security
+fixes. The lockfile must always be regenerated and committed in the same commit as the
+`requirements.txt` / `pyproject.toml` change.
+
+### Audit tooling
+
+`pip-audit` runs against the committed `uv.lock` and surfaces transitive CVEs. A clean
+`pip-audit` result against `uv.lock` is the security posture signal — not a clean scan of
+`requirements.txt` alone, which misses transitive deps. CVE triage follows the
+`AUTONOMOUS-DEFAULTS.md` "dependency / lockfile" category for Robot-mode runs.
