@@ -3,6 +3,8 @@
 - **Date:** 2026-05-18
 - **Status:** Accepted
 - **Deciders:** operator, Claude Opus 4.7 (v5 Tier 4.1 design session)
+- **See also:** none
+- **Review by:** 2027-05-18
 
 > Enforcement: [manual — verified by `installer/tests/test_uninstall.py` (unit + integration coverage of the three subcommands' semantics) and the v5.0.0 audit gate's INV-12 through INV-16 checks (`docs/cleanup/COMPLETION_AUDIT_v5_0_0.md`). Uninstall is installer-scoped and runs against a real host's filesystem, outside ms-enforce's backend-repo drift surface.]
 

@@ -4,6 +4,7 @@
 **Decided by:** OPUS during cleanup step 2.5.b (backfill)
 **Supersedes:** none
 **See also:** `ms-test.py`, `tests/`, Core Rule 2.5 (Behavioural Coverage) — enforced by ms-enforce, [`docs/adr/0002-mocking-policy.md`](0002-mocking-policy.md)
+**Review by:** 2027-05-08
 
 ---
 

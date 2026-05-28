@@ -359,6 +359,19 @@ def check_stale_xfails() -> tuple[bool, str]:
     return True, "no stale xfails"
 
 
+def check_doc_decay() -> tuple[bool, str]:
+    """ADR Review-by decay: warn when any ADR's Review-by date is in the past.
+
+    Delegates to ``tools/ms-docs/stale.py``.  Always returns True (warning,
+    not blocking) — stale ADRs are a review nudge, not a hard gate.
+    """
+    _rc, out = _run(["python3", "tools/ms-docs/stale.py"], timeout=15)
+    out = out.strip()
+    if "WARNING:" in out:
+        return True, out  # warn-only, never blocks
+    return True, out or "no stale ADRs"
+
+
 _ADR_ENFORCEMENT_ANNOTATION_RE = re.compile(
     r"^>\s*Enforcement:\s*\[(?:manual|automated)\s+—",
     re.MULTILINE,
@@ -895,6 +908,8 @@ TIER_1: list[tuple[str, object]] = [
     ("No ad-hoc CREATE TABLE (Core Rule 6.1)",      check_no_adhoc_create),
     # ── File-size ratchet (wave S-45-RATCHET) ─────────────────────────────
     ("File-size ratchet (wave S-45-RATCHET)",       check_file_size_ratchet),
+    # ── ADR doc-decay (wave S-50-MENTAL-MODEL-FOUNDATIONS) ─────────────────
+    ("ADR doc-decay — review-by dates (warn only)", check_doc_decay),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),

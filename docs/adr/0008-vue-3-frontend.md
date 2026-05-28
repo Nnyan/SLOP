@@ -4,6 +4,7 @@
 **Decided by:** OPUS during cleanup step 2.5.b (backfill)
 **Supersedes:** none
 **See also:** `frontend/`, `frontend/src/api/client.ts`, [ADR 0005 (API versioning)](0005-api-versioning.md)
+**Review by:** 2028-05-08
 
 > Enforcement: [manual — framework choice is implicit in `frontend/package.json`'s `vue` ^3.x dependency and the SFC structure of `frontend/src/**/*.vue`. Replacing Vue would be a rewrite; reviewers flag any non-Vue UI framework introduced in a PR.]
 
