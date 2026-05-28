@@ -1,6 +1,6 @@
-# Mediastack v3 — manager stack
-# This runs the Mediastack manager container.
-# Apps (Sonarr, Radarr, Plex, etc.) are deployed separately by the manager.
+# Mediastack v3 — manager stack (build from source / development)
+# Use this file to build and run Mediastack from local source code.
+# For production / new installs use docker-compose.option-b.yml (pre-built image pull).
 #
 # Usage:
 #   docker compose up -d
