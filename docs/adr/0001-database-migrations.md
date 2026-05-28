@@ -3,7 +3,7 @@
 **Status:** Accepted 2026-05-05 (step 1.1.b — implemented at the same time)
 **Decided by:** OPUS during cleanup step 1.1
 **Supersedes:** none
-**See also:** [`docs/cleanup/STEP_1_1_DB_MIGRATIONS_STRATEGY.md`](../cleanup/STEP_1_1_DB_MIGRATIONS_STRATEGY.md), [Core Rule 6.1 (Migration Discipline)](../CORE_RULES.md#61-migration-discipline)
+**See also:** [`docs/cleanup/STEP_1_1_DB_MIGRATIONS_STRATEGY.md`](../cleanup/STEP_1_1_DB_MIGRATIONS_STRATEGY.md), Core Rule 6.1 (Migration Discipline) — enforced by ms-enforce
 
 > Enforcement: [automated — ms-enforce checks `check_migration_sequence`, `check_py_migration_api`, `check_schema_sql_sync`, `check_no_adhoc_create`; `tests/test_migrations.py` exercises the runner]
 

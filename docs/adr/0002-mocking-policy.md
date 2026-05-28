@@ -3,7 +3,7 @@
 **Status:** Accepted 2026-05-08 (step 2.2.b)
 **Decided by:** OPUS during cleanup step 2.2 (Mocking Discipline Audit)
 **Supersedes:** none
-**See also:** [`docs/cleanup/STEP_2_2_MOCKING_AUDIT_STRATEGY.md`](../cleanup/STEP_2_2_MOCKING_AUDIT_STRATEGY.md) (survey + worked examples), [Core Rule 4.12 (Mocking Discipline)](../CORE_RULES.md#412-mocking-discipline)
+**See also:** [`docs/cleanup/STEP_2_2_MOCKING_AUDIT_STRATEGY.md`](../cleanup/STEP_2_2_MOCKING_AUDIT_STRATEGY.md) (survey + worked examples), Core Rule 4.12 (Mocking Discipline) — enforced by ms-enforce
 
 ## Context
 

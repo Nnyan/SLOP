@@ -1,6 +1,6 @@
 # Contributing to Mediastack
 
-This document covers the conventions that aren't already enforced by `ms-enforce`. For the full architectural rule set, see [`docs/CORE_RULES.md`](docs/CORE_RULES.md).
+This document covers the conventions that aren't already enforced by `ms-enforce`. For the full architectural rule set, see ms-enforce (run `python3 ms-enforce --list`).
 
 ## Pre-merge checklist
 
@@ -90,7 +90,7 @@ ADR numbers are immutable once accepted. If a decision is later superseded, the 
 
 ## Working with the cleanup steps
 
-The Tier 1+2 cleanup work is sequenced in [`docs/cleanup/PROJECT_CLEANUP.md`](docs/cleanup/PROJECT_CLEANUP.md). Per-step strategy docs (`docs/cleanup/STEP_<N>_<NAME>_STRATEGY.md`) author OPUS-level decisions before SONNET-level implementation. When a step has both [OPUS] and [SONNET] sub-tasks, the OPUS strategy doc lands first.
+Cleanup planning and step sequencing are tracked in the private slop-process repo. Per-step strategy docs (`docs/cleanup/STEP_<N>_<NAME>_STRATEGY.md`) author OPUS-level decisions before SONNET-level implementation. When a step has both [OPUS] and [SONNET] sub-tasks, the OPUS strategy doc lands first.
 
 The `ms-status` tool reports current step + sub-task progress. `ms-status --handoff` emits a session-start prompt that tells the next agent (human or otherwise) what to verify before assuming the previous session's claims.
 

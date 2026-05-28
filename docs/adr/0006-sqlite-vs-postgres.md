@@ -3,7 +3,7 @@
 **Status:** Accepted (backfilled 2026-05-08; the implicit decision dates from the v3 build, ~2024)
 **Decided by:** OPUS during cleanup step 2.5.b (backfill)
 **Supersedes:** none
-**See also:** [`docs/adr/0001-database-migrations.md`](0001-database-migrations.md), [`backend/core/state.py`](../../backend/core/state.py), [Core Rule 6.1 (Migration Discipline)](../CORE_RULES.md#61-migration-discipline)
+**See also:** [`docs/adr/0001-database-migrations.md`](0001-database-migrations.md), [`backend/core/state.py`](../../backend/core/state.py), Core Rule 6.1 (Migration Discipline) — enforced by ms-enforce
 
 > Enforcement: [manual — architectural axiom; the choice is implicit in `backend/core/state.py`'s `sqlite3` imports, the absence of a Postgres driver in `requirements.txt`, and `schema.sql`'s SQLite-flavoured DDL. Switching DBs would be a coordinated rewrite, not a drift-detectable invariant — reviewers flag any new PG-driver imports during code review.]
 

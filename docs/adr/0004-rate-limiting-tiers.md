@@ -3,7 +3,7 @@
 **Status:** Accepted 2026-05-08 (step 2.4)
 **Decided by:** OPUS during cleanup step 2.4.a
 **Supersedes:** none (no rate limiting existed pre-2.4)
-**See also:** [`docs/cleanup/STEP_2_4_RATE_LIMITING_STRATEGY.md`](../cleanup/STEP_2_4_RATE_LIMITING_STRATEGY.md), [Core Rule 4.14 (Rate Limiting Discipline)](../CORE_RULES.md#414-rate-limiting-discipline)
+**See also:** [`docs/cleanup/STEP_2_4_RATE_LIMITING_STRATEGY.md`](../cleanup/STEP_2_4_RATE_LIMITING_STRATEGY.md), Core Rule 4.14 (Rate Limiting Discipline) — enforced by ms-enforce
 
 > Enforcement: [automated — ms-coverage RULE `rate-limiting-discipline` anchored at `tests/test_rate_limiting.py::test_heavy_mutation_blocks_after_5`; six-case suite verifies the 429 path and the localhost bypass]
 

@@ -3,7 +3,7 @@
 **Status:** Accepted (backfilled 2026-05-08; the implicit decision dates from the v3 build, ~2024)
 **Decided by:** OPUS during cleanup step 2.5.b (backfill)
 **Supersedes:** none
-**See also:** `ms-test.py`, `tests/`, [Core Rule 2.5 (Behavioural Coverage)](../CORE_RULES.md#25-behavioural-coverage), [`docs/adr/0002-mocking-policy.md`](0002-mocking-policy.md)
+**See also:** `ms-test.py`, `tests/`, Core Rule 2.5 (Behavioural Coverage) — enforced by ms-enforce, [`docs/adr/0002-mocking-policy.md`](0002-mocking-policy.md)
 
 ---
 

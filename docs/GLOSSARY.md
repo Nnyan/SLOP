@@ -175,11 +175,11 @@ Bare terms with multiple in-use senses. Use the qualified form in new writing:
 
 **Scope.** All architectural constraints that have caused or could cause a class of bug.
 
-**Authoritative source.** `docs/CORE_RULES.md`.
+**Authoritative source.** `docs/CORE_RULES.md` (moved to the slop-process private repo; enforced locally via ms-enforce — run `python3 ms-enforce --list`).
 
 **Aliases.** Some Core Rules carry both as-shipped numbers (e.g., 5.22) and planned-section numbers (e.g., 8.1) — see [renumbering pattern](#renumbering-pattern-core-rules).
 
-**Do not confuse with.** [rule entry](#rule-entry-ms-coverage) (the machine-checkable `ms-coverage` companion), [structural anti-pattern rule](#structural-anti-pattern-rule) (the `tools/check_structural_antipatterns.py` registry), [Semgrep rule](#semgrep-rule) (`.semgrep/rules/*.yml`). All four are "rules" in the project; only Core Rules carry the `N.NN` heading and the rule-addition contract.
+**Do not confuse with.** [rule entry](#rule-entry-ms-coverage) (the machine-checkable `ms-coverage` companion), [structural anti-pattern rule](#structural-anti-pattern-rule) (the ms-enforce anti-pattern registry; tool moved to slop-process), [Semgrep rule](#semgrep-rule) (`.semgrep/rules/*.yml`). All four are "rules" in the project; only Core Rules carry the `N.NN` heading and the rule-addition contract.
 
 **See also.** [rule entry (ms-coverage)](#rule-entry-ms-coverage), [rule-addition contract](#rule-addition-contract), [renumbering pattern](#renumbering-pattern-core-rules).
 
@@ -532,7 +532,7 @@ The `mediastack.*` label namespace is project-reserved. Third-party labels in th
 
 **Aliases.** **rule slug** refers to the kebab-case `id` field (e.g., `migration-discipline`, `rule-addition-contract`).
 
-**Do not confuse with.** [Core Rule](#core-rule) (the narrative architectural rule), [structural anti-pattern rule](#structural-anti-pattern-rule) (the `tools/check_structural_antipatterns.py` registry), [Semgrep rule](#semgrep-rule) (`.semgrep/rules/*.yml`).
+**Do not confuse with.** [Core Rule](#core-rule) (the narrative architectural rule), [structural anti-pattern rule](#structural-anti-pattern-rule) (the ms-enforce anti-pattern registry; tool moved to slop-process), [Semgrep rule](#semgrep-rule) (`.semgrep/rules/*.yml`).
 
 **See also.** [Core Rule](#core-rule), [rule-addition contract](#rule-addition-contract).
 
@@ -644,11 +644,11 @@ The `mediastack.*` label namespace is project-reserved. Third-party labels in th
 
 ### structural anti-pattern rule
 
-**Definition.** A rule in the registry at `tools/check_structural_antipatterns.py`, of form `(id, description, check_fn, remedy)`. Enforced via pre-commit hook (`--staged` mode, hard-block), `ms-update` post-deploy block (`--audit` mode, advisory), and the release-tag-gate checklist. Adding rule N+1 requires one check function, one RULES tuple, one test, and one entry in `docs/STRUCTURAL_RULES.md`.
+**Definition.** A rule in the anti-pattern registry, of form `(id, description, check_fn, remedy)`. Enforced via pre-commit hook (`--staged` mode, hard-block), `ms-update` post-deploy block (`--audit` mode, advisory), and the release-tag-gate checklist. The registry (`tools/check_structural_antipatterns.py`) and rule catalogue (`docs/STRUCTURAL_RULES.md`) were moved to the slop-process private repo; the checks now run through ms-enforce.
 
-**Scope.** `tools/check_structural_antipatterns.py`; Core Rule 5.24.
+**Scope.** ms-enforce anti-pattern checks; Core Rule 5.24.
 
-**Authoritative source.** Core Rule 5.24; `tools/check_structural_antipatterns.py`; `docs/STRUCTURAL_RULES.md`.
+**Authoritative source.** Core Rule 5.24; ms-enforce (the `tools/check_structural_antipatterns.py` registry moved to the slop-process private repo).
 
 **Do not confuse with.** [Core Rule](#core-rule), [rule entry (ms-coverage)](#rule-entry-ms-coverage), [Semgrep rule](#semgrep-rule). The structural anti-pattern registry is specifically for repository-structure drift; the other rule families cover code-level invariants.
 
@@ -658,7 +658,7 @@ The `mediastack.*` label namespace is project-reserved. Third-party labels in th
 
 ### structural enforcement
 
-**Definition.** The architectural pattern of scanning staged changes, identifying structural triggers, requiring dependent changes to be present in the same commit, and blocking at commit time. Used by `ms-refactor` (refactoring contract), `ms-rule-contract` (rule-addition contract), `tools/check_structural_antipatterns.py` (anti-pattern registry), `tools/check_cleanup_ledger.py` (ledger linter). The shared mechanism is what makes the rule registries cheap to extend.
+**Definition.** The architectural pattern of scanning staged changes, identifying structural triggers, requiring dependent changes to be present in the same commit, and blocking at commit time. Used by `ms-refactor` (refactoring contract), `ms-rule-contract` (rule-addition contract), ms-enforce (anti-pattern registry; `tools/check_structural_antipatterns.py` moved to slop-process), `tools/check_cleanup_ledger.py` (ledger linter). The shared mechanism is what makes the rule registries cheap to extend.
 
 **Scope.** All `tools/check_*.py` linters and `ms-*` enforcement tools.
 

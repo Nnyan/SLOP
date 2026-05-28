@@ -11,8 +11,14 @@ import sys
 from pathlib import Path
 import pytest
 
+_TOOL = Path(__file__).resolve().parent.parent / "tools" / "check_structural_antipatterns.py"
+if not _TOOL.exists():
+    pytest.skip(
+        "check_structural_antipatterns.py moved to slop-process repo",
+        allow_module_level=True,
+    )
+
 REPO = Path(__file__).resolve().parent.parent
-_TOOL = REPO / "tools" / "check_structural_antipatterns.py"
 
 
 def _load_tool():

@@ -60,7 +60,7 @@ ADRs in this directory:
 - Are numbered sequentially (`0001-*`, `0002-*`, ...). The number is permanent — even if an ADR is superseded, its file stays for git-blame archaeology.
 - Use kebab-case slugs that match the title (e.g. `0001-database-migrations.md`).
 - Are committed to git alongside the change they document. New code that needs an architectural decision lands the ADR in the same PR.
-- Are linked from `docs/CORE_RULES.md` when the ADR codifies a Core Rule.
+- Codify a Core Rule when applicable; enforcement is carried by ms-enforce checks (run `python3 ms-enforce --list` to see active rules).
 - Reference but do not duplicate strategy docs (`docs/cleanup/STEP_*_STRATEGY.md`) — strategy is the implementation plan; ADR is the durable design decision.
 
 See `docs/adr/0001-database-migrations.md` for an early example, and Core Rule 4.15 (Architecture Decision Records) for the project's enforcement of this convention.

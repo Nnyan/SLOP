@@ -4,7 +4,7 @@
 **Decided by:** OPUS during cleanup step 3.2 (API Versioning)
 **Supersedes:** none — pre-3.2, all routes lived at `/api/<area>` with no version.
 
-**See also:** [`docs/cleanup/PROJECT_CLEANUP.md`](../cleanup/PROJECT_CLEANUP.md) step 3.2, [Core Rule 4.18 (API Versioning Discipline)](../CORE_RULES.md#418-api-versioning-discipline)
+**See also:** cleanup step 3.2, Core Rule 4.18 (API Versioning Discipline) — enforced by ms-enforce
 
 ---
 
