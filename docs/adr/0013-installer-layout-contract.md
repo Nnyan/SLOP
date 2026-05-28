@@ -3,6 +3,8 @@
 - **Date:** 2026-05-12
 - **Status:** Accepted
 - **Deciders:** operator, Claude Opus 4.7 (v5 Tier 1.2 design session)
+- **See also:** none
+- **Review by:** 2028-05-12
 
 ## Context
 

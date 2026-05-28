@@ -4,6 +4,7 @@
 - **Accepted:** 2026-05-19 (Step 4.5 audit gate — Option C confirmed)
 - **Deciders:** Opus + operator (Step 4.5 disposition)
 - **See also:** V5_INSTALLER_PLAN.md Step 2.5.a (design TBD note), TIER_4_HANDOFF.md §O1
+- **Review by:** 2027-05-19
 
 > Enforcement: [manual — release-process discipline; the release-tag commit pre-builds `backend/static/` and commits the artifact, and `installer/frontend.py`'s idempotency guard short-circuits the npm pipeline when the pre-built output is present. Staleness is caught at the release-checklist level, not via static check.]
 

@@ -4,6 +4,7 @@
 **Decided by:** [agent or person] [date]
 **Supersedes:** [link or "none"]
 **See also:** [links to strategy docs, Core Rules, ms-coverage entries]
+**Review by:** YYYY-MM-DD  <!-- architectural +24 mo · process +12 mo · operational +6 mo from accepted date -->
 
 ## Context
 

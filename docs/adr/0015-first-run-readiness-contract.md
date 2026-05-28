@@ -3,6 +3,8 @@
 - **Date:** 2026-05-15
 - **Status:** Accepted
 - **Deciders:** operator, Claude Opus 4.7 (v5 Tier 3.1 design session)
+- **See also:** none
+- **Review by:** 2027-05-15
 
 > Enforcement: [manual — verified by `installer/tests/test_smoke.py` (per-predicate unit tests) and `installer/smoke.py` run as the final step of `install.sh` on a real host; INV-7 through INV-11 are checked by the v5.0.0 audit gate against three target distros. ms-enforce's scope is the backend repo's drift surface; install-time readiness is the installer's own quality bar.]
 

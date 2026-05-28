@@ -4,6 +4,7 @@
 **Decided by:** OPUS during cleanup step 2.5.b (backfill)
 **Supersedes:** none
 **See also:** `backend/infra/`, `backend/infra/registry.py`, `backend/platform/wizard.py::step_deploy_infra`, [ADR 0010 (No plugin system)](0010-no-plugin-system.md)
+**Review by:** 2028-05-08
 
 > Enforcement: [automated — ms-coverage RULE `provider-failure-returns-result` anchored at `test_glance_failure_no_name_error`; `check_catalog_compliance` (Core Rule 5.5) enforces the slot enumeration; `tests/test_failure_paths.py` exercises each provider's `ProviderResult` contract]
 
