@@ -779,9 +779,9 @@ U1–U3 failures stop the pipeline; U4, U4b, U5–U7 failures are reported and m
 
 **Definition.** The Docker-based deployment work that shipped with the v4.0.0 tag — replaced the previous deployment model with docker-compose orchestration. Distinct from any further containerization work that might happen post-v4.2.
 
-**Scope.** v4.0.0 tag annotation; `MIGRATION.md`; `CHANGELOG.md` pre-policy entries; `ARCHITECTURE.md`.
+**Scope.** v4.0.0 tag annotation; `docs/MIGRATION.md`; `CHANGELOG.md` pre-policy entries; `ARCHITECTURE.md`.
 
-**Authoritative source.** v4.0.0 tag annotation; `MIGRATION.md`.
+**Authoritative source.** v4.0.0 tag annotation; `docs/MIGRATION.md`.
 
 **Preferred form.** Use this phrase, not "Docker migration."
 
