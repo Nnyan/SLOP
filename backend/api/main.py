@@ -20,6 +20,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from backend.api import catalog as catalog_router
 from backend.api import health as health_router
@@ -264,6 +265,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# TrustedHostMiddleware: closes audit-log-evasion gap from CVE-2026-48710 (Starlette
+# BadHost) independent of Starlette version. See memory project-cve-2026-48710.
+import os as _os_th
+_ms_trusted_hosts_env = _os_th.environ.get("MS_TRUSTED_HOSTS", "")
+if _ms_trusted_hosts_env.strip():
+    # Explicit override — honour it exactly.
+    _trusted_hosts = [h.strip() for h in _ms_trusted_hosts_env.split(",") if h.strip()]
+elif config.debug:
+    # Dev convenience: accept any host in debug mode.
+    log.info("TrustedHostMiddleware: debug=True — accepting all hosts ('*')")
+    _trusted_hosts = ["*"]
+else:
+    # Production default: localhost variants + *.local (LAN) + config.domain if set.
+    _trusted_hosts = ["localhost", "127.0.0.1", "::1", "*.local"]
+    _domain_env = _os_th.environ.get("DOMAIN", "").strip()
+    if _domain_env:
+        for _d in _domain_env.split(","):
+            _d = _d.strip()
+            if _d and _d not in _trusted_hosts:
+                _trusted_hosts.append(_d)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_trusted_hosts)
 
 # Step 2.3.d — correlation-ID middleware. Sets a contextvar at request
 # entry that every nested log line inherits, including async tasks.
