@@ -1,24 +1,27 @@
 # Mediastack — production dependencies
+# Policy: floor-only >= pins; upper caps only with a documented breakage reason.
+# Reproducibility comes from uv.lock (committed). Full rationale: installer/DEPENDENCIES.md
 # Install: pip install -r requirements.txt
 # Dev/testing deps: requirements-dev.txt
 
 # Web framework
-fastapi==0.136.1
-uvicorn[standard]==0.32.1
-python-multipart==0.0.20
+fastapi>=0.136.1
+uvicorn[standard]>=0.32.1
+python-multipart>=0.0.20
 
 # HTTP client (health checks, GGUF downloads)
-httpx==0.28.1
+httpx>=0.28.1
 
 # Docker SDK
-docker==7.1.0
+docker>=7.1.0
 
 # Config / data
-pyyaml==6.0.2
+pyyaml>=6.0.2
 
-# Pydantic (FastAPI dependency — pin for stability)
-pydantic==2.10.4
-bcrypt>=4.0.0
+# Pydantic — cap at <3: v3 removes v1-compat shims used by manifest validators.
+pydantic>=2.10.4,<3
+# bcrypt — cap at <5: v5 API changes are unaudited; hold at v4.x until reviewed (S-46-A decision 2).
+bcrypt>=4.0.0,<5
 
 # Structured logging
 structlog>=24
