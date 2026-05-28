@@ -15,7 +15,7 @@
     },
     {
       "category": "api_routers",
-      "lines": 1866,
+      "lines": 1908,
       "path": "backend/api/health.py"
     },
     {
@@ -50,7 +50,7 @@
     },
     {
       "category": "production_code",
-      "lines": 1497,
+      "lines": 1504,
       "path": "backend/health/checker.py"
     },
     {
@@ -144,5 +144,5 @@
       "path": "tests/test_runtime_bugs.py"
     }
   ],
-  "generated_at": "2026-05-28T04:16:34+00:00"
+  "generated_at": "2026-05-28T04:46:37+00:00"
 }
