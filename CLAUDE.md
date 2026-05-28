@@ -18,8 +18,31 @@ Backend tests run against a local venv; no external server required for unit tes
 1. `grep -n "function\|computed\|const.*=.*ref\|const.*=.*computed" frontend/src/views/<File>.vue` — check if similar logic already exists before creating a new one.
 2. If the logic exceeds ~5 lines or is reusable, create or extend `frontend/src/composables/use<Feature>.ts` instead.
 
-**Hard line limit: 600 lines per new view file.**
+**File-size limits for views are enforced globally — see the "File size limits (ratchet-enforced)" section below.** Vue views fall under the `frontend/src/views/**.vue` category (600-line hard cap).
 Existing violators (SetupView ~1711, SettingsView ~1369, ModelsView ~1182, HealthView ~752, CatalogView ~642 in SLOP) are grandfathered but should shrink over time, not grow.
+
+## File size limits (ratchet-enforced)
+
+Files have category-tiered size caps enforced by a CI ratchet. New files must come in under their category hard cap. Existing oversize files are recorded in `.linecount-baseline.json` and may shrink but never grow. CI fails the PR if either rule is broken.
+
+| Category | Soft (warn) | Hard / ratchet ceiling |
+|---|---|---|
+| Production code: `backend/core/**`, `backend/health/**`, `backend/manifests/**`, `backend/platform/**`, `backend/infra/**`, `backend/agent/**` | 400 | **500** |
+| API routers: `backend/api/**` | 600 | **800** |
+| Vue views: `frontend/src/views/**.vue` | 500 | **600** (existing rule) |
+| Frontend other: `frontend/src/**` excluding views | 400 | **500** |
+| CLI / installer: `cli/**`, `installer/**` | 600 | **800** |
+| Tests: `tests/**`, `installer/tests/**` | — | **1000** informational, does NOT fail CI |
+
+### How to update the baseline
+
+- **Intentionally shrunk a file:** run `python3 tools/check_linecount.py --update-shrunk` and commit the refreshed `.linecount-baseline.json`.
+- **Need to split a baselined file:** split it, then run `--update-shrunk` (or regenerate with `--snapshot`) to refresh.
+- **Need to (rarely) raise a baseline:** edit `.linecount-baseline.json` by hand; include justification in the commit message. Discouraged.
+
+### How it interacts with the frontend "no business logic in views" rule
+
+The two rules compose: views have a 600-line hard cap AND must contain no business logic. The composables pattern (`frontend/src/composables/use<Feature>.ts`) is how you satisfy both — extracting logic out of the view both keeps the view under cap and keeps reusable logic in a testable, shared location.
 
 ## Catalog apps
 
