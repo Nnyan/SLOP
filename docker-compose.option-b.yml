@@ -1,4 +1,6 @@
-# Mediastack v4 — Docker-only deployment
+# Mediastack v4 — Docker-only deployment (recommended for production / new installs)
+# Use this file when pulling the pre-built image (ghcr.io/nnyan/mediastack:latest).
+# Use docker-compose.yml instead if you need to build from source (dev / CI).
 #
 # Quick start (new install):
 #   mkdir -p /srv/mediastack && cd /srv/mediastack
