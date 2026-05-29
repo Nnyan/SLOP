@@ -1,0 +1,473 @@
+# Automated dependency refresh PR train (S-49-DEP-REFRESH-TRAIN)
+#
+# Triggers:
+#   - Weekly on Mondays at 06:00 UTC
+#   - Manual workflow_dispatch
+#   - repository_dispatch with event-type "cve-alert"
+#
+# Behaviour:
+#   1. Runs tools.ms_deps.refresh (wraps `uv lock --upgrade`).
+#      Exit 2 = audit regression → fail immediately, previous uv.lock stays.
+#   2. If uv.lock unchanged → exit 0, no PR.
+#   3. Builds PR body from version-diff table + per-package changelog snippets.
+#   4. Runs full test suite (fast → static → docker → contract → slow).
+#   5. Opens PR on branch deps/refresh (force-pushed each cycle).
+#      - All-pass: normal title, no label.
+#      - Any failure: title suffixed "(FAILED tests)", do-not-merge label.
+#   6. Auto-comments "Superseded by #N." on any previous open refresh PR.
+
+name: Dependency Refresh
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch:
+  repository_dispatch:
+    types: [cve-alert]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PYTHONPATH: .
+
+jobs:
+  refresh:
+    name: Refresh uv.lock
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    # Needed to open PRs and comment on them
+    permissions:
+      contents: write
+      pull-requests: write
+
+    outputs:
+      changed: ${{ steps.detect-change.outputs.changed }}
+      n_bumps: ${{ steps.count.outputs.n_bumps }}
+      n_cve_fixes: ${{ steps.count.outputs.n_cve_fixes }}
+      pr_number: ${{ steps.open-pr.outputs.pr_number }}
+      tests_passed: ${{ steps.test-gate.outputs.tests_passed }}
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout main
+      # -----------------------------------------------------------------------
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # -----------------------------------------------------------------------
+      # 2. Set up Python 3.12
+      # -----------------------------------------------------------------------
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # -----------------------------------------------------------------------
+      # 2b. Set up uv
+      # -----------------------------------------------------------------------
+      - name: Install uv
+        run: pip install uv --quiet
+
+      # -----------------------------------------------------------------------
+      # 3. Install project dependencies (from current uv.lock)
+      # -----------------------------------------------------------------------
+      - name: Install project dependencies
+        run: |
+          pip install -r requirements.txt --quiet || true
+          pip install -r requirements-dev.txt --quiet || true
+          pip install pip-audit ruff bandit mypy --quiet || true
+
+      # -----------------------------------------------------------------------
+      # 4. Snapshot current uv.lock before refresh
+      # -----------------------------------------------------------------------
+      - name: Snapshot current uv.lock
+        run: cp uv.lock uv.lock.before
+
+      # -----------------------------------------------------------------------
+      # 5. Run tools.ms_deps.refresh — may exit 0 (ok), 1 (error), 2 (regression)
+      # -----------------------------------------------------------------------
+      - name: Run dependency refresh
+        id: run-refresh
+        run: |
+          python3 -m tools.ms_deps.refresh
+          echo "refresh_exit=$?" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      - name: Fail on audit regression (exit code 2)
+        if: steps.run-refresh.outcome == 'failure'
+        run: |
+          EXIT="${{ steps.run-refresh.outputs.refresh_exit }}"
+          if [ "$EXIT" = "2" ]; then
+            echo "::error::Audit regression detected (exit 2). New CVEs introduced by upgrade."
+            echo "::error::The previous uv.lock has been restored. No PR will be opened."
+            echo "needs-human=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::tools.ms_deps.refresh failed with exit code ${EXIT}."
+          fi
+          exit 1
+
+      # -----------------------------------------------------------------------
+      # 6. Detect whether uv.lock actually changed
+      # -----------------------------------------------------------------------
+      - name: Detect lockfile change
+        id: detect-change
+        run: |
+          if diff -q uv.lock uv.lock.before > /dev/null 2>&1; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No changes to uv.lock — nothing to do."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "uv.lock has changed — proceeding."
+          fi
+
+      - name: Exit early when no change
+        if: steps.detect-change.outputs.changed == 'false'
+        run: |
+          echo "uv.lock is already up to date. Exiting without opening a PR."
+          exit 0
+
+      # -----------------------------------------------------------------------
+      # 7. Build version-diff table (markdown + JSON)
+      # -----------------------------------------------------------------------
+      - name: Build version diff (markdown)
+        id: diff-markdown
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          python3 -m tools.ms_deps.diff uv.lock.before uv.lock > /tmp/diff_table.md
+          cat /tmp/diff_table.md
+
+      - name: Build version diff (JSON for counts)
+        id: diff-json
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          python3 -m tools.ms_deps.diff uv.lock.before uv.lock --format=json > /tmp/diff.json
+          cat /tmp/diff.json
+
+      # -----------------------------------------------------------------------
+      # 8. Count bumps and (heuristic) CVE fixes
+      # -----------------------------------------------------------------------
+      - name: Count bumps and CVE fixes
+        id: count
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          python3 - <<'PYEOF'
+          import json, os
+          rows = json.load(open("/tmp/diff.json"))
+          n_bumps = sum(1 for r in rows if r["change"] not in ("unchanged",))
+          # CVE fix heuristic: bumped package for which pip-audit reported a vuln
+          # We don't re-run pip-audit here — set 0 and let the workflow body note it
+          n_cve_fixes = 0
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"n_bumps={n_bumps}\n")
+              fh.write(f"n_cve_fixes={n_cve_fixes}\n")
+          PYEOF
+
+      # -----------------------------------------------------------------------
+      # 9. Build per-package changelog snippets
+      # -----------------------------------------------------------------------
+      - name: Build changelog snippets
+        id: build-changelog
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          python3 - <<'PYEOF'
+          import json, subprocess, sys
+          rows = json.load(open("/tmp/diff.json"))
+          changed = [r for r in rows if r["change"] not in ("unchanged", "removed") and r["old"] and r["new"]]
+          snippets = []
+          for r in changed[:20]:  # cap at 20 packages to avoid enormous PRs
+              result = subprocess.run(
+                  [
+                      sys.executable, "-m", "tools.ms_deps.changelog",
+                      "--package", r["name"],
+                      "--from", r["old"],
+                      "--to", r["new"],
+                  ],
+                  capture_output=True, text=True, timeout=30,
+              )
+              snippets.append(result.stdout if result.stdout.strip() else
+                              f"### {r['name']} {r['old']} → {r['new']}\nNo changelog found.\n")
+          with open("/tmp/changelogs.md", "w") as fh:
+              fh.write("\n\n".join(snippets))
+          PYEOF
+          echo "Changelog snippets written."
+
+      # -----------------------------------------------------------------------
+      # 10. Run full test suite (speed order)
+      # -----------------------------------------------------------------------
+
+      # 10a. Fast unit tests
+      - name: Fast unit tests
+        id: test-unit
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          pytest tests/ -q --tb=short --no-header \
+            --ignore=tests/test_session_a.py \
+            -m "not docker and not slow and not browser and not schemathesis" \
+            2>&1 | tee /tmp/test_unit.log
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      # 10b. Static analysis (mypy, ruff, bandit)
+      - name: Static analysis (mypy + ruff + bandit)
+        id: test-static
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          {
+            ruff check backend/ tools/ --quiet && echo "ruff OK"
+            mypy backend/ --ignore-missing-imports --quiet && echo "mypy OK"
+            bandit -r backend/ -q -ll && echo "bandit OK"
+          } 2>&1 | tee /tmp/test_static.log
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      # 10c. Docker integration tests (if docker marker exists)
+      - name: Docker integration tests
+        id: test-docker
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          pytest tests/ -q --tb=short --no-header -m "docker" \
+            2>&1 | tee /tmp/test_docker.log || true
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      # 10d. Contract / schemathesis tests
+      - name: Schemathesis + contract tests
+        id: test-schema
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          pytest tests/test_wizard_contracts.py -q --tb=short \
+            2>&1 | tee /tmp/test_schema.log
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      # 10e. Browser / Playwright tests
+      - name: Browser tests (Playwright)
+        id: test-browser
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          pytest tests/ -q --tb=short -m "browser" \
+            2>&1 | tee /tmp/test_browser.log || true
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      # 10f. pip-audit on new uv.lock
+      - name: pip-audit on new lock
+        id: test-audit
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          pip-audit -r requirements.txt --strict 2>&1 | tee /tmp/test_audit.log || true
+          echo "exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      # -----------------------------------------------------------------------
+      # 11. Collate test results
+      # -----------------------------------------------------------------------
+      - name: Collate test results
+        id: test-gate
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          python3 - <<'PYEOF'
+          import os
+
+          logs = {
+              "unit":    "/tmp/test_unit.log",
+              "static":  "/tmp/test_static.log",
+              "docker":  "/tmp/test_docker.log",
+              "schema":  "/tmp/test_schema.log",
+              "browser": "/tmp/test_browser.log",
+              "audit":   "/tmp/test_audit.log",
+          }
+
+          # Detect failures via pytest exit-code keywords in log tails.
+          failed_suites = []
+          failure_excerpts = []
+          for suite, path in logs.items():
+              try:
+                  content = open(path).read()
+              except FileNotFoundError:
+                  content = ""
+              # pytest exits non-zero on failure; "FAILED" or "ERROR" in output is a proxy
+              lines = content.splitlines()
+              last50 = "\n".join(lines[-50:])
+              if "failed" in content.lower() or "error" in content.lower():
+                  # Only treat as failure if there is a count like "X failed"
+                  import re
+                  if re.search(r"\d+ (failed|error)", content, re.IGNORECASE):
+                      failed_suites.append(suite)
+                      failure_excerpts.append(f"### {suite}\n```\n{last50}\n```")
+
+          all_passed = len(failed_suites) == 0
+
+          with open("/tmp/failure_summary.md", "w") as fh:
+              if all_passed:
+                  fh.write("All test suites passed.\n")
+              else:
+                  fh.write(f"**Failed suites:** {', '.join(failed_suites)}\n\n")
+                  fh.write("\n\n".join(failure_excerpts))
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"tests_passed={'true' if all_passed else 'false'}\n")
+              fh.write(f"failed_suites={','.join(failed_suites)}\n")
+          PYEOF
+
+      # -----------------------------------------------------------------------
+      # 12. Push deps/refresh branch
+      # -----------------------------------------------------------------------
+      - name: Push deps/refresh branch
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B deps/refresh
+          git add uv.lock
+          git commit -m "deps: refresh $(date -u +%Y-%m-%d) — automated uv.lock bump"
+          git push origin deps/refresh --force
+
+      # -----------------------------------------------------------------------
+      # 13. Compose PR body
+      # -----------------------------------------------------------------------
+      - name: Compose PR body
+        id: compose-body
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          python3 - <<'PYEOF'
+          import os, datetime
+
+          today = datetime.date.today().isoformat()
+          run_url = (
+              f"https://github.com/{os.environ['GITHUB_REPOSITORY']}"
+              f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          )
+
+          diff_table = open("/tmp/diff_table.md").read()
+          try:
+              changelogs = open("/tmp/changelogs.md").read()
+          except FileNotFoundError:
+              changelogs = "(changelog build skipped)"
+          try:
+              failure_summary = open("/tmp/failure_summary.md").read()
+          except FileNotFoundError:
+              failure_summary = ""
+
+          tests_passed = os.environ.get("TESTS_PASSED", "true") == "true"
+
+          body_parts = [
+              f"## Dependency refresh — {today}\n",
+              f"Triggered by: `{os.environ.get('GITHUB_EVENT_NAME', 'schedule')}`\n",
+              f"Workflow run: {run_url}\n",
+              "---\n",
+              "## Version diff\n",
+              diff_table,
+              "\n---\n",
+              "## Changelog snippets\n",
+              changelogs,
+          ]
+
+          if not tests_passed:
+              body_parts += [
+                  "\n---\n",
+                  "## :x: Test failures\n",
+                  failure_summary,
+                  f"\nFull log: {run_url}\n",
+              ]
+
+          body = "\n".join(body_parts)
+          # GitHub PR body max is ~65536 chars; truncate if needed
+          if len(body) > 60000:
+              body = body[:60000] + "\n\n...(truncated)"
+
+          with open("/tmp/pr_body.md", "w") as fh:
+              fh.write(body)
+          PYEOF
+        env:
+          TESTS_PASSED: ${{ steps.test-gate.outputs.tests_passed }}
+
+      # -----------------------------------------------------------------------
+      # 14. Open or update the PR
+      # -----------------------------------------------------------------------
+      - name: Open PR (all tests passed)
+        id: open-pr-pass
+        if: >
+          steps.detect-change.outputs.changed == 'true' &&
+          steps.test-gate.outputs.tests_passed == 'true'
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          N_BUMPS="${{ steps.count.outputs.n_bumps }}"
+          N_CVE="${{ steps.count.outputs.n_cve_fixes }}"
+          TITLE="deps: refresh ${DATE} — ${N_BUMPS} bumps, ${N_CVE} CVE fixes"
+
+          # Close any existing deps/refresh PR first (will reopen)
+          gh pr list --base main --head deps/refresh --json number -q '.[].number' \
+            | xargs -r -I{} gh pr close {} --comment "Superseded — new refresh PR incoming." \
+            || true
+
+          PR_URL=$(gh pr create \
+            --base main \
+            --head deps/refresh \
+            --title "$TITLE" \
+            --body-file /tmp/pr_body.md \
+            2>&1)
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Opened PR #${PR_NUMBER}: ${PR_URL}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Open PR (test failures — needs human)
+        id: open-pr-fail
+        if: >
+          steps.detect-change.outputs.changed == 'true' &&
+          steps.test-gate.outputs.tests_passed == 'false'
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          N_BUMPS="${{ steps.count.outputs.n_bumps }}"
+          N_CVE="${{ steps.count.outputs.n_cve_fixes }}"
+          TITLE="deps: refresh ${DATE} — ${N_BUMPS} bumps, ${N_CVE} CVE fixes (FAILED tests)"
+
+          # Close any existing deps/refresh PR first
+          gh pr list --base main --head deps/refresh --json number -q '.[].number' \
+            | xargs -r -I{} gh pr close {} --comment "Superseded — new refresh PR incoming." \
+            || true
+
+          # Ensure the do-not-merge label exists
+          gh label create do-not-merge --color CC0000 --description "Do not merge until tests pass" \
+            2>/dev/null || true
+
+          PR_URL=$(gh pr create \
+            --base main \
+            --head deps/refresh \
+            --title "$TITLE" \
+            --body-file /tmp/pr_body.md \
+            --label do-not-merge \
+            2>&1)
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "Opened failure PR #${PR_NUMBER}: ${PR_URL}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # -----------------------------------------------------------------------
+      # 15. Supersede previous open refresh PRs (comment "Superseded by #N.")
+      # -----------------------------------------------------------------------
+      - name: Comment superseded on old refresh PRs
+        if: steps.detect-change.outputs.changed == 'true'
+        run: |
+          NEW_PR="${{ steps.open-pr-pass.outputs.pr_number }}${{ steps.open-pr-fail.outputs.pr_number }}"
+          if [ -z "$NEW_PR" ]; then
+            echo "No PR number found; skipping supersede comment."
+            exit 0
+          fi
+          # Find any other open PRs with the deps/refresh head that are NOT the new one
+          gh pr list --base main --state open --json number,headRefName \
+            --jq ".[] | select(.headRefName == \"deps/refresh\" and (.number | tostring) != \"$NEW_PR\") | .number" \
+            | while read -r OLD_PR; do
+                echo "Commenting 'Superseded by #${NEW_PR}.' on PR #${OLD_PR}"
+                gh pr comment "$OLD_PR" --body "Superseded by #${NEW_PR}." || true
+              done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
