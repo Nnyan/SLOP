@@ -444,6 +444,59 @@ After each Robot run, the morning reviewer (user + Opus session) does a short re
 The retrospective is itself ≤ 10 minutes of work. The file changes that result
 get committed under the message `robot: lessons from <date> run`.
 
+## Retrospective ritual
+
+The retro tool (`tools/robot-retro.py`) automates aggregation of a run's
+artifacts into a single markdown report. Run it as the first step of every
+morning review.
+
+### Step-by-step post-run loop
+
+```bash
+# 1. Generate the retro report (output to stdout; optionally save)
+python3 tools/robot-retro.py .claude/run-archive/<date>/ \
+    --output .claude/run-archive/<date>/RETRO-<date>.md
+
+# 2. Read the report
+#    Sections to focus on:
+#      "Needs-Judgment" decisions  → require a confirm/rollback call
+#      "Blockers"                  → require action before merging
+#      "Candidate AUTONOMOUS-DEFAULTS Updates" → proposals to add to the defaults file
+
+# 3. For each "Candidate AUTONOMOUS-DEFAULTS Updates" entry:
+#    - Open .claude/AUTONOMOUS-DEFAULTS.md
+#    - Add a new entry under the matching category (or a new category)
+#    - Cite the date and the decision file that surfaced it
+
+# 4. Commit doctrine updates:
+git add .claude/AUTONOMOUS-DEFAULTS.md
+git commit -m "robot: lessons from <date> run"
+
+# 5. For each blocker: resolve manually, amend or squash the wave branch,
+#    then proceed with the normal morning review merge.
+```
+
+### What the report contains
+
+| Section | What to do |
+|---|---|
+| Summary counts | Quick sanity check — are all streams accounted for? |
+| Per-Stream Status | Any stream not COMPLETE needs investigation |
+| Decisions — Informational | No action needed; read for awareness |
+| Decisions — Needs-Judgment | Confirm or roll back before merging the wave branch |
+| Blockers | Requires human resolution; wave branch should NOT merge until fixed |
+| Observations | Adjacent findings noted by streams; decide if any need a follow-up wave |
+| Proposed Deletions | Review and apply manually if still relevant |
+| Candidate AUTONOMOUS-DEFAULTS Updates | Prime material for the lessons commit |
+
+### Keeping the retro lightweight
+
+The retro ritual is not a full code review — it is ≤ 10 minutes of triage.
+Deep diffs happen in the normal morning review (`git diff main..wave/S-NN-topic`).
+The retro's job is to surface the *meta-level* signals: what the agents decided
+autonomously, what they couldn't resolve, and what the defaults register is
+missing for next time.
+
 ## Out of scope (deliberate)
 
 - No live supervisor session. Defaults + decision files + morning review
