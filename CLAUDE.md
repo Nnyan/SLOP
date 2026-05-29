@@ -47,7 +47,6 @@ The two rules compose: views have a 600-line hard cap AND must contain no busine
 ## Catalog apps
 
 - YAML manifests: `catalog/apps/<key>.yaml`
-- Docker Compose vars use `${VAR}` syntax (not Python `{var}`)
 - Known env vars written to `.env` by wizard: `PUID`, `PGID`, `TZ`, `CONFIG_ROOT`, `MEDIA_ROOT`, `DOMAIN`
 - If a catalog app uses a var not in that list, it will resolve to empty string at runtime
 
@@ -82,12 +81,10 @@ Stable architectural truths. Moved here from HANDOFF.md on 2026-05-24 (S2a split
   SLOP's own continuity. It is NOT a catalog app health watcher bolted on as an afterthought.
   Its primary responsibility is ensuring SLOP itself is running and healthy: it monitors all
   managed components, detects failures, and drives automated remediation.
-  DB record: `key="slop_agent"`, `tier=0`, `category="agent"`, `status="running"`.
-  Module: `backend/core/agent.py` — `AGENT_ROLE = "executive_manager"`;
-  `ensure_agent_registered()` runs at every startup.
-  Health: `subject_type="agent"` (never mixes with app health checks, `subject_type="app"`).
+  Module: `backend/core/agent.py`. Constants (AGENT_ROLE, AGENT_KEY, AGENT_TIER, AGENT_CATEGORY,
+  AGENT_SUBJECT_TYPE) and the `get_all_apps(include_system=False)` tier-0 exclusion are
+  enforced by tests/test_rules_migration_batch1.py (S-55-B).
   API: `GET /api/v1/health/agent` + `agent_status` field in `/api/v1/health/summary`.
-  `get_all_apps(include_system=False)` excludes tier=0 from all user-facing lists.
 - **User LLM catalog apps** (Ollama, llama.cpp, Open WebUI): what users install for their own AI use.
 
 **Three data directories (standard install) — all different:**
@@ -102,8 +99,7 @@ Stable architectural truths. Moved here from HANDOFF.md on 2026-05-24 (S2a split
 **No git on target server** — deploy = scp + sudo cp + systemctl restart.
 
 **Catalog has two `CatalogEntry` definitions** — `loader.py` dataclass AND `catalog.py` Pydantic
-response model. Any field added to `to_catalog_entry()` must also be added to the Pydantic model
-or FastAPI silently drops it.
+response model. Field sync is enforced by tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync (S-55-B).
 
 **Custom install flow (two steps)**:
 1. `POST /api/v1/apps/install-custom` → registers manifest in `catalog/community/` — returns `{key}`.
@@ -117,10 +113,10 @@ or FastAPI silently drops it.
 **Catalog template variables** (clarified session 14):
 - `{config_root}` / `{media_root}` in volume `host:` paths → **intentional** — handled by `_expand_path()` in executor.py.
 - `${VAR}` refs in env: blocks → handled via `_SLOP_MANAGED_VARS`, `auto_secrets`, wizard, or `:-` defaults.
-- `POSTGRES_PASSWORD` + `POSTGRES_USER` added to `_SLOP_MANAGED_VARS` (wizard always generates them).
+- `${VAR}` syntax (not Python `{var}`) enforced by ms-enforce `check_catalog_env_var_syntax` (S-55-B).
 
-**_SLOP_MANAGED_VARS** — module-level frozenset in `backend/api/apps.py`. Contains vars always
-written by the wizard (PUID, PGID, TZ, DOMAIN, CONFIG_ROOT, MEDIA_ROOT, POSTGRES_PASSWORD, POSTGRES_USER, VPN vars, etc.).
+**_SLOP_MANAGED_VARS** — module-level frozenset in `backend/api/apps.py`. Canonical membership
+enforced by tests/test_rules_migration_batch1.py::TestSlopManagedVars (S-55-B).
 
 **Quick Stacks** — `_DEFAULT_STACKS` in `backend/api/platform.py` is the single source of truth.
 Customisations stored in `settings` table keys `custom_stacks` and `hidden_stacks` as JSON.
