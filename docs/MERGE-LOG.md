@@ -49,6 +49,24 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-29 — docs/wave-draft-batch8 (S-71-TEST-DATA-HYGIENE wave draft)
+
+- **Method:** tools/merge_wave_to_main.py
+- **Operator/Caller:** stack (operator-assist / Manager session)
+- **Pre-merge main HEAD:** `38b4d25b29b2b1ccb181edb772289402357cdcd7`
+- **Branches merged (in order):**
+  1. `docs/wave-draft-batch8` → merge commit `a0d70397bb69fae2cca6609d120cd232f5b8325f`
+- **Post-merge main HEAD:** `a0d70397bb69fae2cca6609d120cd232f5b8325f`
+- **Pushed to origin:** yes — `a0d7039` (pushed via lift-push-restore by Manager session post-merge, 2026-05-29)
+- **Pre-flight checks run:**
+  - working-tree: CLEAN
+  - branch-exists:docs/wave-draft-batch8: OK
+  - status:docs/wave-draft-batch8: no status file (skipped — draft branch)
+  - diff:docs/wave-draft-batch8: OK (5 diff-stat lines)
+  - ms-enforce:docs/wave-draft-batch8: PASS (branch-isolated; separator line is the known cosmetic logging wart)
+- **Notes:** batch-8 wave file `.claude/waves/S-71-TEST-DATA-HYGIENE.md` — the FIRST wave authored on batch-7's `_TEMPLATE.md` + per-stream Model column. Drafted + dogfooded by the Manager session at the operator's direction (not a separate fresh drafting session this time): `wave_complexity.py`=High (score 26), `validate-wave-file.py`=OK, `preflight_wave.py`=DISPATCH-OK. Now on main, ready for the batch-8 orchestrator to execute. Draft branch deleted post-merge.
+
+
 ## 2026-05-29 — wave/S-73-wave-authoring-rigor
 
 - **Method:** tools/merge_wave_to_main.py
