@@ -244,7 +244,7 @@ live `main`.
   debt accumulates (per POST-BATCH6-WAVE-MAP).
 
 ## Cross-wave dependencies (EXPLICIT)
-- Depends ONLY on current `origin/main` (`2a8de40` as of 2026-05-29 — batch-7 landed;
+- Depends ONLY on current `origin/main` (`38b4d25` as of 2026-05-29 — batch-7 landed + retro;
   the orchestrator re-confirms `git rev-parse origin/main` at startup and rebases the
   wave branch if main has advanced).
 - **Uses batch-7's machinery** (`_TEMPLATE.md`, `wave_complexity.py`,
