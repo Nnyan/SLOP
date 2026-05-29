@@ -1402,6 +1402,18 @@ def check_status_file_freshness() -> tuple[bool, str]:
     script = REPO / "tools" / "audit_status_file_freshness.py"
     if not script.exists():
         return True, "audit_status_file_freshness.py not present (skip)"
+def check_memory_staleness() -> tuple[bool, str]:
+    """Tier 1 (S-69 Stream F): memory-file staleness audit — warn-only.
+
+    Shells out to tools/audit_memory_staleness.py which scans the project
+    auto-memory directory for entries containing dated language (YYYY-MM-DD
+    dates) that are older than 60 days.  Warns → operator-driven prune.
+    Conservative: only flags entries with an explicit parseable date >60 days
+    old.  Never auto-deletes.  Always returns True (warn-only).
+    """
+    script = REPO / "tools" / "audit_memory_staleness.py"
+    if not script.exists():
+        return True, "audit_memory_staleness.py not present (skip)"
 
     venv_py = REPO / ".venv" / "bin" / "python3"
     py = str(venv_py) if venv_py.exists() else "python3"
@@ -1449,6 +1461,16 @@ def check_status_file_freshness() -> tuple[bool, str]:
             detail += f"\n    ... and {len(lines) - 5} more"
         return True, f"WARNING — {detail}"
     return True, "status-file freshness clean (no active run or all files current)"
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if not warning_lines:
+        return True, "no memory entries with dates older than 60 days"
+
+    detail = f"{len(warning_lines)} stale memory file(s) (operator-driven prune):\n"
+    detail += "\n".join(f"    {ln[:120]}" for ln in warning_lines[:5])
+    if len(warning_lines) > 5:
+        detail += f"\n    ... and {len(warning_lines) - 5} more"
+    return True, f"WARNING — {detail}"  # always True — warn-only
 
 
 # ── Runner ────────────────────────────────────────────────────────────────
@@ -1507,6 +1529,8 @@ TIER_1: list[tuple[str, object]] = [
     ("Merge-log completeness — every merge has audit trail (warn only)", check_merge_log_completeness),
     # ── Status-file freshness audit (S-69-E) ──────────────────────────────
     ("Status-file freshness — run update discipline (warn only)", check_status_file_freshness),
+    # ── Memory staleness audit (S-69 Stream F) ────────────────────────────
+    ("Memory staleness — dated entries >60d old (warn only)", check_memory_staleness),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
