@@ -533,11 +533,27 @@ Two operating patterns; pick whichever fits the moment:
 - **Handoff pattern (default):** the user does `git checkout main` before
   merge work and `git push origin main` after. The orchestrator does everything
   in between (merges, doctrine updates, cleanup).
-- **Lift pattern (faster, one-time):** the user lifts the relevant denies in
-  `.claude/settings.local.json` (and adds matching allows) before the
-  orchestrator starts the post-wave batch. The orchestrator does everything
-  end-to-end, then restores the denies as the final step. Useful when there
-  are multiple waves to merge in one sitting.
+- **Lift pattern (faster, one-time):** use the sanctioned tool
+  `tools/sanctioned/robot_settings.py` instead of ad-hoc `python3 -c "import json..."` snippets.
+
+  ```bash
+  # Lift push deny, push origin main, restore in finally (audited):
+  python3 tools/sanctioned/robot_settings.py push-then-restore
+
+  # Or restore the canonical profile explicitly:
+  python3 tools/sanctioned/robot_settings.py restore
+
+  # Restore is a no-op if settings already match the wave-mode profile.
+  ```
+
+  `robot_settings.py` wraps every deny-lifting path in `try/finally` (restore
+  runs on success AND error), and writes an audit entry to
+  `docs/SANCTIONED-OPS-LOG.md` for each operation.  Available subcommands:
+  `lift push`, `lift checkout-main`, `lift filter-branch`, `restore`,
+  `push-then-restore`.  See `python3 tools/sanctioned/robot_settings.py --help`.
+
+  **Never** hand-edit `.claude/settings.local.json` to lift a deny — always use
+  a sanctioned tool so the lift-restore discipline and audit trail are enforced.
 
 ## How Robot mode improves over time
 
