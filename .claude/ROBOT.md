@@ -689,6 +689,10 @@ Two operating patterns; pick whichever fits the moment:
   **Never** hand-edit `.claude/settings.local.json` to lift a deny — always use
   a sanctioned tool so the lift-restore discipline and audit trail are enforced.
 
+### Canonical wave template
+
+New waves start from `.claude/waves/_TEMPLATE.md`.
+
 ## How Robot mode improves over time
 
 After each Robot run, the morning reviewer (user + Opus session) does a short retrospective:
