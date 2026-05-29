@@ -79,7 +79,7 @@ checks, unverified merges).
   3. Added missing TIER_1 registration for `check_walkback_log` (the Edit that didn't apply previously) — separate commit
 - **Branches merged (in order):**
   1. `wave/S-59-access-requests-processor` (no-ff) → merge commit `fa90d02` (with one additive ms-enforce conflict resolved keep-both: check_walkback_log + check_access_requests_stale)
-  2. (mid-step) S-59 A↔B adapter fix per `.claude/run-archive/2026-05-29-batch5/decisions/S-59-AB-interface-gap.md` exact snippet
+  2. (mid-step) S-59 A↔B adapter fix per S-59-AB-interface-gap.md decision record (run-archive; untracked) exact snippet
   3. `wave/S-63-router-wiring-and-cost` (no-ff, clean tip `e48516b`) → merge commit `a726ace`
   4. `wave/S-64-agent-safe-autofix` (no-ff) → merge commit `adb3cd8`
 - **Post-merge main HEAD:** (audit-log commit on top after this entry) — push step follows

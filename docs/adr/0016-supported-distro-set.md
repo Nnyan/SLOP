@@ -263,7 +263,7 @@ fetched 2026-05-16 (line numbers approximate; Sonnet should match content):
 
 ### 5.2 V5_INSTALLER_PLAN.md changes
 
-Specific edits to `docs/cleanup/V5_INSTALLER_PLAN.md`:
+Specific edits to V5_INSTALLER_PLAN.md (moved to slop-process private repo):
 
 - **Direction Decision D4:** supersede current text ("Supported distros for
   v5.0: Debian 12+ and Ubuntu 22.04+ only. Fedora, RHEL, Arch, openSUSE

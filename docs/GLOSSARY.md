@@ -644,11 +644,11 @@ The `mediastack.*` label namespace is project-reserved. Third-party labels in th
 
 ### structural anti-pattern rule
 
-**Definition.** A rule in the anti-pattern registry, of form `(id, description, check_fn, remedy)`. Enforced via pre-commit hook (`--staged` mode, hard-block), `ms-update` post-deploy block (`--audit` mode, advisory), and the release-tag-gate checklist. The registry (`tools/check_structural_antipatterns.py`) and rule catalogue (`docs/STRUCTURAL_RULES.md`) were moved to the slop-process private repo; the checks now run through ms-enforce.
+**Definition.** A rule in the anti-pattern registry, of form `(id, description, check_fn, remedy)`. Enforced via pre-commit hook (`--staged` mode, hard-block), `ms-update` post-deploy block (`--audit` mode, advisory), and the release-tag-gate checklist. The registry (check_structural_antipatterns.py) and rule catalogue (STRUCTURAL_RULES.md) were moved to the slop-process private repo; the checks now run through ms-enforce.
 
 **Scope.** ms-enforce anti-pattern checks; Core Rule 5.24.
 
-**Authoritative source.** Core Rule 5.24; ms-enforce (the `tools/check_structural_antipatterns.py` registry moved to the slop-process private repo).
+**Authoritative source.** Core Rule 5.24; ms-enforce (the check_structural_antipatterns.py registry moved to the slop-process private repo).
 
 **Do not confuse with.** [Core Rule](#core-rule), [rule entry (ms-coverage)](#rule-entry-ms-coverage), [Semgrep rule](#semgrep-rule). The structural anti-pattern registry is specifically for repository-structure drift; the other rule families cover code-level invariants.
 
