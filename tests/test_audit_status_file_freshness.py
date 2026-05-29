@@ -138,11 +138,20 @@ class TestAuditRunDirClean:
 
     def test_no_merged_streams_started_eq_updated(self, tmp_path):
         """Started == Last updated but no merges: no warning (run in progress)."""
+        # Fresh in-progress run: use a near-now timestamp so the is_active=True
+        # wall-clock freshness check sees it as current, not stale. (A hardcoded
+        # absolute timestamp made this test time-brittle — it would pass only
+        # within max_stale_min of that instant.)
+        _now_utc = datetime.datetime.now(datetime.timezone.utc)
+        ts_str = datetime.datetime(
+            _now_utc.year, _now_utc.month, _now_utc.day,
+            _now_utc.hour, _now_utc.minute, _now_utc.second,
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
         _make_status_file(
             tmp_path,
             "S-69.md",
-            started="2026-05-29T17:01:52Z",
-            last_updated="2026-05-29T17:01:52Z",
+            started=ts_str,
+            last_updated=ts_str,
             stream_lines=["(pending dispatch)"],
         )
         result = freshness.audit_run_dir(tmp_path, max_stale_min=60, is_active=True)
