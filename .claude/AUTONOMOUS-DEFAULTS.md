@@ -79,6 +79,20 @@ scope.
 in-scope work. The "fix all pre-existing failures" rule was added then walked
 back; respect that boundary.
 **Escalate:** never — this is settled doctrine.
+**Inverse:** the no-fix-all rule applies to FOCUSED waves doing other work. It does
+NOT mean we never fix pre-existing failures. Dedicated cleanup waves are the
+authorized scope: S-57 (TIER_2), S-58 (TestClient), S-66 (post-S-58 unmask),
+S-67 (doc+tooling hygiene). When BACKLOG accumulates ≥10 open items in one
+category, draft a cleanup wave for the next batch.
+
+### BACKLOG entry sits bare `[ ]` for >14 days
+**Default:** This is a process failure, not a normal state. The pre-batch BACKLOG
+triage step (see ROBOT.md) should have either (a) folded the entry into a wave,
+(b) explicitly parked it with a re-eval trigger, or (c) marked it won't-fix with
+a reason. Surface stale `[ ]` entries during the next batch-planning conversation
+and assign a target. Pure `[ ]` is not an acceptable end state.
+**Escalate:** when an entry has bumped its date forward without progressing
+status, flag it as triage-failure rather than normal pending.
 
 ### A test fails intermittently
 **Default:** Run it three times in isolation. If 3/3 pass, treat as flaky and
