@@ -146,6 +146,9 @@ days. → enforced by `check_backlog_stale` (warn-only TIER_1 in ms-enforce, S-6
     observations/                   # adjacent-but-out-of-scope findings
       S-46-1.md
       ...
+    preflight/                      # complexity-gated pre-flight reports (E, S-73)
+      S-73-WAVE-AUTHORING-RIGOR.md  # DISPATCH-OK / BLOCKED verdict + per-check results
+      ...
     log/                            # optional free-form per-wave log
       S-46-coordinator.log
       ...
