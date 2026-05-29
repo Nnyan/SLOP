@@ -295,15 +295,41 @@ parent agent's working directory. This is the desired behavior for SLOP
 Robot mode — wave work always lands in the SLOP repo — but worth knowing if
 ever sandbox-testing from outside SLOP.
 
-### Verified zero-prompt configuration (2026-05-28)
+### Verified zero-prompt configuration (2026-05-28; partial verification)
 
 `.claude/settings.local.json` with `defaultMode: "bypassPermissions"` + the
-77-rule deny list produces ZERO permission/safety prompts for the
-operation set used by Robot mode (Bash including brace expansion, heredocs,
-command substitution, cd-prefix git, pipes, glob, symlinks; Read tool
-including /etc/passwd; Edit tool; Agent tool with and without worktree
-isolation; WebFetch on allowed domains). Validated against 20-test battery
-in fresh Opus session.
+77-rule deny list produces ZERO permission/safety prompts in a **fresh
+session** for the following operation set, validated against the 20-test
+battery:
+
+- Bash with brace expansion, heredocs, command substitution `$(...)`,
+  cd-prefix git, pipes, glob, symlinks
+- Read tool including sensitive paths (`/etc/passwd`)
+- Edit tool on existing files
+- Agent tool with and without worktree isolation
+- WebFetch on allowed domains
+
+**NOT covered by the original 20-test battery** (discovered later when an
+older `acceptEdits`-mode session leaked prompts on these):
+
+- Complex shell scripts with nested `for`/`while`/`if` control flow → fires
+  the **"shell syntax that cannot be statically analyzed"** safety check
+- Variable interpolation in patterns the analyzer can't pre-resolve
+  (`$pid` inside a loop body, `${var}` in test conditions) → fires the
+  **"simple_expansion"** safety check
+- `mv` of a directory tree across the `.claude/` boundary (no allow pattern
+  matches the specific path combination) → fires a standard permission prompt
+
+These additional categories ARE silenced by `bypassPermissions` mode in a
+fresh session — Round 2's orchestrator handled all of them silently. They
+fire only when a session is running under `acceptEdits` (the older default)
+because `defaultMode` does not live-reload mid-session.
+
+**How to extend the test battery for future verification:** add tests for
+nested-loop scripts, parameterized variable interpolation, and cross-boundary
+file moves. The battery should grow each Robot run as new categories are
+encountered. Goal: a test that, if it ever prompts, fails CI for the next
+Robot iteration.
 
 ## Morning review workflow
 
