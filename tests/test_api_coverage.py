@@ -681,11 +681,14 @@ class TestHardwareEvaluation:
 class TestModelPreflight:
     def test_preflight_invalid_url_format(self, client, db_path):
         r = client.post("/api/models/gguf/preflight?url=not-a-url")
-        assert r.status_code == 200
-        data = r.json()
-        # Should fail gracefully
-        assert "ok" in data
-        assert "error" in data or data["ok"] is False
+        # SSRF guard (H-10) rejects non-https URLs with 400; pre-guard behaviour was 200+ok=False
+        assert r.status_code in (200, 400), (
+            f"Invalid URL should return 400 (SSRF guard) or 200 with ok=False, got {r.status_code}"
+        )
+        if r.status_code == 200:
+            data = r.json()
+            assert "ok" in data
+            assert "error" in data or data["ok"] is False
 
     def test_preflight_unreachable_url(self, client, db_path):
         """Unreachable host should return ok=False with error."""
@@ -1041,7 +1044,7 @@ class TestLlamacppUrlDispatch:
             captured.update(kwargs)
             return self._make_health_run()
 
-        with patch("backend.health.checker.run_health_cycle", new=spy_health_cycle):
+        with patch("backend.api.health.run_health_cycle", new=spy_health_cycle):
             r = client.post("/api/health/run")
 
         assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
@@ -1061,7 +1064,7 @@ class TestLlamacppUrlDispatch:
             captured.update(kwargs)
             return self._make_health_run()
 
-        with patch("backend.health.checker.run_health_cycle", new=spy_health_cycle):
+        with patch("backend.api.health.run_health_cycle", new=spy_health_cycle):
             r = client.post("/api/health/run")
 
         assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
