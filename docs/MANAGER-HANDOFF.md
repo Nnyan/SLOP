@@ -17,30 +17,34 @@ You are NOT a Robot mode orchestrator. Orchestrators are fired in SEPARATE fresh
 
 You are NOT a wave-drafting session either; those are also separate fresh sessions when needed.
 
-## Current state (as of 2026-05-29, late)
+## Current state (as of 2026-05-29, end of batch-6)
 
-- **origin/main at `bff804d`** ("waves: batch-6 pre-flight corrections"). Confirm with `git rev-parse origin/main`.
-- **Batch-5 fully landed** (S-59 + S-63 + S-64 + adapter fix + doctrine recovery). All cleanly merged + audit-logged.
-- **S-68/S-69 drafts + A↔B contract doctrine + batch-5 close-outs are MERGED** (the `docs/wave-drafts-s68-s69-doctrine` branch was merged via `tools/merge_wave_to_main.py` — first real use of the sanctioned channel — commit `ab716cd`, then deleted). Recent main history: `ab716cd` (sanctioned merge) → `cdbf1dd` (audit log + S-68-C tool follow-ups) → `069d798` (S-67-C descope) → `bff804d` (batch-6 pre-flight corrections).
-- **Batch-6 is planned, pre-flighted, and ready to fire** (see Wave queue + the orchestrator prompt below). Not yet launched — that's a fresh-Opus-orchestrator action the user triggers.
-- **No drafting/orchestrator session is currently running.** Safe to do main-side operations.
+- **origin/main at `6bc5c82`** ("robot: lessons from batch-6"). Confirm with `git rev-parse origin/main`.
+- **Batch-6 FULLY LANDED** (S-66 + S-67 + S-68 + S-69). Merged via the merge-worktree pattern (additive conflicts resolved keep-both; S-69 ms-enforce difflib-reconstructed) → integration branch → one clean sanctioned merge `ebaf67c`. ms-enforce green on main; suite failures = known-17 residual subset only. MERGE-LOG has the comprehensive entry.
+- **Post-batch-6 follow-ups all done this session:** adapter `target_paths` settings-path fix (`77fb678`); SANCTIONED-OPS-LOG pollution stripped + `test_running_twice_is_noop` un-flaked (`1435529`); **both merge-tool bugs fixed** (dedent + from-main ms-enforce-skip, now branch-isolated, `cea63cb`); doctrine lessons + BACKLOG re-annotation (`6bc5c82`). All 21 batch-6 worktrees + branches pruned (orchestrator session was closed).
+- **BACKLOG re-annotated:** zero bare `[→ S-6x]` entries remain; S-73 logged.
+- **Next batch = batch-7 = S-73-WAVE-AUTHORING-RIGOR** (per-stream model column + complexity-gated automated pre-flight + first real `_TEMPLATE.md`). NOT yet drafted — the Manager drafts it (see memory `project-s73-wave-authoring-rigor`).
+- **No orchestrator/drafting session running.** Safe to do main-side operations.
 
 ## Wave queue (current)
 
-**Batch-6 — all four drafted, on main, pre-flighted (2026-05-29), ready to fire under ONE orchestrator (~21 active streams):**
-- **S-66-POST-S58-UNMASK-CLEANUP** (4 streams: A first, B/C/D parallel) — 12 unmasked-by-S-58 failures + A-bucket pre-existing failures + scrub.py items. NOTE: failure counts are stale (Stream A re-inventories; current main ~59, not the old "43"); env-dependent (Docker/network) failures are out of scope.
-- **S-67-DOC-AND-TOOLING-HYGIENE** (4 active streams: A→B sequential, D/E parallel; **C deferred to S-68**) — ~90 broken doc-link warnings + phantom RELEASE_NOTES/CHANGELOG TODOs + orchestrator-dispatch gate + validate-wave-file fix.
-- **S-68-SANCTIONED-CHANNEL-TOOLKIT** (5 streams: A+B foundation, C/D/E after) — "every deny has a sanctioned tool or is no-exceptions-period"; refactors `merge_wave_to_main.py` onto shared `_lift_restore`/`_audit` modules; **sole owner of `robot_settings.py` + `.claude/settings-wave-mode-profile.json`** (absorbed S-67-C).
-- **S-69-DOCTRINE-MECHANICAL-ENFORCEMENT** (8 streams: A–G parallel, H after) — 7 human-enforced rules → ms-enforce TIER_1 warn-only gates; Stream G+H fold in the batch-5 merge-worktree pattern.
+**Batch-6 (S-66+S-67+S-68+S-69) — LANDED on main (`ebaf67c`).** Done. The sanctioned
+toolkit (`tools/sanctioned/`), the 7 mechanical gates, the doc/tooling hygiene, and
+the post-S58 test fixes are all on main.
 
-Batch-6 firing prerequisite resolved: S-67↔S-68 file collision (both created `robot-settings.py` + wave-mode profile) — descoped S-67-C into S-68 (commit `069d798`). All four are now file-disjoint except the additive `ms-enforce` TIER_1 registration list (keep-both default applies). No hard cross-wave merge-order dependency → one orchestrator.
+**Next batch = batch-7 = S-73-WAVE-AUTHORING-RIGOR (NOT yet drafted — Manager drafts it):**
+- Per-stream `Model` column + selection rubric (Opus=judgment / Sonnet=default / Haiku=mechanical).
+- Complexity-gated automated pre-flight: `tools/wave_complexity.py` scores a wave, the
+  orchestrator runs the matching fact-check rigor (extend `validate-wave-file.py`) and
+  BLOCKS dispatch on FALSE claims; first real `.claude/waves/_TEMPLATE.md`.
+- Build on the merged `validate-wave-file.py` / `ROBOT.md` / `AUTONOMOUS-DEFAULTS.md`.
+- Memory: `project-s73-wave-authoring-rigor`. BACKLOG: `[→ S-73]` entry under "From batch-6 retro".
 
-**Known S-68-C tool follow-ups** (logged in BACKLOG, found during the first sanctioned merge): `merge_wave_to_main.py` has (1) a `_append_audit_entry` dedent bug that mangles MERGE-LOG indentation, and (2) it skips ms-enforce when invoked from `main`. S-68 Stream C refactors this tool and should fix both.
-
-Future candidates (from the Tier-1-7 meta-analysis the user pushed on, not drafted):
-- **S-70-AGING-POLICY-FOR-WARN-ONLY** — temporal escalation of warn-only checks
-- **S-71-TEST-DATA-POLICY** — formal lifecycle policy (would have prevented S-58's 52 fixes and Stream C regression)
+Future candidates (from the Tier-1-7 meta-analysis, not drafted):
+- **S-70-AGING-POLICY-FOR-WARN-ONLY** — temporal escalation of warn-only checks (now ~9 warn-only gates live; aging policy is increasingly relevant)
+- **S-71-TEST-DATA-POLICY** — formal lifecycle policy (would have prevented the settings.local.json + SANCTIONED-OPS-LOG test-pollution class)
 - **S-72-DOCTRINE-SELF-AUDIT** — periodic relevance check on accumulated doctrine
+- Agent-code-quality cleanup wave — the 2 parked `scrub.py` items + apps.py TODO
 
 Parked:
 - **OPTIONAL-FILE-SIZE-REMEDIATION** — re-eval 2026-08-27
@@ -55,31 +59,40 @@ Parked:
 6. **`docs/ACCESS-REQUESTS.md`** — install/upgrade/allow queue. Note the `[—]` entry confirming sensitive-path silencing is unsolvable in acceptEdits.
 7. **`docs/MERGE-LOG.md`** — audit trail for every merge. Newest entries at top.
 8. **`docs/WALK-BACK-LOG.md`** — meta-process artifact for doctrine rule removals.
-9. **`.claude/waves/S-66-POST-S58-UNMASK-CLEANUP.md`** — drafted, queued.
-10. **`.claude/waves/S-67-DOC-AND-TOOLING-HYGIENE.md`** — drafted, queued.
-11. **`tools/merge_wave_to_main.py`** — the sanctioned merge channel; your primary tool for handoffs. **Use this instead of inline lift-restore scripts** from now on (per S-68 doctrine pattern).
+9. **`tools/merge_wave_to_main.py`** + **`tools/sanctioned/`** — the sanctioned merge channel + toolkit (shipped/fixed in batch-6); your primary tools for handoffs. Use instead of inline lift-restore scripts.
+10. **memory `project-s73-wave-authoring-rigor`** — the approved next-wave (batch-7) plan you draft.
+(The batch-6 wave files `.claude/waves/S-66..S-69` are landed/spent — no longer queue items.)
 
-## Immediate next actions (batch-6)
+## Immediate next actions (batch-7)
 
-The drafting-session merge + descope + pre-flight are DONE (see Current state). What remains:
+Batch-6 is fully landed + swept (merge, fixes, prune, doctrine, BACKLOG re-annotation
+all done — see Current state). What remains:
 
-1. **If the user wants batch-6 fired:** hand them the orchestrator prompt below (a fresh Opus session — you do NOT run it; you're the Manager, not the orchestrator). Confirm `git rev-parse origin/main` matches the SHA in the prompt first; if main has advanced, regenerate the prompt's SHA.
-2. **While the orchestrator runs:** do NOT do main-side operations in `/home/stack/code/slop/` (cross-session HEAD collision risk — batch-5 hit two). Use a separate worktree if you must.
-3. **When the orchestrator reports wave branches COMPLETE:** merge each via `python3 tools/merge_wave_to_main.py wave/S-66-... wave/S-67-... wave/S-68-... wave/S-69-...` (it accepts multiple branches), then push via `/tmp/lift-push-restore.py all`.
-4. **After merge:** verify the MERGE-LOG audit entries (watch for the known dedent-formatting bug until S-68-C fixes it), run a BACKLOG re-annotation pass (realize the `[→ S-66-*]`/`[→ S-67-*]`/`[→ S-68-*]`/`[→ S-69-*]` entries to `[x]`), and do a batch-6 retro.
+1. **Draft S-73-WAVE-AUTHORING-RIGOR** (the Manager drafts wave files for this batch per
+   the user's approval). Build on the merged `validate-wave-file.py` / `ROBOT.md` /
+   `AUTONOMOUS-DEFAULTS.md`. Two bundled features + a `_TEMPLATE.md` (see Wave queue +
+   memory `project-s73-wave-authoring-rigor`). Apply the new per-stream model convention
+   to the draft itself.
+2. **Then fire batch-7** (S-73 + optionally a co-batched cleanup wave): ONE fresh Opus
+   orchestrator. Hand the user the orchestrator prompt; confirm `git rev-parse origin/main`
+   for the base SHA at prompt-writing time. You coordinate, you don't run it.
+3. **Post-wave merge:** use `python3 tools/merge_wave_to_main.py wave/S-73-...` — the tool
+   now runs ms-enforce branch-isolated (bug fixed) and writes a correctly-formatted
+   MERGE-LOG entry (dedent bug fixed). Push via `/tmp/lift-push-restore.py all`.
+4. **If multiple branches with additive conflicts:** the merge-worktree integration pattern
+   (build off main in a scratch worktree, resolve keep-both / difflib-reconstruct, verify,
+   then one clean sanctioned merge) is the proven path — see the batch-6 MERGE-LOG entry.
 
-**Batch-6 orchestrator prompt (fresh Opus session; verify the SHA is still origin/main first):**
-
-```
-in Robot mode: you are the orchestrator for the SLOP batch-6 — 4 independent waves to fire concurrently under ONE orchestrator. main is at origin/main commit bff804d. Waves to handle: .claude/waves/S-66-POST-S58-UNMASK-CLEANUP.md, .claude/waves/S-67-DOC-AND-TOOLING-HYGIENE.md, .claude/waves/S-68-SANCTIONED-CHANNEL-TOOLKIT.md, .claude/waves/S-69-DOCTRINE-MECHANICAL-ENFORCEMENT.md. Note: S-67 Stream C is DEFERRED to S-68 — do not dispatch it. Follow the standard orchestrator startup sequence in .claude/ROBOT.md (read ROBOT.md + AUTONOMOUS-DEFAULTS.md, pre-flight fact-check each wave file, dispatch streams per each wave's Parallelization section with the subagent preamble, merge each stream to its wave branch, never to main).
-```
+**Note:** the standalone batch-6 wave files (`.claude/waves/S-66..S-69`) are spent (landed).
+Don't re-fire them.
 
 ## Working patterns / discipline
 
 ### Sanctioned channel hierarchy
-- Merges to main → `tools/merge_wave_to_main.py` (shipped in S-59-D)
-- Push to origin → operator-manual OR `/tmp/lift-push-restore.py` helper (until S-68 builds `tools/sanctioned/push.py`)
-- Settings lift/restore → `/tmp/lift-push-restore.py` (until S-67-C ships `tools/robot-settings.py`, then S-68 wraps it)
+- Merges to main → `tools/merge_wave_to_main.py` (S-59-D; both batch-6 bugs now fixed — runs ms-enforce branch-isolated, clean MERGE-LOG formatting)
+- Settings lift/restore + force-push + filter-branch + rm-recursive → `tools/sanctioned/` (SHIPPED in S-68: `robot_settings.py`, `force_push_tag.py`, `filter_branch_secret_scrub.py`, `rm_recursive_safe.py`, on shared `_lift_restore.py`/`_audit.py`)
+- Push to origin → still operator-manual OR `/tmp/lift-push-restore.py` (S-68 did not add a push wrapper; `robot_settings.py push-then-restore` exists but you've been using the /tmp helper)
+- Canonical wave-mode deny profile → `.claude/settings-wave-mode-profile.json` (S-68; `robot_settings.py restore` re-applies it)
 
 ### Helper scripts in `/tmp/`
 - `/tmp/lift-push-restore.py` — lift git push deny → push origin main → restore
