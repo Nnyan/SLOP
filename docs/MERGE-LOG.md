@@ -49,6 +49,28 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-29 — batch-6: S-66 + S-67 + S-68 + S-69 (via integration branch)
+
+- **Method:** tools/merge_wave_to_main.py (merged a pre-integrated `integration/batch6` branch — see merge strategy below)
+- **Operator/Caller:** stack (operator-assist / Manager session)
+- **Pre-merge main HEAD:** `c57d0ab`
+- **Merge strategy:** the four wave branches had **known additive conflicts** (ms-enforce TIER_1 list across S-67/S-68/S-69; ROBOT.md/MAP.md across S-68/S-69). Since the sanctioned tool aborts on conflict by design, all four were merged + conflict-resolved off-`main` in a dedicated **merge worktree** (`.claude/worktrees/merge-batch6`, branch `integration/batch6`) — the S-69 merge-worktree doctrine pattern — then the verified integration branch was merged to `main` in one clean `--no-ff` (no conflicts; `main` was an ancestor).
+- **Branches folded in (in integration order):**
+  1. `wave/S-66-post-s58-unmask-cleanup` (`d0494fd`) → clean
+  2. `wave/S-67-doc-and-tooling-hygiene` (`09ac124`) → clean
+  3. `wave/S-68-sanctioned-channel-toolkit` (`df7df64`) → ms-enforce + MAP.md additive conflicts, resolved keep-both
+  4. `wave/S-69-doctrine-mechanical-enforcement` (`88f877c`) → ms-enforce additive conflict; **reconstructed deterministically via difflib** (NOT marker-strip — functions were split by shared boilerplate, the union-interleave trap). All 9 gates + 9 TIER_1 registrations present exactly once.
+- **Integration → main merge commit:** `ebaf67c`
+- **Post-merge main HEAD:** `ebaf67c` (audit-log + follow-up commits land on top)
+- **Pushed to origin:** YES (push follows this audit-log commit)
+- **Pre-flight / verification:**
+  - Per-wave: orchestrator verified each in its worktree (S-66 67→17 residual; S-67 links 113→9; S-68 124 pass; S-69 130 pass).
+  - Integration: ms-enforce executed all 9 new gates without crash; full suite 11 failed / 2900 passed — the 11 are a strict subset of the known-17 residuals (Docker/env, git-history, gitignored-artifact, pre-existing); zero new failures.
+  - **On main (real tree): ms-enforce → All Core Rules satisfied; live settings.local.json stayed clean (no pollution).**
+- **Operator merge-time fix:** committed `77fb678` on the integration branch — access-request allow/deny adapters now honor `target_paths["settings_local"]` (a `[deny] Bash(rm -rf *)` processor-test fixture was writing the real settings file via the default path, tripping S-68's new real-settings guard tests; this was the `/doctor` rm-rf-star gremlin's root cause). Analogous to the S-59 A↔B adapter fix at batch-5.
+- **Notes:** Stray untracked files (`docs/SANCTIONED-OPS-LOG.md`, `tools/audit_orchestrator_prompt_format.py`) the orchestrator had moved to `.claude/run/stray-maintree-files/` are now canonical on main via the merge; the moved copies are deleted in cleanup. MERGE-LOG dedent-indentation bug (S-68-C follow-up) hit again on the tool's auto-entry — hand-corrected here.
+
+
 ## 2026-05-29 — docs/wave-drafts-s68-s69-doctrine (FIRST sanctioned-tool merge)
 
 - **Method:** tools/merge_wave_to_main.py
