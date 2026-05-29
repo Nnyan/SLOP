@@ -215,7 +215,7 @@ class TestRealTimeInstallProgress:
         from backend.api.main import app
         from fastapi.testclient import TestClient
 
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost") as client:
             # Write steps after lifespan DB init so they land in the live DB
             with StateDB() as db:
                 db.clear_op_steps("bazarr")

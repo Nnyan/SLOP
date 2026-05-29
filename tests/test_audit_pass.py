@@ -77,7 +77,7 @@ class TestGGUFPathTraversal:
         with tempfile.NamedTemporaryFile(suffix=".db") as f:
             init_db(Path(f.name))
             sm.configure(Path(f.name))
-            with TestClient(app) as client:
+            with TestClient(app, base_url="http://localhost") as client:
                 # Try to read /etc/passwd via path traversal
                 r = client.post("/api/models/gguf/validate",
                                 json={"path": "/etc/passwd"})
@@ -96,7 +96,7 @@ class TestGGUFPathTraversal:
             init_db(Path(f.name))
             sm.configure(Path(f.name))
             with patch("backend.api.models._models_dir", return_value=tmp_path):
-                with TestClient(app) as client:
+                with TestClient(app, base_url="http://localhost") as client:
                     r = client.post("/api/models/gguf/validate",
                                     json={"path": str(tmp_path / "model.gguf")})
         # 200 or 422 (file doesn't exist) — not 400 (rejected)
@@ -272,7 +272,7 @@ class TestConcurrentInstallGuard:
         sm.configure(db_path)
 
         with patch("backend.api.apps._installing", {"sonarr"}):
-            with TestClient(app) as client:
+            with TestClient(app, base_url="http://localhost") as client:
                 r = client.post("/api/apps/sonarr/install", json={})
 
         assert r.status_code == 409, \
@@ -319,7 +319,7 @@ class TestPUIDPGIDValidation:
         init_db(db_path)
         sm.configure(db_path)
 
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost") as client:
             r = client.post("/api/platform/wizard/validate", json={
                 "domain": "example.com",
                 "config_root": "/tmp/config",
@@ -341,7 +341,7 @@ class TestPUIDPGIDValidation:
         init_db(db_path)
         sm.configure(db_path)
 
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost") as client:
             r = client.post("/api/platform/wizard/validate", json={
                 "domain": "example.com",
                 "config_root": "/tmp/config",
@@ -427,7 +427,7 @@ class TestNtfyUrlValidation:
         init_db(db_path)
         sm.configure(db_path)
 
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost") as client:
             r = client.put("/api/settings", json={"ntfy_url": "not-a-url"})
         assert r.status_code == 422, \
             f"Invalid ntfy_url should return 422, got {r.status_code}: {r.json()}"
@@ -442,7 +442,7 @@ class TestNtfyUrlValidation:
         init_db(db_path)
         sm.configure(db_path)
 
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost") as client:
             r = client.put("/api/settings", json={"ntfy_url": "http://ntfy.example.com"})
         # Should succeed (200) or raise 422 only for invalid URL format
         assert r.status_code in (200, 204, 422)
@@ -511,7 +511,7 @@ class TestRoutingManifestGuard:
         init_db(db_path)
         sm.configure(db_path)
 
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost") as client:
             r = client.post("/api/routing/instances/totally_nonexistent_app_xyz", json={
                 "instance_key": "test_xyz",
                 "label": "Test",

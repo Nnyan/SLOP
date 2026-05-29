@@ -227,7 +227,7 @@ class TestAPIContracts:
         from backend.api.platform import get_platform_status
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         r = client.get('/api/platform/status')
         assert r.status_code == 200
         data = r.json()
@@ -267,7 +267,7 @@ class TestAPIContracts:
         configure(db_path)
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         r = client.get('/api/apps/nonexistent_app_xyz')
         assert r.status_code == 404, (
             f"GET /apps/nonexistent should return 404, got {r.status_code}"
@@ -281,7 +281,7 @@ class TestAPIContracts:
         configure(db_path)
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         r = client.post(
             '/api/platform/wizard/validate',
             content=b'not valid json at all }{',
@@ -299,7 +299,7 @@ class TestAPIContracts:
         configure(db_path)
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         # POST to a GET-only endpoint
         r = client.post('/api/platform/status')
         assert r.status_code == 405, f"Expected 405, got {r.status_code}"
@@ -364,7 +364,7 @@ class TestFrontendBackendContracts:
         configure(db_path)
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         # Check if /api/catalog or /api/apps/catalog or similar returns the list
         for path in ['/api/catalog', '/api/catalog/']:
             r = client.get(path)
@@ -385,7 +385,7 @@ class TestFrontendBackendContracts:
         configure(db_path)
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         r = client.get('/api/health/summary')
         if r.status_code == 200:
             data = r.json()
@@ -406,7 +406,7 @@ class TestFrontendBackendContracts:
         configure(db_path)
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         r = client.get('/api/platform/status')
         assert r.status_code == 200
         data = r.json()
@@ -579,7 +579,7 @@ class TestWorkflowStateMachines:
                                puid=1000, pgid=1000, timezone='UTC')
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         r = client.post('/api/platform/reset')
         assert r.status_code == 200
         r2 = client.get('/api/platform/status')
@@ -677,7 +677,7 @@ class TestErrorInjection:
         configure(db_path)
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         # These endpoints create tables lazily — must not 500
         r = client.get('/api/health/pending-fixes')
         assert r.status_code != 500, f"Pending fixes 500 on missing table: {r.text[:100]}"
@@ -885,7 +885,7 @@ class TestResponseSchema:
                           host_port=8989, web_port=8989)
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         r = client.get('/api/apps')
         if r.status_code == 200:
             data = r.json()
@@ -904,7 +904,7 @@ class TestResponseSchema:
         configure(db_path)
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         r = client.get('/api/infra/slots')
         assert r.status_code == 200
         data = r.json()
@@ -919,7 +919,7 @@ class TestResponseSchema:
         configure(db_path)
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         r = client.get('/api/settings/system')
         assert r.status_code == 200
         data = r.json()
@@ -1001,7 +1001,7 @@ class TestSecurityContracts:
         configure(db_path)
         from fastapi.testclient import TestClient
         from backend.api.main import app
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         # FastAPI routing won't match paths with / so use single-level traversal
         for bad_key in ['..etc', 'a; DROP TABLE apps', '<script>']:
             r = client.get(f'/api/apps/{bad_key}')
