@@ -416,7 +416,7 @@ class TestPlatformStateMachine:
         from fastapi.testclient import TestClient
         from backend.api.main import app
 
-        client = TestClient(app, raise_server_exceptions=False)
+        client = TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
         response = client.get("/api/health/summary")
         # Platform pending → no checks run → summary should be empty or indicate pending
         assert response.status_code in (200, 503)

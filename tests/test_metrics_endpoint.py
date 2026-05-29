@@ -33,7 +33,7 @@ def client():
         init_db(db)
         configure(db)
         from backend.api.main import app
-        yield TestClient(app)
+        yield TestClient(app, base_url="http://localhost")
         configure(None)
 
 

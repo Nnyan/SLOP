@@ -58,7 +58,7 @@ def client(db_path: Path):
     # Patch config.db_path so lifespan uses the test DB
     with patch.object(type(cm.config), "db_path", property(lambda self: db_path)):
         sm.configure(db_path)
-        with TestClient(app) as c:
+        with TestClient(app, base_url="http://localhost") as c:
             yield c
 
 

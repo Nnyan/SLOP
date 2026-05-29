@@ -162,7 +162,7 @@ def test_integrity_endpoint_shape(test_db):
 
     with patch.object(type(cm.config), "db_path", property(lambda self: test_db)):
         sm.configure(test_db)
-        with TestClient(app) as client:
+        with TestClient(app, base_url="http://localhost") as client:
             # No record yet — must return unknown with all fields present
             resp = client.get("/api/v1/health/integrity")
             assert resp.status_code == 200
