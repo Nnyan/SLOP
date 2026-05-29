@@ -295,41 +295,53 @@ parent agent's working directory. This is the desired behavior for SLOP
 Robot mode — wave work always lands in the SLOP repo — but worth knowing if
 ever sandbox-testing from outside SLOP.
 
-### Verified zero-prompt configuration (2026-05-28; partial verification)
+### Verified zero-prompt configuration (2026-05-28; two batteries)
 
 `.claude/settings.local.json` with `defaultMode: "bypassPermissions"` + the
 77-rule deny list produces ZERO permission/safety prompts in a **fresh
-session** for the following operation set, validated against the 20-test
-battery:
+session**. Verified empirically against 30 tests across two batteries:
 
-- Bash with brace expansion, heredocs, command substitution `$(...)`,
-  cd-prefix git, pipes, glob, symlinks
+**Battery 1** (20 tests, 2026-05-28 daytime):
+- Bash with brace expansion, heredocs (quoted `<<'EOF'`), command
+  substitution `$(...)`, cd-prefix git, pipes, glob, symlinks
 - Read tool including sensitive paths (`/etc/passwd`)
 - Edit tool on existing files
 - Agent tool with and without worktree isolation
 - WebFetch on allowed domains
+- Deny-list enforcement (sudo, rm-rf-root rejected as designed)
 
-**NOT covered by the original 20-test battery** (discovered later when an
-older `acceptEdits`-mode session leaked prompts on these):
+**Battery 2** (10 tests, 2026-05-29 early morning) — added after older
+`acceptEdits`-mode sessions leaked prompts on patterns missed by Battery 1:
+- Nested `for`-loop with `$var` interpolation in body
+- Multi-line `if/then/else`
+- Variable interpolation in conditional body (`$PID` in `[ ... ]`)
+- Cross-boundary `mv` (`/tmp/x` → outside test root)
+- Subshells `(...)` and brace groups `{...;}`
+- Process substitution `<(cmd)`
+- Background command `cmd &; wait`
+- Heredoc with UNQUOTED EOF (variable interpolation enabled, `<<EOF`)
+- 4-stage pipe with redirection (`find | sort | head | tee`)
+- Glob in destructive context (`find ... -name 'X*' -delete`)
 
-- Complex shell scripts with nested `for`/`while`/`if` control flow → fires
-  the **"shell syntax that cannot be statically analyzed"** safety check
-- Variable interpolation in patterns the analyzer can't pre-resolve
-  (`$pid` inside a loop body, `${var}` in test conditions) → fires the
-  **"simple_expansion"** safety check
-- `mv` of a directory tree across the `.claude/` boundary (no allow pattern
-  matches the specific path combination) → fires a standard permission prompt
-
-These additional categories ARE silenced by `bypassPermissions` mode in a
-fresh session — Round 2's orchestrator handled all of them silently. They
-fire only when a session is running under `acceptEdits` (the older default)
+**Result: 30/30 silent in fresh sessions under bypassPermissions.** The two
+categories that leaked in older sessions (`simple_expansion` and "shell
+syntax that cannot be statically analyzed") are silenced too — they fire
+only when a session is running under `acceptEdits` (the older default)
 because `defaultMode` does not live-reload mid-session.
 
-**How to extend the test battery for future verification:** add tests for
-nested-loop scripts, parameterized variable interpolation, and cross-boundary
-file moves. The battery should grow each Robot run as new categories are
-encountered. Goal: a test that, if it ever prompts, fails CI for the next
-Robot iteration.
+**Practical doctrine:** for autonomous Robot runs, always launch a FRESH
+session in a directory whose `.claude/settings.local.json` (or
+`.claude/settings.json` for shared) has `defaultMode: "bypassPermissions"`.
+Mid-session mode switches do not work. The "command-style discipline"
+section in AUTONOMOUS-DEFAULTS.md remains useful as defense-in-depth for
+contexts running under the older `acceptEdits` mode, but is not required
+for fresh `bypassPermissions` sessions.
+
+**How to extend the test battery for future Robot iterations:** when any
+future run hits an unexpected prompt, add a test for that exact pattern to
+the permanent battery (planned in S-56 Stream D as `.claude/robot-test-battery/`).
+The battery should grow over time; once permanent, ideal end state is a CI
+check that flags any pattern that newly triggers a prompt.
 
 ## Morning review workflow
 
