@@ -146,6 +146,9 @@ days. → enforced by `check_backlog_stale` (warn-only TIER_1 in ms-enforce, S-6
     observations/                   # adjacent-but-out-of-scope findings
       S-46-1.md
       ...
+    preflight/                      # complexity-gated pre-flight reports (E, S-73)
+      S-73-WAVE-AUTHORING-RIGOR.md  # DISPATCH-OK / BLOCKED verdict + per-check results
+      ...
     log/                            # optional free-form per-wave log
       S-46-coordinator.log
       ...
@@ -389,12 +392,21 @@ git worktree remove .claude/worktrees/merge-S-NN
    _not-mechanically-enforced (self-referential; no audit artifact produced)_
 3. Read the wave file end-to-end — confirm streams, models, deliverables.
    _not-mechanically-enforced (pre-run intent; auditable only via presence of status file)_
-4. **Pre-flight fact-check:** spot-check the wave file's factual claims
-   against the actual repo. At minimum: every named file path exists with the
-   content the wave claims; every named inbound-reference count is current.
-   This catches wave-design errors before they propagate (S-47 lesson: the
-   wave had docker-compose labels inverted).
-   _not-mechanically-enforced (judgment step; outcome visible in decision files)_
+4. **Pre-flight fact-check (complexity-gated):** compute the wave's tier via
+   `python3 tools/wave_complexity.py <wave-file>` (final stdout line is the
+   bare tier: `Low`, `Medium`, or `High`).  Run the matching rigor level as
+   defined in "### Complexity-gated pre-flight" under "## Wave file conventions":
+   - **Low** → run `tools/validate-wave-file.py <wave-file>`.
+   - **Medium** → Low + one fact-check subagent on the wave's factual claims.
+   - **High** → Medium + processor-contract-pinned check + cross-wave
+     disjointness + edited-wave consistency.
+   **BLOCK dispatch if any check returns FALSE.**  Warnings do not block.
+   Write the verdict to `.claude/run/preflight/<wave-name>.md` (DISPATCH-OK or
+   BLOCKED, with per-claim detail).  The pre-flight harness
+   (`tools/preflight_wave.py`, Stream E, S-73) automates this for
+   batch-8+; for S-73 itself the High-tier rigor is run manually (the
+   tooling is what this wave builds).
+   _enforced at startup by pre-flight harness (Stream E, S-73); outcome visible in `.claude/run/preflight/`_
 5. Create `.claude/run/status/<wave>.md` with start-time. **Use a Bash heredoc,
    not the Write tool, for any new file** (see "File creation pattern" below).
    → enforced by `check_status_file_freshness` (warn-only TIER_1 in ms-enforce, S-69-E)
@@ -688,6 +700,119 @@ Two operating patterns; pick whichever fits the moment:
 
   **Never** hand-edit `.claude/settings.local.json` to lift a deny — always use
   a sanctioned tool so the lift-restore discipline and audit trail are enforced.
+
+### Per-stream Model column (S-73)
+_not-mechanically-enforced (wave-file content; the `Model` cell is parsed by `tools/wave_complexity.py` and reviewed by the coordinator at wave-design time)_
+
+A wave's **Parallelization** stream table carries an optional per-stream `Model`
+column that lets an author assign a model to each stream independently of the
+per-wave `**Models:**` default line. This makes model choice an explicit,
+reviewable property of each stream rather than a single batch-wide default.
+
+**Column format (the contract `tools/wave_complexity.py` parses verbatim):**
+
+- The Parallelization stream table gains a `Model` column **immediately after the
+  `Stream` column**. The header cell text is exactly `Model`.
+- A `Model` cell value is one of:
+  - `**opus**`, `**sonnet**`, or `**haiku**` (bold, lowercase) — an explicit
+    per-stream override; OR
+  - a blank cell, or `_(blank → <model>)_` (e.g. `_(blank → sonnet)_`) — meaning
+    "inherit the wave's `**Models:**` default line". A blank/inherit cell NEVER
+    replaces the default; it defers to it.
+- The scorer treats a cell containing the case-insensitive token `opus` as an
+  Opus stream (its "any Opus stream" complexity signal). Blank/inherit cells
+  inherit the default-line model and are not counted as explicit Opus streams.
+- Every wave that carries per-stream overrides MUST include a **"Per-stream Model
+  justification"** block immediately after the table — one line per overridden
+  stream, naming the rubric criterion that earns the override.
+
+Existing wave files with no `Model` column are valid and unchanged: the absence
+of the column is equivalent to every stream inheriting the `**Models:**` default
+(grandfathered).
+
+Example:
+
+```markdown
+**Models (per-wave default):** coordinator = **opus**, subagents = **sonnet**.
+
+| Stream | Model | Order | Subagent type | Scope |
+|---|---|---|---|---|
+| A — contract design | **opus** | parallel | `general-purpose` in worktree | ... |
+| B — bounded impl | _(blank → sonnet)_ | parallel | `general-purpose` in worktree | ... |
+| C — find/replace | **haiku** | parallel | `general-purpose` in worktree | ... |
+
+**Per-stream Model justification (one line each):**
+- **A = opus** — cross-stream contract design; a plausible-but-wrong contract
+  passes review yet mis-guides every consumer. (Rubric: cross-stream contract design.)
+- **C = haiku** — mechanical find/replace; the coordinator (opus) reviews the
+  merge, so any miss is catchable. (Rubric: mechanical / boilerplate.)
+```
+
+**The rubric — pick a stream's model by its dominant cognitive demand:**
+
+- **Opus** = irreducible judgment: ambiguous root-cause, cross-stream contract
+  design, load-bearing refactor, security-sensitive work, or any case where a
+  plausible-but-wrong solution passes the tests.
+- **Sonnet** = bounded implementation to a clear spec. **This is the default** —
+  most streams are Sonnet.
+- **Haiku** = mechanical / zero-judgment work: applying a fixed classification,
+  find/replace, rename, or boilerplate assembly.
+
+**Guardrail:** the coordinator is already Opus and reviews every merge, so a
+stream earns Opus only if **it** makes calls the coordinator cannot catch after
+the fact. When in doubt, default to Sonnet. Every Opus or Haiku override carries
+a one-line justification in the "Per-stream Model justification" block naming the
+rubric criterion it satisfies.
+
+### Complexity-gated pre-flight
+_added S-73-C; enforced at orchestrator startup step 4 (see "Orchestrator startup sequence")_
+
+The pre-flight rigor the orchestrator applies at startup scales with the wave's
+complexity tier, computed mechanically by `tools/wave_complexity.py` (Stream B,
+S-73).  Three tiers, three rigor levels:
+
+- **Low** = `tools/validate-wave-file.py` only.
+  The cheap mechanical gate: every named claimed-existing path must exist on
+  disk; every exact inbound-reference count must match `grep -r`.  Exits 0 on
+  pass, 1 on failure.  A failure BLOCKS dispatch.
+
+- **Medium** = Low + one fact-check subagent.
+  After the mechanical gate passes, dispatch a single `general-purpose` subagent
+  to fact-check the wave's factual prose claims (e.g. "file X does Y", "count N
+  references").  Any claim the subagent proves **FALSE** BLOCKS dispatch.  Claims
+  it cannot verify (missing context, approximate language) are WARN-only and do
+  NOT block.
+
+- **High** = Medium + processor-contract-pinned check + cross-wave disjointness
+  + edited-wave consistency.
+  After the Medium checks pass:
+  1. **Processor-contract-pinned check:** every symbol declared as PINNED in the
+     wave's "Deliverables" section must appear verbatim in at least one stream's
+     Deliverables block.  A PINNED symbol absent from ALL streams' Deliverables
+     BLOCKS dispatch.
+  2. **Cross-wave disjointness:** for each file the wave modifies or creates,
+     confirm no other in-flight wave (a `wave/*` branch present in the local
+     repo) claims the same file.  An overlap BLOCKS dispatch (requires explicit
+     coordination note in the wave's "Cross-wave dependencies" section to clear).
+  3. **Edited-wave consistency:** if the wave edits an existing file (vs. creating
+     a new one), re-read the live file and confirm its current content is
+     consistent with the wave's description of what it claims to modify.  A
+     factual mismatch (e.g. wave says "step 4 says X" but step 4 says Y) BLOCKS
+     dispatch.
+
+**Result artifact:** all pre-flight runs write
+`.claude/run/preflight/<wave-name>.md` listing each check, its PASS/FALSE/WARN
+verdict, and an overall `DISPATCH-OK` or `BLOCKED` verdict.  Stream E
+(`tools/preflight_wave.py`) is the implementation; it consumes B's
+`score_wave()` and the tier strings `"Low"` / `"Medium"` / `"High"`.
+
+**Conservative by design:** mirrors `tools/validate-wave-file.py`'s philosophy —
+BLOCK only on clearly FALSE claims.  Missing-but-to-be-created paths, approximate
+claims, and stylistic issues are WARN-only and never block dispatch.
+
+### Canonical wave template
+
+New waves start from `.claude/waves/_TEMPLATE.md`.
 
 ## How Robot mode improves over time
 
