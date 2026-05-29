@@ -362,6 +362,28 @@ section in AUTONOMOUS-DEFAULTS.md remains useful as defense-in-depth for
 contexts running under the older `acceptEdits` mode, but is not required
 for fresh `bypassPermissions` sessions.
 
+**Known caveats — categories that LEAK under acceptEdits but Battery 2
+confirmed silenced under fresh bypassPermissions** (empirically observed
+in long-running sessions stuck on the older mode):
+
+- Writes to `.claude/waves/` and `.claude/run/` trigger the "sensitive file"
+  prompt. The `.claude/` protected-path exemption list is narrow: only
+  `.claude/commands`, `.claude/agents`, `.claude/skills`, `.claude/worktrees`
+  are exempted. Other `.claude/` subpaths fire the safety check. Workaround:
+  use Bash heredoc redirect (`cat > file <<EOF`) instead of the Write tool —
+  but even Bash writes to these paths can prompt under acceptEdits.
+- `find -delete`: Claude Code's static analyzer refuses to associate
+  destructive `find -delete` with a generic `Bash(find *)` allow. Message:
+  "cannot be auto-allowed by a Bash(find:*) prefix rule". Under
+  bypassPermissions this is silenced like other safety checks; under
+  acceptEdits a more specific allow entry (`Bash(find * -delete)`) is
+  needed.
+- Process substitution `<(cmd)`: fires the syntax-analyzer category in
+  acceptEdits. Use intermediate files instead.
+
+These are documented for completeness; they do NOT invalidate the
+"fresh bypassPermissions = zero prompts" guarantee from doctrine v4.
+
 **How to extend the test battery for future Robot iterations:** when any
 future run hits an unexpected prompt, add a test for that exact pattern to
 the permanent battery at [`.claude/robot-test-battery/`](.claude/robot-test-battery/).
