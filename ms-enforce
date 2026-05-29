@@ -1414,6 +1414,24 @@ def check_memory_staleness() -> tuple[bool, str]:
     script = REPO / "tools" / "audit_memory_staleness.py"
     if not script.exists():
         return True, "audit_memory_staleness.py not present (skip)"
+def check_merge_worktree_pattern() -> tuple[bool, str]:
+    """Tier 1 (S-69-G): merge-worktree pattern — warn-only.
+
+    Shells out to tools/audit_merge_worktree_pattern.py to verify that wave-branch
+    merge operations (recorded in .claude/run-archive/) were performed in dedicated
+    .claude/worktrees/merge-* worktrees with detached HEAD, not in the shared main
+    working tree.
+
+    Introduced after the batch-5 retro documented two cross-session HEAD collisions
+    caused by the orchestrator and operator sharing the same working tree HEAD during
+    merge operations.
+
+    Always returns True (warn-only). Emits WARNING when archived run artifacts show
+    merges performed without dedicated-worktree evidence.
+    """
+    script = REPO / "tools" / "audit_merge_worktree_pattern.py"
+    if not script.exists():
+        return True, "audit_merge_worktree_pattern.py not present (skip)"
 
     venv_py = REPO / ".venv" / "bin" / "python3"
     py = str(venv_py) if venv_py.exists() else "python3"
@@ -1471,6 +1489,30 @@ def check_memory_staleness() -> tuple[bool, str]:
     if len(warning_lines) > 5:
         detail += f"\n    ... and {len(warning_lines) - 5} more"
     return True, f"WARNING — {detail}"  # always True — warn-only
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=60)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    violations   = [ln for ln in warning_lines if "[violation]" in ln]
+    low_conf     = [ln for ln in warning_lines if "[low-confidence]" in ln]
+
+    if not warning_lines:
+        return True, "merge-worktree pattern: all examined run artifacts compliant (or no archive)"
+
+    parts: list[str] = []
+    if violations:
+        parts.append(f"WARNING — {len(violations)} violation(s) (merge in shared worktree):")
+        parts.extend(f"  {ln[:120]}" for ln in violations[:3])
+        if len(violations) > 3:
+            parts.append(f"  ... and {len(violations) - 3} more")
+    if low_conf:
+        parts.append(
+            f"WARNING — {len(low_conf)} low-confidence item(s) "
+            "(pre-pattern historical runs expected; see tool docstring):"
+        )
+        parts.extend(f"  {ln[:120]}" for ln in low_conf[:3])
+        if len(low_conf) > 3:
+            parts.append(f"  ... and {len(low_conf) - 3} more")
+
+    return True, "\n".join(parts)  # always True — warn-only
 
 
 # ── Runner ────────────────────────────────────────────────────────────────
@@ -1531,6 +1573,8 @@ TIER_1: list[tuple[str, object]] = [
     ("Status-file freshness — run update discipline (warn only)", check_status_file_freshness),
     # ── Memory staleness audit (S-69 Stream F) ────────────────────────────
     ("Memory staleness — dated entries >60d old (warn only)", check_memory_staleness),
+    # ── Merge-worktree pattern (S-69-G) ───────────────────────────────────
+    ("Merge-worktree pattern — dedicated worktrees for wave merges (warn only)", check_merge_worktree_pattern),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
