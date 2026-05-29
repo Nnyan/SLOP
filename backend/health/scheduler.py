@@ -217,6 +217,48 @@ def _maybe_start_source_scan() -> None:
         log.debug("Source scan check failed: %s", _e)
 
 
+def _maybe_auto_apply_safe_fixes() -> None:
+    """If agent_autofix_enabled, auto-apply eligible safe-tier pending fixes via
+    apply_safe_fix (which enforces backoff + post-fix verify). Off by default.
+    Never raises."""
+    try:
+        from backend.core.state import StateDB as _SDB
+        with _SDB() as _db:
+            _enabled_raw = _db.get_setting("agent_autofix_enabled")
+            _conf_raw = _db.get_setting("agent_autofix_min_confidence")
+        _enabled = str(_enabled_raw).lower() in ("1", "true", "yes") if _enabled_raw else False
+        if not _enabled:
+            return
+        _threshold = float(_conf_raw) if _conf_raw else 0.9
+    except Exception as _cfg_err:
+        log.debug("_maybe_auto_apply_safe_fixes: config read failed: %s", _cfg_err)
+        return
+
+    try:
+        from backend.agent.autofix import select_auto_applicable
+        from backend.agent.apply import apply_safe_fix
+        _rows = select_auto_applicable(min_confidence=_threshold)
+    except Exception as _sel_err:
+        log.debug("_maybe_auto_apply_safe_fixes: select failed: %s", _sel_err)
+        return
+
+    for _row in _rows:
+        try:
+            _result = apply_safe_fix(_row["id"], _row)
+            log.info(
+                "AUTO-applied fix_id=%s app_key=%s diagnosis_class=%s ok=%s: %s",
+                _row["id"], _row["app_key"],
+                _row["diagnosis_class"],
+                _result.get("ok"),
+                _result.get("message", ""),
+            )
+        except Exception as _apply_err:
+            log.warning(
+                "_maybe_auto_apply_safe_fixes: apply_safe_fix raised for fix_id=%s: %s",
+                _row["id"], _apply_err,
+            )
+
+
 async def _scheduler_loop() -> None:
     """Main scheduler loop. Runs until cancelled.
 
@@ -264,6 +306,7 @@ async def _scheduler_loop() -> None:
         _check_managed_services_health()
         _check_disk_space()
         _maybe_start_source_scan()
+        _maybe_auto_apply_safe_fixes()
 
         try:
             await asyncio.sleep(cfg["interval"])
