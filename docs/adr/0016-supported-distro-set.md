@@ -460,7 +460,7 @@ The trigger for considering a policy amendment is a real operational signal:
 - `docs/adr/0015-first-run-readiness-contract.md` — First-run readiness
   contract. ADR 0016's smoke-test scope (the five predicates) is invariant
   across the supported distros.
-- `docs/adr/0014-frontend-build-policy.md` — Frontend build policy (Proposed).
+- `docs/adr/0014-frontend-build-release-policy.md` — Frontend build policy (Proposed).
   ADR 0016 does not depend on ADR 0014's resolution; both can land
   independently.
 - `docs/cleanup/V5_INSTALLER_PLAN.md` — Direction Decision D4 superseded;

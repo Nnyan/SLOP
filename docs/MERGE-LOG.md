@@ -130,6 +130,6 @@ checks, unverified merges).
   - Full pytest re-run skipped (orchestrators already verified; operator chose to trust the audit trail rather than re-run a 2400-test suite)
 - **Notes:**
   - First entry under the new merge-log convention (created same day, 2026-05-29).
-  - Operator-manual method used because `tools/merge-wave-to-main.py` doesn't exist yet (S-59 Stream D scope, in-flight).
+  - Operator-manual method used because `tools/merge_wave_to_main.py` didn't exist yet at this batch (shipped in S-59 Stream D).
   - `--ff-only` failed on first attempt (main had the docs/MERGE-LOG.md commit ahead of the wave branches' base); switched all merges to `--no-ff`. Wave-branch merges proceeded clean — no conflicts, the orchestrators' "additive ms-enforce + disjoint files" claim held.
   - Stream C snapshot-regression lesson from S-58 will be captured for AUTONOMOUS-DEFAULTS doctrine update in the next commit (same batch).

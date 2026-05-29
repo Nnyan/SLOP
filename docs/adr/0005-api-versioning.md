@@ -101,7 +101,7 @@ The non-API surface (`/`, `/assets/...`, `/{full_path:path}` SPA fallback, `/api
 - 3.2.a/b: this ADR (2026-05-08).
 - 3.2.c: `_mount()` helper + dual-mount of every router in `backend/api/main.py`.
 - 3.2.d: deprecation-header middleware for unversioned `/api/<...>` requests.
-- 3.2.e: `frontend/src/apiClient.js` (centralized helper that prepends `/api/v1/`); existing raw `fetch('/api/...')` callers migrate incrementally.
+- 3.2.e: `frontend/src/api/client.ts` (centralized helper that prepends `/api/v1/`); existing raw `fetch('/api/...')` callers migrate incrementally.
 - 3.2.f: `tests/test_api_versioning.py` verifies parity + deprecation header.
 - 3.2.g: Core Rule 4.18.
 
