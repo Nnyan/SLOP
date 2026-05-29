@@ -12,6 +12,7 @@ under the `robot: lessons from <date> run` commit pattern.
 ---
 
 ## Category: documentation consolidation
+_not-mechanically-enforced (all entries in this category are judgment calls; no audit tool applicable)_
 
 ### Two docs with the same purpose, one substantive + one stub
 **Default:** Keep the substantive file at its current location. Replace the stub
@@ -38,6 +39,7 @@ access to (e.g., an external URL, a published release note).
 ---
 
 ## Category: dependency / lockfile
+_not-mechanically-enforced (all entries in this category require runtime judgment; no static audit tool applicable)_
 
 ### `uv lock` resolves a major version bump (e.g., pydantic 2.x → 3.x)
 **Default:** ABORT the lock update. Restore the previous `uv.lock`. Write a
@@ -66,6 +68,7 @@ documented in `installer/DEPENDENCIES.md`.
 ---
 
 ## Category: test failures
+_not-mechanically-enforced (runtime behavior; ms-enforce runs tests but does not audit decision files)_
 
 ### A test fails after a code change in scope
 **Default:** First, attempt to understand the failure (read the test, read what
@@ -93,6 +96,7 @@ a reason. Surface stale `[ ]` entries during the next batch-planning conversatio
 and assign a target. Pure `[ ]` is not an acceptable end state.
 **Escalate:** when an entry has bumped its date forward without progressing
 status, flag it as triage-failure rather than normal pending.
+→ enforced by `check_backlog_stale` (warn-only TIER_1 in ms-enforce, S-69-A)
 
 ### A test fails intermittently
 **Default:** Run it three times in isolation. If 3/3 pass, treat as flaky and
@@ -133,20 +137,47 @@ real checkout before merging the worktree's commit.
 and lines. Leave both stream branches intact. The wave's "streams touch disjoint
 files" claim has failed and needs human triage.
 **Escalate:** always — this is a wave-design failure to surface.
+_not-mechanically-enforced (conflict is detected by git at merge time; no separate audit tool)_
 
 ### Merge conflict between a wave branch and `main`
 **Default:** Should not happen in Robot mode (waves don't merge to main).
 If it does (e.g., a wave branch is rebased), abort and write a blocker.
+_not-mechanically-enforced (deny list prevents the direct path; sanctioned tool handles the exception)_
 
 ### A commit needs a co-author tag
 **Default:** Use `Co-Authored-By: Claude {model-name} <noreply@anthropic.com>`.
 Match the model that did the work (subagent's model, not the coordinator's).
+_not-mechanically-enforced (formatting convention; no post-hoc audit tool exists)_
 
 ### `git push` is attempted
 **Default:** Settings deny it. If a command somehow constructs a push,
 the deny list halts it; the stream should write a blocker citing the
 attempted push and what it was trying to accomplish.
 **Escalate:** always — pushing is never autonomous.
+_not-mechanically-enforced (deny-list enforcement in settings.local.json is the gate)_
+
+### Wave-branch merge operations use dedicated merge worktrees
+**Default:** All intra-wave merges (stream branch → wave branch) MUST happen in
+a dedicated `.claude/worktrees/merge-<wave>/` worktree with detached HEAD, never
+in the shared main working tree. See ROBOT.md § "Dedicated merge-worktree pattern"
+for the canonical procedure.
+**Escalate:** never — use the standard pattern. If you cannot create a new
+worktree (e.g., disk full), write a blocker rather than proceeding in the shared tree.
+→ enforced by `check_merge_worktree_pattern` (warn-only TIER_1 in ms-enforce, S-69-G)
+
+### Every merge to main gets a MERGE-LOG entry
+**Default:** When merging via `tools/merge_wave_to_main.py`, the tool auto-appends
+the audit entry. For manual flows (operator does `git checkout main` + merge),
+manually append to `docs/MERGE-LOG.md` before pushing.
+**Escalate:** never — this is a mechanical follow-through step, not a decision.
+→ enforced by `check_merge_log_completeness` (warn-only TIER_1 in ms-enforce, S-69-D)
+
+### Status file must be updated when streams complete
+**Default:** After each stream returns (merged/blocked/failed), the coordinator
+updates `.claude/run/status/<wave>.md` with the stream's outcome and timestamp.
+At wave completion the status is set to COMPLETE.
+**Escalate:** never — mechanical follow-through.
+→ enforced by `check_status_file_freshness` (warn-only TIER_1 in ms-enforce, S-69-E)
 
 ---
 
@@ -200,6 +231,7 @@ Bash `cat` does NOT satisfy the Read-tracking; only the Read tool does.
 ---
 
 ## Category: web / network
+_not-mechanically-enforced (runtime network behavior; no audit tool applicable)_
 
 ### WebFetch returns a 301/302 redirect to a different host
 **Default:** Re-fetch using the redirect URL the response provided. No
@@ -290,6 +322,7 @@ Resuming saved ~30 min of redundant agent work with no quality loss.
 ---
 
 ## Category: tool / settings / permission
+_not-mechanically-enforced (runtime permission behavior; queue-staleness covered by check_access_requests_stale)_
 
 ### A tool call would prompt for permission (not on allow list)
 **Default:** Append an entry to `docs/ACCESS-REQUESTS.md` under the `[allow]`
@@ -333,6 +366,7 @@ alternative exists, write a decision file naming the command + why it's needed.
 ## Category: orchestrator dispatch pattern
 
 ### How to structure a Robot batch of multiple waves
+_not-mechanically-enforced (prompt-generation behavior; enforced by convention and CLAUDE.md); orchestrator prompt CONTENT is checked by `check_orchestrator_prompt_format` (warn-only TIER_1, S-69-C)_
 **Default:** **ONE Opus orchestrator session handles ALL waves in the batch.**
 The orchestrator reads all wave files, dispatches all parallel streams in one
 big message (or as few messages as the sequential dependencies allow), and
@@ -361,6 +395,14 @@ local working-copy HEAD can be ahead/behind/diverged from origin (e.g. the
 operator-assist session pushes commits after the orchestrator spawns). The
 orchestrator self-corrected and rebased, but the error was avoidable — generate
 the base SHA from `git rev-parse origin/main` at prompt-writing time.
+→ enforced by `check_orchestrator_prompt_format` (warn-only TIER_1 in ms-enforce, S-69-C)
+
+### Subagent preamble inclusion in Agent dispatch
+**Default:** Every Agent tool dispatch MUST include the standard subagent preamble
+(venv-symlink + file-creation-heredoc + no-AskUserQuestion + no-push + no-checkout-main
+rules) as the first paragraph of the task prompt. See ROBOT.md § "Subagent preamble".
+**Escalate:** never — include verbatim.
+→ enforced by `check_wave_subagent_preamble` (warn-only TIER_1 in ms-enforce, S-69-B)
 
 ### A wave's verification step requires running another wave's verification first
 **Default:** Treat as cross-wave dependency. Don't try to chain inside the
@@ -370,6 +412,7 @@ verification post-merge in morning review.
 ---
 
 ## Category: agent / subagent coordination
+_not-mechanically-enforced (runtime coordination behavior; no audit tool applicable)_
 
 ### A subagent returns with status "failed" but no blocker file
 **Default:** Coordinator writes the blocker file on the subagent's behalf,
@@ -414,6 +457,7 @@ Deliverables section.
 ---
 
 ## Category: scope / discovery
+_not-mechanically-enforced (runtime judgment; no audit tool applicable)_
 
 ### Agent discovers an issue adjacent to the wave's scope
 **Default:** Write `.claude/run/observations/<wave>-<n>.md` with the finding.
@@ -432,6 +476,7 @@ output. Do not attempt to fix the verification target (that's morning review).
 ---
 
 ## Category: model / cost
+_not-mechanically-enforced (pre-decided in wave files; no runtime audit tool)_
 
 ### A subagent should be on a different model than the wave file says
 **Default:** Follow the wave file. Models are pre-decided.
@@ -439,6 +484,19 @@ output. Do not attempt to fix the verification target (that's morning review).
 
 ### Coordinator wants to spawn an unplanned helper agent
 **Default:** Don't, in Robot mode. Stick to the wave's planned streams.
+
+---
+
+## Category: project continuity / memory hygiene
+
+### Auto-memory entries contain dated language older than 60 days
+**Default:** Do not auto-delete or auto-edit memory entries. Surface the stale
+entries as a warning during morning review. The operator prunes or updates them
+in a focused commit. Memory entries that reference "today", "this session", or
+explicit dates older than 60 days are the target; conservative—only flag entries
+with parseable dates, never entries with vague recency language.
+**Escalate:** never — flag only, human prunes.
+→ enforced by `check_memory_staleness` (warn-only TIER_1 in ms-enforce, S-69-F)
 
 ---
 

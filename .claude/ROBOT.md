@@ -33,10 +33,9 @@ S-66 (post-S-58 unmask cleanup), S-67 (doc + tooling hygiene) are all instances 
 this pattern. Whenever BACKLOG accumulates ≥10 open items in a single category, draft
 a cleanup wave; don't let the category grow unbounded.
 
-**Mechanical enforcement:** `tools/audit_backlog_stale.py` (planned in S-67 alongside
-the orchestrator-dispatch gate) will flag entries that have been bare `[ ]` for >14
-days. Until that ships, the operator-assist session does this check by hand before
-each batch-planning conversation.
+**Mechanical enforcement:** `tools/audit_backlog_stale.py` (shipped in S-69 alongside
+the orchestrator-dispatch gate) flags entries that have been bare `[ ]` for >14
+days. → enforced by `check_backlog_stale` (warn-only TIER_1 in ms-enforce, S-69-A).
 
 ## When to use it
 
@@ -60,13 +59,16 @@ each batch-planning conversation.
      and citing the default. (Informational log, not a question.)
    - If NOT covered: write a full decision file with `question`, `best-guess`,
      `alternatives`, `applied`. Apply your best guess and continue.
+   _not-mechanically-enforced (harness-level block; no post-hoc audit tool exists for this)_
 
 2. **NEVER enter plan mode** (`ExitPlanMode`). The wave file is the plan.
+   _not-mechanically-enforced (harness mode is session-scoped; no artifact to audit)_
 
 3. **NEVER use interactive Bash.** No `sudo`, no `-i` flags (`rebase -i`,
    `add -i`, `commit -i`), no anything that waits on a TTY. The settings
    deny list backs this up; if you somehow construct a command that would
    prompt, settings will halt the call.
+   _not-mechanically-enforced (deny-list enforcement in settings.local.json is the gate)_
 
 3a. **NEVER use the Write tool to create a new file in Robot mode.** Use Bash
     heredocs instead (`cat > file <<'EOF' ... EOF`). The Write tool requires
@@ -74,6 +76,7 @@ each batch-planning conversation.
     exist yet; Bash `touch` does NOT satisfy this. See "File creation pattern"
     in "Launching a Robot run" below. For editing EXISTING files, the
     standard Read-then-Edit/Write pattern is fine.
+    _not-mechanically-enforced (harness-level; no post-hoc artifact to audit)_
 
 4. **On hard blocker** (genuinely cannot proceed — failed install, unrecoverable
    merge conflict, missing file you can't synthesize):
@@ -81,6 +84,7 @@ each batch-planning conversation.
      you tried, and what the morning user / Opus reviewer needs to decide.
    - **Halt ONLY that stream.** Other streams in the wave keep going.
    - The coordinator continues to merge whatever streams succeeded.
+   _not-mechanically-enforced (presence of blocker files signals compliance; completeness not auditable)_
 
 5. **Maintain status continuously.** Each coordinator writes
    `.claude/run/status/<wave>.md` and updates it:
@@ -88,13 +92,16 @@ each batch-planning conversation.
    - After each subagent dispatch (worktree path, stream name)
    - After each subagent return (status: merged / blocked / failed)
    - At wave completion (final branch name, what merged, what didn't)
+   → enforced by `check_status_file_freshness` (warn-only TIER_1 in ms-enforce, S-69-E)
 
 6. **Merge to a wave branch, NEVER to `main`.** Each wave creates and merges
    stream worktree branches into `wave/<S-NN>-<short-topic>`. The wave branch
    stays local. Morning review merges to `main` after verification.
+   _not-mechanically-enforced (deny rules in settings block raw main checkout; sanctioned tool enforces the path)_
 
 7. **NEVER `git push`.** Settings deny all push variants. If a command
    somehow constructs a push, it will be blocked.
+   _not-mechanically-enforced (deny-list enforcement in settings.local.json is the gate)_
 
 8. **NEVER modify `.claude/settings.local.json` or `~/.claude/**`** during a
    Robot run. Settings are immutable for the duration. If you think you need
@@ -104,14 +111,17 @@ each batch-planning conversation.
    actual settings change later. Do NOT write a decision file for this — the
    access-requests queue is the canonical path for needs you can't satisfy
    directly.
+   _not-mechanically-enforced (file-write deny in settings is the gate; queue staleness covered by check_access_requests_stale)_
 
 9. **One try on test failures.** Do not aggressively retry. If a stream's tests
    fail, write a blocker file with the failing output, halt the stream.
+   _not-mechanically-enforced (behavioral rule; no artifact trail to audit retry attempts)_
 
 10. **No scope creep.** Stick to the wave's deliverables. If you spot adjacent
     issues, write `.claude/run/observations/<wave>-<n>.md` for morning review.
     Do not fix them. The "fix all pre-existing failures" rule was tried and
     walked back; respect that boundary.
+    _not-mechanically-enforced (scope is defined per wave; no cross-wave diff tool exists)_
 
 ## File and directory layout (per run)
 
@@ -280,10 +290,12 @@ ONE exception is the sanctioned tool described above.
    entry, exit non-zero. Never auto-resolve.
 5. Append audit entry to `docs/MERGE-LOG.md` (newest at top, method field =
    `tools/merge_wave_to_main.py`).
+   → completeness of MERGE-LOG entries enforced by `check_merge_log_completeness` (warn-only TIER_1, S-69-D)
 6. Restore denies unconditionally in `finally` block.
 7. Does NOT push. Does NOT delete merged branches.
 
 ### Architecture (revised 2026-05-29: ONE orchestrator per batch)
+_not-mechanically-enforced (prompt-generation behavior; no post-hoc audit of session count)_
 
 **Core rule:** **ONE orchestrator session handles ALL waves in a batch**, not
 one orchestrator per wave. The orchestrator session IS the coordinator. Instead
@@ -314,6 +326,7 @@ Invocation pattern (from the user, in the orchestrator session):
 ```
 in Robot mode: you are the orchestrator for the SLOP next batch — [N] independent waves to fire concurrently. main is at origin/main commit <SHA>. Waves to handle: .claude/waves/S-NN-A.md, .claude/waves/S-NN-B.md, ... [follow the standard orchestrator startup sequence below]
 ```
+→ prompt must include explicit `git rev-parse origin/main` base, per-stream models, and subagent preamble reference; enforced by `check_orchestrator_prompt_format` (warn-only TIER_1 in ms-enforce, S-69-C)
 
 For a single-wave batch, the same form works with one wave file listed.
 
@@ -323,32 +336,89 @@ and SHOULD NOT produce one-orchestrator-per-wave prompts unless the
 "multiple orchestrators warranted" exception applies. CLAUDE.md mirrors this
 rule at project level so it loads into every session by default.
 
+### Dedicated merge-worktree pattern (added 2026-05-29; batch-5 retro)
+
+Every wave-branch merge operation MUST happen in a **dedicated
+`.claude/worktrees/merge-<wave>/` worktree with a detached HEAD**, never in
+the shared main working tree. This is the canonical two-phase merge procedure:
+
+**Why dedicated merge worktrees:**
+Batch-5 (2026-05-29) produced two HEAD collisions where the orchestrator and a
+parallel stream shared the same working tree during the merge phase. The
+collisions required manual untangling and delayed morning review. Dedicated
+merge worktrees eliminate this class of issue entirely: each wave-branch merge
+is fully isolated; the shared tree never changes state during Robot runs; and
+the orchestrator can operate in its own named worktree while all streams operate
+in their own.
+
+**Canonical procedure for a single wave merge:**
+```bash
+# Create a named merge worktree for this wave
+git worktree add .claude/worktrees/merge-S-NN --detach origin/main
+
+# In that worktree: merge the stream branches
+cd .claude/worktrees/merge-S-NN
+git merge --no-ff wave/S-NN-stream-A -m "merge: stream A into wave/S-NN"
+git merge --no-ff wave/S-NN-stream-B -m "merge: stream B into wave/S-NN"
+# ... etc.
+
+# When complete, remove the worktree (do not leave stale merge worktrees)
+cd /home/stack/code/slop
+git worktree remove .claude/worktrees/merge-S-NN
+```
+
+**Rules:**
+1. Never run `git merge` in the shared main working tree during a Robot wave.
+2. The merge worktree MUST be named `merge-<wave-short-name>` (prefix `merge-`)
+   so it is distinguishable from stream worktrees (prefix `agent-`).
+3. The merge worktree uses detached HEAD (`--detach origin/main`), NOT a checked-
+   out branch. This prevents accidental commits to main from the merge context.
+4. Remove the merge worktree after the wave-branch merge is confirmed. Stale
+   `merge-*` worktrees are logged as warnings by `check_merge_worktree_pattern`.
+5. The post-wave merge-to-main still goes through `tools/merge_wave_to_main.py`
+   as documented in the "Two phases" section above — the dedicated-merge-worktree
+   pattern governs the intra-wave stream→wave-branch merge step only.
+
+→ enforced by `check_merge_worktree_pattern` (warn-only TIER_1 in ms-enforce, S-69-G)
+
 ### Orchestrator startup sequence
 
 1. Read ROBOT.md (this file) — confirm operating under the rules.
+   _not-mechanically-enforced (self-referential; no audit artifact produced)_
 2. Read `.claude/AUTONOMOUS-DEFAULTS.md` — load the decision register.
+   _not-mechanically-enforced (self-referential; no audit artifact produced)_
 3. Read the wave file end-to-end — confirm streams, models, deliverables.
+   _not-mechanically-enforced (pre-run intent; auditable only via presence of status file)_
 4. **Pre-flight fact-check:** spot-check the wave file's factual claims
    against the actual repo. At minimum: every named file path exists with the
    content the wave claims; every named inbound-reference count is current.
    This catches wave-design errors before they propagate (S-47 lesson: the
    wave had docker-compose labels inverted).
+   _not-mechanically-enforced (judgment step; outcome visible in decision files)_
 5. Create `.claude/run/status/<wave>.md` with start-time. **Use a Bash heredoc,
    not the Write tool, for any new file** (see "File creation pattern" below).
+   → enforced by `check_status_file_freshness` (warn-only TIER_1 in ms-enforce, S-69-E)
 6. Dispatch the streams concurrently as Agent subagent calls (single message,
    multiple Agent tool uses). Each subagent gets `model:` per the wave's
    Parallelization section, plus the **subagent preamble** (see below) injected
    at the top of the task prompt. The preamble carries the "in Robot mode"
    signal AND the venv-symlink + file-creation rules — subagents won't read
    ROBOT.md on their own.
+   → enforced by `check_wave_subagent_preamble` (warn-only TIER_1 in ms-enforce, S-69-B)
 7. Watch for blocker/decision file events as streams return.
+   _not-mechanically-enforced (coordinator behavior; no artifact audit path)_
 8. Merge streams to `wave/<S-NN>-<topic>` (NOT main). Use Bash heredocs for
    commit messages too (avoids any new-file prompts even though commits
    themselves don't create files).
+   → enforced by `check_merge_log_completeness` (warn-only TIER_1 in ms-enforce, S-69-D);
+   → merge operations in dedicated worktrees enforced by `check_merge_worktree_pattern` (warn-only TIER_1, S-69-G)
 9. Update status to COMPLETE.
+   → enforced by `check_status_file_freshness` (warn-only TIER_1 in ms-enforce, S-69-E)
 10. Exit.
+    _not-mechanically-enforced (session termination; not auditable post-hoc)_
 
 ### Subagent preamble (REQUIRED in every Agent dispatch)
+→ enforced by `check_wave_subagent_preamble` (warn-only TIER_1 in ms-enforce, S-69-B)
 
 The orchestrator includes this verbatim as the first paragraph of every
 subagent's task prompt:
@@ -481,22 +551,34 @@ The battery should grow over time; ideal end state is that no pattern
 verified in a fresh `bypassPermissions` session ever prompts silently.
 
 ## Morning review workflow
+_not-mechanically-enforced (manual review ritual; individual steps have targeted gates below)_
 
 When the user wakes up:
 
 1. `ls .claude/run/blockers/` — anything here needs immediate attention.
+   _not-mechanically-enforced (presence check; completeness not auditable)_
 2. `ls .claude/run/decisions/` — scan; most are informational, a few may need a call.
+   _not-mechanically-enforced (decision file audit; no completeness gate)_
 3. `cat .claude/run/status/*.md` — high-level "did each wave land?"
+   → enforced by `check_status_file_freshness` (warn-only TIER_1, S-69-E): stale status files surface here
 4. `git branch | grep ^wave/` — list of wave branches ready for review.
+   _not-mechanically-enforced (manual step)_
 5. For each wave branch: `git diff main..wave/S-NN-topic`, run the wave's
    verification section, decide merge / rollback / fix.
+   _not-mechanically-enforced (judgment step)_
 6. Once a wave is merged to main, archive its run files: `mv .claude/run
    .claude/run-archive/<date>` (or delete).
+   → MERGE-LOG completeness enforced by `check_merge_log_completeness` (warn-only TIER_1, S-69-D)
 7. Launch any Round-2 waves that were waiting on Round 1.
+   _not-mechanically-enforced (manual orchestration step)_
+8. Run `python3 ms-enforce` — check for stale memory entries or BACKLOG issues surfaced overnight.
+   → memory staleness enforced by `check_memory_staleness` (warn-only TIER_1, S-69-F)
+   → BACKLOG staleness enforced by `check_backlog_stale` (warn-only TIER_1, S-69-A)
 
 ## Wave file conventions
 
 ### "Authorized deletions" section
+_not-mechanically-enforced (wave-file content; checked by author + coordinator at wave-design time)_
 
 If a wave's deliverables include deleting any file, the wave file MUST include
 an **"Authorized deletions"** section listing each path with a one-line
@@ -522,6 +604,7 @@ and lets the agent proceed autonomously when the wave designer has
 deliberately authorized them.
 
 ### Post-wave operator handoff
+_not-mechanically-enforced (operator choice between handoff/lift patterns; no audit tool applicable)_
 
 The Robot deny list blocks `git checkout main`, `git switch main`, and `git push*`.
 This is intentional during a wave (prevents accidental main checkout / push by
