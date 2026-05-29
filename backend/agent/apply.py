@@ -19,7 +19,7 @@ SAFE_FIX_TYPES — the API layer returns 422 for those.
 
 DB mutations:
   pending_fixes: status='applied', resolved_at=unixepoch()
-  fix_history:   new row, outcome='success'
+  fix_history:   new row, outcome='success' or 'failed_verification'
 """
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ from typing import Any
 
 from backend.core.logging import get_logger
 from backend.core.state import StateDB
+from backend.agent.backoff import attempt_allowed, record_attempt
+from backend.agent.verify import verify_container_healthy
 
 log = get_logger(__name__)
 
@@ -88,6 +90,15 @@ def apply_safe_fix(fix_id: int, row: Any) -> ApplyResult:
 
     log.info("apply_safe_fix: fix_id=%s app_key=%s fix_type=%s", fix_id, app_key, fix_type)
 
+    # --- backoff gate: check before touching the container ---
+    allowed, reason = attempt_allowed(app_key, fix_type)
+    if not allowed:
+        log.info(
+            "apply_safe_fix: backoff denied fix_id=%s app_key=%s fix_type=%s: %s",
+            fix_id, app_key, fix_type, reason,
+        )
+        return {"ok": False, "message": reason, "fix_type": fix_type}
+
     if fix_type == "restart_container":
         result = _restart_container(app_key)
     elif fix_type == "repull_restart":
@@ -116,7 +127,22 @@ def apply_safe_fix(fix_id: int, row: Any) -> ApplyResult:
         return result
 
     if result["ok"]:
-        _mark_applied(fix_id, app_key, row, fix_type)
+        # --- verify health after a returncode-0 action ---
+        healthy, summary = verify_container_healthy(app_key)
+        if healthy:
+            _mark_applied(fix_id, app_key, row, fix_type)
+            record_attempt(app_key, fix_type, "success")
+            result["message"] = result["message"] + "; " + summary
+        else:
+            _mark_failed(fix_id, app_key, row, fix_type)
+            record_attempt(app_key, fix_type, "failed_verification")
+            result = {
+                "ok": False,
+                "message": summary,
+                "fix_type": fix_type,
+            }
+    else:
+        record_attempt(app_key, fix_type, result.get("outcome", "failed"))
 
     return result
 
@@ -203,3 +229,29 @@ def _mark_applied(fix_id: int, app_key: str, row: Any, fix_type: str) -> None:
             ),
         )
         log.info("_mark_applied: fix_id=%s marked applied; fix_history row inserted", fix_id)
+
+
+def _mark_failed(fix_id: int, app_key: str, row: Any, fix_type: str) -> None:
+    """Insert a fix_history record with outcome 'failed_verification'.
+
+    Does NOT update pending_fixes status — the fix is not considered applied
+    since the container did not become healthy after the action.
+    """
+    with StateDB() as db:
+        db.execute(
+            """
+            INSERT INTO fix_history
+                (app_key, error_type, context, suggested_fix, outcome, created_at)
+            VALUES (?, ?, ?, ?, 'failed_verification', unixepoch())
+            """,
+            (
+                app_key,
+                row["diagnosis_class"],
+                fix_type,
+                row["suggested_fix"],
+            ),
+        )
+        log.info(
+            "_mark_failed: fix_id=%s fix_history row inserted (failed_verification)",
+            fix_id,
+        )
