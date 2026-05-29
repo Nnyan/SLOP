@@ -1310,6 +1310,44 @@ def check_access_requests_stale() -> tuple[bool, str]:
     return True, f"{pending_count} pending entries, none older than {stale_threshold_days} days"
 
 
+def check_backlog_stale() -> tuple[bool, str]:
+    """Tier 1 (S-69-A): BACKLOG triage discipline — bare [ ] entries older than 14 days.
+
+    Shells out to tools/audit_backlog_stale.py which parses docs/BACKLOG.md and
+    warns on any entry whose status token is bare `[ ]` (not scheduled, parked,
+    done, or won't-fix) AND whose 'Date added: YYYY-MM-DD' provenance is older
+    than 14 days.
+
+    Mechanical backing for the BACKLOG-triage doctrine:
+      CLAUDE.md § "BACKLOG triage — no item stays bare [ ] open"
+      .claude/ROBOT.md § "BACKLOG triage discipline"
+      .claude/AUTONOMOUS-DEFAULTS.md § "BACKLOG entry sits bare [ ] for >14 days"
+
+    Always returns True (warning only, never blocking). Items >14 days bare [ ]
+    are triage failures; the gate surfaces them, humans act.
+    Graduates to TIER_2/fail only after explicit future escalation decision.
+    """
+    scanner = REPO / "tools" / "audit_backlog_stale.py"
+    if not scanner.exists():
+        return True, "tools/audit_backlog_stale.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(scanner), "--repo", str(REPO)], timeout=30)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING:")]
+    if warning_lines:
+        detail = f"WARNING — {len(warning_lines)} stale bare [ ] entry/entries in BACKLOG.md:\n"
+        detail += "\n".join(f"    {ln[:120]}" for ln in warning_lines[:5])
+        if len(warning_lines) > 5:
+            detail += f"\n    ... and {len(warning_lines) - 5} more"
+        return True, detail  # always True — warn-only
+    # No stale entries — summarise the OK message from scanner stderr.
+    ok_lines = [ln for ln in out.splitlines() if ln.startswith("OK")]
+    summary = ok_lines[0] if ok_lines else "no stale bare [ ] entries in BACKLOG.md"
+    return True, summary
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1356,6 +1394,8 @@ TIER_1: list[tuple[str, object]] = [
     ("LLM outbound scrub — cloud path through scrub() (ADR-0018)", check_llm_outbound_scrubbed),
     # ── Access-requests queue health (S-59-C) ─────────────────────────────
     ("Access-requests queue — stale entries (warn only)", check_access_requests_stale),
+    # ── BACKLOG stale triage discipline (S-69-A) ───────────────────────────
+    ("BACKLOG stale — bare [ ] entries >14 days (warn only)", check_backlog_stale),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
