@@ -172,6 +172,38 @@ a decision file and skip the fetch (or use a different source).
 
 ---
 
+
+### Intra-wave merge conflict in a file the wave assigns to multiple streams
+**Default:** If the conflict is purely ADDITIVE (both sides add disjoint blocks
+to a file the wave knowingly assigns to multiple streams — e.g., ms-enforce check
+registrations, package __init__.py docstrings, allowlist/denylist additions),
+resolve by KEEPING BOTH and log a decision file (`<wave>-MERGE-N.md`)
+documenting the resolution. Do not abort.
+**Escalate when:** the conflict involves semantic overlap, contradictory edits to
+the same lines, or risk of content loss — then apply the strict abort default
+above.
+**Lesson:** Round 2 (S-48 + S-49, 2026-05-28) produced 3 such conflicts (ms-enforce
+check_track_status + check_referenced_files; tools/ms_deps/__init__.py docstring x2).
+The strict abort default's "disjoint files" premise didn't apply because the wave
+explicitly assigned multiple streams to the same registration file. Aborting would
+have wasted the parallel work for no safety gain.
+
+### Prior orchestrator session interrupted mid-wave (locked worktrees, unmerged commits)
+**Default:** Inspect each locked worktree to verify the stream's work is intact
+(commit reachable, tests passing in worktree). If yes, RESUME from the merge
+step rather than re-dispatching — write a `ROUND-N-RESUME.md` decision file
+documenting which prior session's work is being adopted, with the worktree
+SHAs. Do not unlock the worktrees until after the merge step succeeds (the
+locks are stale but provide a safety boundary against accidental tampering).
+**Escalate when:** the prior session's commits don't pass their stream's
+verification, or the worktree state is ambiguous (uncommitted changes, dirty
+tree). Then re-dispatch fresh and log the discarded work in observations.
+**Lesson:** Round 2 (2026-05-28) — opus-4.8 orchestrator found five locked
+worktrees from a prior opus-4.7 session that had been interrupted before merge.
+Resuming saved ~30 min of redundant agent work with no quality loss.
+
+---
+
 ## Category: tool / settings / permission
 
 ### A tool call would prompt for permission (not on allow list)
