@@ -16,11 +16,16 @@ this map; fresh sessions do the drafting.
    every later wave is authored *with* it. Force-multiplier → goes first.
 2. **Batch-8 = Test-Data-Hygiene**, drafted using S-73's new template. High value,
    freshly motivated by batch-6's pollution class.
-3. **Later = Enforcement-Lifecycle (S-70+S-72)**, once the ~11 warn-only gates and
+3. **Batch-9 = DEPLOY-HARDENING (S-74)** — ADDED 2026-05-29 after the Rocinante
+   live-update surfaced real `ms-update`/`deploy.sh` bugs (silent failure, ownership
+   churn, `.env`-vs-systemd config, port-var mismatch). Near-term: a broken deploy
+   path is operationally higher-priority than the deferred enforcement work. Brief
+   in "Wave 4" below; status/lessons in `docs/BACKLOG.md` §"From Rocinante deploy session".
+4. **Later = Enforcement-Lifecycle (S-70+S-72)**, once the ~11 warn-only gates and
    the doctrine have *aged enough to have signal* (an aging policy needs history;
-   the S-69 gates just shipped). Plant-now-harvest-later.
-4. **Anytime = direct small-fix** the `scrub.py::is_external` egress-scrub leak
-   (below the ≥10-item cleanup-wave threshold; not waved).
+   the S-69 gates just shipped). Plant-now-harvest-later. (Bumped from batch-9 → batch-10
+   when DEPLOY-HARDENING took the near-term slot.)
+5. **Done = direct small-fix** the `scrub.py::is_external` egress-scrub leak (`cb58f70`).
 
 Velocity alternative: S-73 + Test-Data-Hygiene could co-batch in batch-7, but then
 Test-Data is authored before S-73 lands (no new template). Default is sequenced.
@@ -134,6 +139,66 @@ AUTONOMOUS-DEFAULTS — pin doctrine-doc ownership per stream (the S-59 A↔B le
 The adjacents are file-disjoint (a hooks/config file + a new `check_provenance`).
 **Timing:** fire after the warn-only gates have accumulated run history (signal).
 The adjacents have no timing dependency — they ride along whenever this fires.
+
+---
+
+## Wave 4 — DEPLOY-HARDENING (S-74; draft now, fire as batch-9)
+
+**Need:** the update path is genuinely broken. On 2026-05-29 a live update of the
+Rocinante test server (`/opt/mediastack`, service user `mediastack`, HTTPS git clone)
+required ~10 manual recovery steps because `sudo ms-update` silently did nothing and
+several assumptions were wrong. Full forensics in `docs/BACKLOG.md` §"From Rocinante
+deploy session" and memory `project-rocinante-deploy`. Each item below is a confirmed,
+reproduced bug — not speculation.
+
+**Deliverables (all confirmed on a real box):**
+- **`ms-update` runs git/pip/npm as the service user, not root.** Today it runs git as
+  root on a service-user-owned repo → "dubious ownership"; its unguarded
+  `git fetch ... 2>/dev/null` then dies under `set -euo pipefail` with stderr eaten →
+  silent no-op. Fix: detect the service user (from `stat -c %U` on the repo or the
+  systemd unit's `User=`) and run all file-touching git/pip/npm via `sudo -u <svcuser>`;
+  use root only for `systemctl`. STOP swallowing fetch errors (drop `2>/dev/null`, or
+  capture+surface). Ensure the existing `reset --hard origin/main` fallback is actually
+  reachable (it currently dies at the fetch before it).
+- **History-rewrite recovery.** Pre-2026-05-28 clones are diverged from `origin/main`
+  (filter-branch scrub) — `git pull` cannot fast-forward; only `fetch` + `reset --hard
+  origin/main` works. `ms-update` must detect divergence and reset cleanly (its
+  fallback already does this once reachable).
+- **Frontend build needs a writable HOME.** The service user has `HOME=/nonexistent`;
+  `npm ci`/`npm run build` fail (`EACCES mkdir '/nonexistent'`). `ms-update`/`deploy.sh`
+  must set `HOME` (e.g. `/tmp` or a dedicated cache dir) when building as the service
+  user. Note `backend/static/` is gitignored → a `reset --hard` deletes the old built
+  copy, so the build MUST run on every update (not skipped).
+- **Ownership model — single source of truth.** Document + enforce: `/opt/mediastack`
+  is owned by the service user; ALL file ops via `sudo -u <svcuser>`; root only for
+  systemctl. `deploy.sh` should `chown` to the service user (not the invoking login
+  user). Prevents the root-owned-`.git` / unreadable-`.env` churn seen this session.
+- **`MS_PORT` vs `MEDIASTACK_PORT` naming.** `deploy.sh` bakes the unit `--port` from
+  `MS_PORT` (default 8080); `ms-update` reads `MEDIASTACK_PORT`. A `.env` using the
+  wrong name silently falls back to 8080. Pick ONE canonical name across deploy.sh +
+  ms-update + docs.
+- **App config: `.env` vs systemd `Environment=`.** `os.environ`-read settings
+  (`MS_TRUSTED_HOSTS`, `DOMAIN`) are NOT populated from `.env` — the unit sets env via
+  inline `Environment=` lines; the app reads `.env` only via Starlette `Config`. So
+  editing `.env` for those vars silently does nothing. **Decide + implement ONE model:**
+  either (a) call `load_dotenv()` at startup so `.env` works as the docs imply, OR
+  (b) document that operator-facing env (trusted hosts, domain) lives in the systemd
+  unit and give `deploy.sh`/wizard a clean way to set it. Pin the choice.
+- **Docs.** Update install/update docs to the real model (CLAUDE.md already corrected
+  `90bf54f`). Add a "recover a stale/diverged clone" runbook.
+
+**Suggested streams (~3–4):** A=`ms-update` rewrite (run-as-service-user + guarded
+fetch + reachable reset + build-HOME); B=`deploy.sh` alignment (ownership chown +
+port-var canonicalization + build-HOME) ; C=config-mechanism decision (`load_dotenv`
+vs systemd-Environment, implement + the `MS_TRUSTED_HOSTS`/`DOMAIN` path); D=docs +
+recovery runbook.
+**Processor-contract pins:** A and B share the **service-user detection** helper and
+the **build-HOME convention** and the **canonical port-var name** — pin all three
+verbatim. C owns the env-mechanism decision; A/B consume it.
+**Verification caveat (pin in the wave):** these are shell/install scripts that can't
+run in CI against a real server. Verification = `shellcheck` clean + logic review +
+guarded dry-run (`--help`/no-op paths) + targeted unit tests where Python is involved.
+Note this limit explicitly (it's the same gap the parked "install.sh test wave" covers).
 
 ---
 
