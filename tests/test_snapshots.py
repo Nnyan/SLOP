@@ -48,7 +48,7 @@ def client():
     """
     from fastapi.testclient import TestClient
     from backend.api.main import app
-    return TestClient(app)
+    return TestClient(app, base_url="http://localhost")
 
 
 # ── Snapshot 1: /api/health/summary ────────────────────────────────
