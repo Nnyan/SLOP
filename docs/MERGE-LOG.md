@@ -6,16 +6,28 @@ merged, when, by whom (operator vs sanctioned tool), and the resulting state.
 **Why this log exists:** the `git checkout main` / `git switch main` deny rules
 in `.claude/settings.local.json` protect against runaway agents merging
 unverified work to main during a wave. But post-wave merges are legitimate.
-Today they happen via operator handoff; once S-59 Stream D ships, they happen
-via `tools/merge-wave-to-main.py` (a sanctioned audited channel). Either way,
-the merge is recorded here.
+They are recorded here regardless of whether they were done via operator
+handoff or the sanctioned tool.
+
+**Sanctioned merge tool** (shipped S-59 Stream D): `tools/merge_wave_to_main.py`
+(note: underscores in the filename). Invoke as:
+
+```
+python3 tools/merge_wave_to_main.py wave/S-NN-topic [wave/S-MM-topic ...]
+```
+
+The tool runs pre-flight checks, does internal lift-restore of the checkout-main
+deny rules (try/finally), merges `--no-ff`, aborts on any conflict, and appends
+an audit entry here automatically. The Method field will read
+`tools/merge_wave_to_main.py` for tool-driven merges vs `operator-manual` for
+manual merges.
 
 **Entry format:**
 
 ```markdown
 ## YYYY-MM-DD — <one-line summary>
 
-- **Method:** operator-manual | tools/merge-wave-to-main.py
+- **Method:** operator-manual | tools/merge_wave_to_main.py
 - **Operator/Caller:** <user name | agent session id>
 - **Pre-merge main HEAD:** <SHA>
 - **Branches merged (in order):**

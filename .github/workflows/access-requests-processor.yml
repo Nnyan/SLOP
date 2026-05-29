@@ -1,0 +1,84 @@
+# Access Requests Processor — dry-run CI (S-59-C)
+#
+# Triggers:
+#   - Weekly on Sundays at 07:00 UTC (offset from dep-refresh Monday 06:00)
+#   - Manual workflow_dispatch
+#
+# Behaviour:
+#   1. Runs tools/process_access_requests.py in --dry-run mode.
+#      Reports pending count + estimated actions for each category.
+#   2. Does NOT auto-apply any changes — operator review is required.
+#   3. Exits 0 always (dry-run output is informational, not a gate).
+
+name: Access Requests Processor (dry-run)
+
+on:
+  schedule:
+    - cron: "0 7 * * 0"   # Sundays 07:00 UTC
+  workflow_dispatch:
+
+env:
+  PYTHONPATH: .
+
+jobs:
+  dry-run-report:
+    name: Dry-run access-requests report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout main
+      # -----------------------------------------------------------------------
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # -----------------------------------------------------------------------
+      # 2. Set up Python 3.12
+      # -----------------------------------------------------------------------
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # -----------------------------------------------------------------------
+      # 3. Run processor in dry-run mode (all categories)
+      # -----------------------------------------------------------------------
+      - name: Dry-run — process all pending entries
+        id: dry-run
+        run: |
+          python3 tools/process_access_requests.py process --dry-run \
+            2>&1 | tee /tmp/dry_run_output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      # -----------------------------------------------------------------------
+      # 4. List pending entries (structured summary)
+      # -----------------------------------------------------------------------
+      - name: List pending entries
+        id: list-pending
+        run: |
+          python3 tools/process_access_requests.py list \
+            2>&1 | tee /tmp/list_output.txt || true
+
+      # -----------------------------------------------------------------------
+      # 5. Report summary to workflow log
+      # -----------------------------------------------------------------------
+      - name: Report summary
+        run: |
+          echo "## Access Requests Dry-run Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Pending entries" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/list_output.txt >> "$GITHUB_STEP_SUMMARY" || echo "(no output)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Estimated actions (dry-run)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/dry_run_output.txt >> "$GITHUB_STEP_SUMMARY" || echo "(no output)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**NOTE:** No changes were applied. Operator review required before running without --dry-run." >> "$GITHUB_STEP_SUMMARY"

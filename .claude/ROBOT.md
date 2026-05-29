@@ -230,7 +230,7 @@ timestamp: 2026-05-27T22:33:14Z
 
 ## Launching a Robot run
 
-### Two phases: wave execution vs post-wave merge (added 2026-05-29 post-batch-4)
+### Two phases: wave execution vs post-wave merge (added 2026-05-29 post-batch-4; tool shipped S-59-D)
 
 Robot mode has TWO operationally distinct phases that look similar but have
 opposite `main` access requirements:
@@ -241,27 +241,47 @@ or unverified merges to main are exactly what the deny rules
 (`Bash(git checkout main*)`, `Bash(git switch main*)`) protect against.
 
 **Phase 2 — Post-wave merge:** Waves are COMPLETE with verification recorded;
-their branches need to land on main. The deny rules from Phase 1 catch
-legitimate post-wave merges. Today this is bridged via operator-manual handoff
-(operator runs `git checkout main` + `git merge` in their own terminal).
-Once `tools/merge_wave_to_main.py` ships (S-59 Stream D), agents and
-assist-sessions invoke that sanctioned tool — it does internal lift-restore
-of the denies, runs pre-flight checks, and writes an audit-log entry to
-`docs/MERGE-LOG.md`. The raw deny rules stay in place; the tool is the only
-sanctioned exception.
+their branches need to land on main. The deny rules from Phase 1 would catch
+legitimate post-wave merges too. The sanctioned channel is
+`tools/merge_wave_to_main.py` (shipped in S-59 Stream D):
 
-**Operator handoff** (current state until S-59 Stream D lands): orchestrator
-finishes wave run → reports branches ready → operator runs the merges from
-their own terminal (Claude sessions can use `!` prefix). Operator updates
-`docs/MERGE-LOG.md` with the merge SHAs. Operator pushes to origin.
+```
+python3 tools/merge_wave_to_main.py wave/S-NN-topic [wave/S-MM-topic ...]
+```
 
-**Future sanctioned path:** any agent or session needing to merge to main
-invokes `tools/merge_wave_to_main.py <branch> [<branch>...]`. Refuses if
-pre-flight checks fail. Writes audit log. Restores denies on exit.
+The tool does internal lift-restore of the `Bash(git checkout main*)` and
+`Bash(git switch main*)` denies via a `try/finally` block — denies are always
+restored regardless of success or failure. It runs five pre-flight checks per
+branch (branch exists; status file COMPLETE; non-empty diff vs main; ms-enforce
+passes; working tree clean), merges with `--no-ff`, aborts cleanly on any
+conflict, and appends an audit entry to `docs/MERGE-LOG.md`. Raw deny rules
+stay in place permanently; the tool is the only sanctioned exception.
+
+**Pre-S-59 operator handoff** (historical; preserved for context): orchestrator
+finished wave run → reported branches ready → operator ran `git checkout main`
+from their own terminal. Updated `docs/MERGE-LOG.md` manually. That path is
+superseded by the tool but still works for operators who prefer a manual flow.
+
+**Sanctioned path (current):** any agent or session needing to merge to main
+invokes `python3 tools/merge_wave_to_main.py <branch> [<branch>...]`. Refuses
+if pre-flight checks fail. Writes audit log. Restores denies on exit via
+`try/finally`. Does NOT push (push stays operator-only).
 
 **Never:** raw `git checkout main` or `git switch main` from inside any agent
 session, even an operator-assist session — those denies are absolute. The
 ONE exception is the sanctioned tool described above.
+
+**Tool behavior summary** (`tools/merge_wave_to_main.py`):
+1. Pre-flight checks (branch exists; status COMPLETE if file present; non-empty
+   diff; ms-enforce TIER_1 passes; working tree clean).
+2. Lift `Bash(git checkout main*)` + `Bash(git switch main*)` from deny list.
+3. `git checkout main` + `git merge --no-ff <branch>`.
+4. On conflict: `git merge --abort`, restore denies, write "ABORTED" audit
+   entry, exit non-zero. Never auto-resolve.
+5. Append audit entry to `docs/MERGE-LOG.md` (newest at top, method field =
+   `tools/merge_wave_to_main.py`).
+6. Restore denies unconditionally in `finally` block.
+7. Does NOT push. Does NOT delete merged branches.
 
 ### Architecture (revised 2026-05-29: ONE orchestrator per batch)
 
