@@ -403,7 +403,7 @@ git worktree remove .claude/worktrees/merge-S-NN
    **BLOCK dispatch if any check returns FALSE.**  Warnings do not block.
    Write the verdict to `.claude/run/preflight/<wave-name>.md` (DISPATCH-OK or
    BLOCKED, with per-claim detail).  The pre-flight harness
-   (`tools/preflight_harness.py`, Stream E, S-73) automates this for
+   (`tools/preflight_wave.py`, Stream E, S-73) automates this for
    batch-8+; for S-73 itself the High-tier rigor is run manually (the
    tooling is what this wave builds).
    _enforced at startup by pre-flight harness (Stream E, S-73); outcome visible in `.claude/run/preflight/`_
@@ -803,7 +803,7 @@ S-73).  Three tiers, three rigor levels:
 **Result artifact:** all pre-flight runs write
 `.claude/run/preflight/<wave-name>.md` listing each check, its PASS/FALSE/WARN
 verdict, and an overall `DISPATCH-OK` or `BLOCKED` verdict.  Stream E
-(`tools/preflight_harness.py`) is the implementation; it consumes B's
+(`tools/preflight_wave.py`) is the implementation; it consumes B's
 `score_wave()` and the tier strings `"Low"` / `"Medium"` / `"High"`.
 
 **Conservative by design:** mirrors `tools/validate-wave-file.py`'s philosophy —
