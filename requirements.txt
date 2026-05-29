@@ -20,8 +20,10 @@ pyyaml>=6.0.2
 
 # Pydantic — cap at <3: v3 removes v1-compat shims used by manifest validators.
 pydantic>=2.10.4,<3
-# bcrypt — cap at <5: v5 API changes are unaudited; hold at v4.x until reviewed (S-46-A decision 2).
-bcrypt>=4.0.0,<5
+# bcrypt — floor only: v5 reviewed in S-55-A; hashpw+gensalt(rounds=10) API unchanged.
+# v5 change: passwords >72 bytes now raise ValueError (was silent truncation). Existing
+# exception handlers in wizard.py and api/platform.py cover this. No SLOP breakage.
+bcrypt>=4.0.0
 
 # Structured logging
 structlog>=24
