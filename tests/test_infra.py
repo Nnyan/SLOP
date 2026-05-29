@@ -44,7 +44,7 @@ def ready_db(db: Path):
 @pytest.fixture
 def api_client(ready_db: Path):
     from backend.api.main import app
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://localhost") as c:
         # Override the DB path AFTER lifespan runs (which sets config.db_path)
         state_mod.configure(ready_db)
         yield c

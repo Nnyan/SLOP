@@ -57,7 +57,7 @@ def wizard_input(tmp_path: Path) -> WizardInput:
 @pytest.fixture
 def api_client(db: Path):
     from backend.api.main import app
-    with TestClient(app, raise_server_exceptions=True) as c:
+    with TestClient(app, base_url="http://localhost", raise_server_exceptions=True) as c:
         state_mod.configure(db)
         yield c
 

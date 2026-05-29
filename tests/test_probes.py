@@ -34,7 +34,7 @@ def app_unconfigured():
     _state_mod._STARTUP_COMPLETE = False
     try:
         from backend.api.main import app
-        yield TestClient(app)
+        yield TestClient(app, base_url="http://localhost")
     finally:
         _state_mod._DB_PATH = saved_db_path
         _state_mod._STARTUP_COMPLETE = saved_complete
@@ -51,7 +51,7 @@ def app_configured():
         init_db(db)  # also calls mark_startup_complete()
         configure(db)
         from backend.api.main import app
-        yield TestClient(app)
+        yield TestClient(app, base_url="http://localhost")
         configure(None)
 
 

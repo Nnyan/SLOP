@@ -57,7 +57,7 @@ def ready_platform(db: Path):
 def api_client(ready_platform: Path):
     state_mod.configure(ready_platform)
     from backend.api.main import app
-    with TestClient(app, raise_server_exceptions=True) as c:
+    with TestClient(app, base_url="http://localhost", raise_server_exceptions=True) as c:
         yield c
 
 
