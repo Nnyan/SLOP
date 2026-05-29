@@ -148,7 +148,16 @@ Stable architectural truths. Moved here from HANDOFF.md on 2026-05-24 (S2a split
 
 **Vue view files — NO business logic.** See above. Rule-007 gates new files at 600 lines.
 
-**No git on target server** — deploy = scp + sudo cp + systemctl restart.
+**Deploy = git pull on the target, NOT scp.** The install dir (`/opt/mediastack`)
+is an HTTPS git clone of `Nnyan/SLOP`, updated via `ms-update` / `deploy.sh --update`
+(`git fetch` + pull/reset to `origin/main`) then `systemctl restart mediastack`. The
+tree is owned by the **service user `mediastack`** — run git/pip/npm as that user
+(`sudo -u mediastack ...`); use root only for `systemctl`. App env (e.g.
+`MS_TRUSTED_HOSTS`) comes from the systemd unit's inline `Environment=` lines, NOT
+from `.env` (which the app reads only via Starlette `Config`, never into `os.environ`).
+(Corrected 2026-05-29: the prior "no git on target server / scp + sudo cp" note
+described an older layout and was false — verified on the Rocinante test server. Known
+`ms-update`/ownership/port bugs tracked in `docs/BACKLOG.md` §"From Rocinante deploy session".)
 
 **Catalog has two `CatalogEntry` definitions** — `loader.py` dataclass AND `catalog.py` Pydantic
 response model. Field sync is enforced by tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync (S-55-B).
