@@ -49,6 +49,24 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-29 — docs/wave-draft-s73
+
+- **Method:** tools/merge_wave_to_main.py
+- **Operator/Caller:** stack
+- **Pre-merge main HEAD:** `cb58f70ccc073fe829dc28b3c9249aa3fe597803`
+- **Branches merged (in order):**
+  1. `docs/wave-draft-s73` → merge commit `86cd5a19ffc44087a13d3d3427364edff68efd51`
+- **Post-merge main HEAD:** `86cd5a19ffc44087a13d3d3427364edff68efd51`
+- **Pushed to origin:** no (push is operator-only)
+- **Pre-flight checks run:**
+  - working-tree: CLEAN
+  - branch-exists:docs/wave-draft-s73: OK
+  - status:docs/wave-draft-s73: no status file (skipped)
+  - diff:docs/wave-draft-s73: OK (2 diff-stat lines)
+  - ms-enforce:docs/wave-draft-s73: ────────────────────────────────────────────────────────────
+- **Notes:** S-73-WAVE-AUTHORING-RIGOR wave draft (per `docs/POST-BATCH6-WAVE-MAP.md` Wave 1; drafted by a fresh session, reviewed by Manager). **First merge on the FIXED tool** — this entry is auto-generated *and* correctly flush-left (dedent bug fixed `cea63cb`), and pre-flight [5/5] actually RAN ms-enforce branch-isolated on the draft branch instead of skipping (from-main bug fixed). (Minor cosmetic: the ms-enforce pre-flight summary captured a separator line as its first-line summary — harmless.) Branch deleted post-merge.
+
+
 ## 2026-05-29 — batch-6: S-66 + S-67 + S-68 + S-69 (via integration branch)
 
 - **Method:** tools/merge_wave_to_main.py (merged a pre-integrated `integration/batch6` branch — see merge strategy below)
