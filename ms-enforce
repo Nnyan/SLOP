@@ -1171,6 +1171,75 @@ def check_llm_outbound_scrubbed() -> tuple[bool, str]:
     return True, "_dispatch_llm_call routes cloud text through scrub() (ADR-0018 satisfied)"
 
 
+def check_walkback_log() -> tuple[bool, str]:
+    """Tier 1: WALK-BACK-LOG reference required on substantive doctrine removals.
+
+    Looks at HEAD: if it modifies .claude/ROBOT.md, .claude/AUTONOMOUS-DEFAULTS.md,
+    or CLAUDE.md AND removes >=3 lines from the file, the commit message must
+    reference docs/WALK-BACK-LOG.md (or the file `WALK-BACK-LOG` by substring).
+
+    Warn-only: returns (True, summary). Graduates to fail when the aging-policy
+    mechanism (planned S-70) ships and explicitly escalates this check.
+
+    Rationale: every doctrine rule encodes a NEED; removing the rule without
+    addressing the underlying need leaves the need orphaned. The walk-back log
+    captures the meta-thinking (what was the rule preventing; new mechanism;
+    failure mode). See docs/WALK-BACK-LOG.md.
+    """
+    doctrine_files = {
+        ".claude/ROBOT.md",
+        ".claude/AUTONOMOUS-DEFAULTS.md",
+        "CLAUDE.md",
+    }
+    # Get HEAD commit message + files-changed numstat in one git call.
+    rc, msg = _run(["git", "log", "-1", "--format=%B"], timeout=5)
+    if rc != 0:
+        return True, "git log unavailable (skip)"
+    commit_msg = msg
+
+    rc, numstat = _run(["git", "log", "-1", "--numstat", "--format="], timeout=5)
+    if rc != 0:
+        return True, "git numstat unavailable (skip)"
+
+    flagged: list[tuple[str, int]] = []
+    for line in numstat.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        added_s, deleted_s, path = parts
+        if path not in doctrine_files:
+            continue
+        try:
+            deleted = int(deleted_s)
+        except ValueError:
+            continue
+        if deleted >= 3:
+            flagged.append((path, deleted))
+
+    if not flagged:
+        return True, "no substantive doctrine removals on HEAD (no walk-back log reference required)"
+
+    msg_lower = commit_msg.lower()
+    if "walk-back-log" in msg_lower or "walk_back_log" in msg_lower or "walkback" in msg_lower:
+        return True, f"doctrine removals on HEAD reference walk-back log ({len(flagged)} file(s))"
+
+    summary = (
+        f"WARNING: HEAD removes >=3 lines from doctrine file(s) without referencing "
+        f"docs/WALK-BACK-LOG.md in commit message:\n"
+    )
+    for path, deleted in flagged:
+        summary += f"    {path}: -{deleted} lines\n"
+    summary += (
+        "    Add a WALK-BACK-LOG entry answering: what the rule was preventing, "
+        "why walked back, new mechanism for the underlying need, failure mode "
+        "of the new mechanism. See docs/WALK-BACK-LOG.md for format."
+    )
+    return True, summary  # warn-only: True means pass
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [

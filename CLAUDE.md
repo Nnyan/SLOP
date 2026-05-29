@@ -7,6 +7,24 @@ Backend: FastAPI + Python (`backend/`). Frontend: Vue 3 + TypeScript (`frontend/
 Catalog: YAML manifests for 56 installable apps (`catalog/apps/`).
 Backend tests run against a local venv; no external server required for unit tests.
 
+## Walking back a doctrine rule — record the orphaned need
+
+Every rule encodes a NEED. Walking back a rule without addressing the
+underlying need leaves it orphaned — and orphaned needs re-surface later
+as point-issues, hit one at a time.
+
+When proposing to remove or soften a rule in `.claude/ROBOT.md`,
+`.claude/AUTONOMOUS-DEFAULTS.md`, or this file, append an entry to
+`docs/WALK-BACK-LOG.md` answering four questions: what was the rule
+preventing, why walking back, what's the new mechanism for the underlying
+need, and what's the failure mode of the new mechanism. The entry is
+required before the walk-back commit lands.
+
+`ms-enforce check_walkback_log` (warn-only initially) flags doctrine-removing
+commits that don't reference a WALK-BACK-LOG entry.
+
+Reference: `docs/WALK-BACK-LOG.md` for format and current entries.
+
 ## BACKLOG triage — no item stays bare `[ ]` open
 
 `docs/BACKLOG.md` is not a forever-parking lot. Every entry must be in one of:
