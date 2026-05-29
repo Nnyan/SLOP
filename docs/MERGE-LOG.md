@@ -49,6 +49,25 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-29 — docs/wave-drafts-s68-s69-doctrine (FIRST sanctioned-tool merge)
+
+- **Method:** tools/merge_wave_to_main.py
+- **Operator/Caller:** stack (operator-assist / Manager session)
+- **Pre-merge main HEAD:** `37d96d4fe3fe2efc68ba51744c7a2237705772b9`
+- **Branches merged (in order):**
+  1. `docs/wave-drafts-s68-s69-doctrine` → merge commit `ab716cd79cdecb9bbea33641c64f81608b9b39b6`
+- **Post-merge main HEAD:** `ab716cd79cdecb9bbea33641c64f81608b9b39b6`
+- **Pushed to origin:** YES (push step follows this audit-log commit)
+- **Pre-flight checks run:**
+  - working-tree: CLEAN
+  - branch-exists: OK
+  - status: no status file (skipped — drafts branch, not a `wave/S-NN` branch)
+  - diff: OK (5 diff-stat lines)
+  - ms-enforce: skipped (tool was invoked from `main`, not the branch — see note)
+- **Contents merged:** S-68 + S-69 wave drafts, processor-pattern A↔B contract doctrine (AUTONOMOUS-DEFAULTS), batch-5 retro BACKLOG close-outs. Plus a redundant duplicate MANAGER-HANDOFF.md commit (`13cf95a`, byte-identical to main's `37d96d4` — merged cleanly, no conflict).
+- **Notes:** First real use of the sanctioned merge channel (shipped S-59 Stream D). Worked end-to-end: pre-flight → lift `checkout main`/`switch main` denies → `--no-ff` merge → restore denies (verified back in place) → audit entry. Two follow-ups logged to BACKLOG for the S-68 refactor: (1) `_append_audit_entry`'s `textwrap.dedent` mangles indentation when multi-line fields are interpolated (this entry was hand-corrected); (2) the from-`main` invocation path skips ms-enforce — the tool should run it branch-isolated (e.g. via a temp worktree) so the check isn't silently skipped.
+
+
 ## 2026-05-29 — batch-5: S-59 + S-63 + S-64 + doctrine recovery + adapter fix
 
 - **Method:** operator-manual via /tmp/batch5-recovery-and-merge.py + /tmp/batch5-continue.py (S-59 Stream D shipped `tools/merge_wave_to_main.py` THIS batch; will be the sanctioned channel for future batches)
