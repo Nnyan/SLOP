@@ -1,19 +1,26 @@
 # S-67-DOC-AND-TOOLING-HYGIENE — Doc cleanup + slipped S-56 tooling + validate-wave-file fix
 
+> **Batch-6 descope (2026-05-29):** Stream C (`tools/robot-settings.py` +
+> `.claude/settings-wave-mode-profile.json`) is **deferred to S-68**, which owns
+> the sanctioned-channel toolkit and creates exactly these artifacts under
+> `tools/sanctioned/`. Two waves in the same batch must not both create the same
+> files. S-67 keeps Streams A, B, D, E. See Stream C below and Cross-wave
+> dependencies.
+
 ## Goal
 Drain accumulated doc-hygiene debt (88 broken links, 3 phantom TODO refs in
 RELEASE_NOTES, 4 CHANGELOG v4.2.0 fix-later items) AND complete the tooling
-items that slipped from S-56 (the `robot-settings.py` permanent helper and
-the `audit_orchestrator_dispatch.py` mechanical gate that were proposed as
-S-56 additions but didn't land). Plus the `validate-wave-file.py` false-positive
-fix (the single residual S-58 failure).
+items that slipped from S-56 — the `audit_orchestrator_dispatch.py` mechanical
+gate (the `robot-settings.py` helper is now owned by S-68; see descope note above).
+Plus the `validate-wave-file.py` false-positive fix (the single residual S-58
+failure).
 
 ## Context
 - S-56 shipped on main but two BACKLOG-flagged additions slipped: the
-  `tools/robot-settings.py` promotion (was supposed to be a Stream B addition)
-  and the `audit_orchestrator_dispatch.py` gate (was a Stream E addition).
-  Tracked in BACKLOG with `[→ S-56-* candidate addition]` markers that
-  didn't resolve.
+  `tools/robot-settings.py` promotion and the `audit_orchestrator_dispatch.py`
+  gate. The `robot-settings.py` half is now owned by S-68 (see descope note at
+  top); this wave completes the `audit_orchestrator_dispatch.py` gate (Stream D).
+  Tracked in BACKLOG with `[→ S-67-D]` / `[→ S-68]` markers.
 - `tools/validate-wave-file.py` (S-55-C) has known false positives surfaced
   three times now (OPTIONAL-FILE-SIZE-REMEDIATION.md, S-46-PIN-RELAX.md,
   S-59-ACCESS-REQUESTS-PROCESSOR.md). Same root cause each time: heuristic
@@ -52,18 +59,19 @@ fix (the single residual S-58 failure).
 
 ## Parallelization
 
-**Models:** coordinator = **opus**, subagents = **sonnet**. Five parallel streams.
+**Models:** coordinator = **opus**, subagents = **sonnet**. Four active streams
+(A, B, D, E). Stream C is deferred to S-68 — do NOT dispatch it.
 
 | Stream | Subagent type | Scope |
 |---|---|---|
 | A — doc-ref triage | `general-purpose` in worktree | Investigate every broken-link warning + 3 RELEASE_NOTES TODO refs + 4 CHANGELOG TODOs; classify each (stale/recoverable-work/template); output `.claude/run/observations/S-67-A-triage.md` |
 | B — doc-ref fix | `general-purpose` in worktree (after A merges) | Apply Stream A's classifications: update refs to current canonical locations, delete stale refs, recover lost work to BACKLOG, mark template placeholders explicitly |
-| C — tools/robot-settings.py | `general-purpose` in worktree | New file: subcommands `lift push`, `lift checkout-main`, `lift filter-branch`, `restore`, `push-then-restore`; `.claude/settings-wave-mode-profile.json` canonical deny profile so `restore` is deterministic; tests + ROBOT.md update; allow entry added via access-requests queue |
+| ~~C — tools/robot-settings.py~~ | **DEFERRED to S-68** | Moved to S-68 (sanctioned-channel toolkit owns `tools/sanctioned/robot_settings.py` + `.claude/settings-wave-mode-profile.json`). Not dispatched by this wave. |
 | D — tools/audit_orchestrator_dispatch.py | `general-purpose` in worktree | New file: scan `.claude/run-archive/*/status/*.md` for multiple orchestrator status files within same hour referencing different waves (the one-orchestrator-per-batch anti-pattern); warn-only ms-enforce TIER_1 check; tests |
 | E — validate-wave-file.py fix | `general-purpose` in worktree | Heuristic improvements: skip path fragments without top-level dir prefix; treat "delete"/"Authorized deletions"/"example"/"illustrative" as classification markers; tests verifying the 3 previously-false-positive waves now pass |
 
 Stream B is sequential after Stream A delivers its triage classifications.
-Streams C, D, E are parallel from start (file-disjoint).
+Streams D, E are parallel from start (file-disjoint). Stream C is deferred (see above).
 
 ## Deliverables
 
@@ -84,22 +92,17 @@ For each of 88 broken-link warnings + 3 RELEASE_NOTES TODO refs + 4 CHANGELOG TO
   ``` `<TEMPLATE>` ``` or HTML comment) so audit tooling skips it.
 - Commit per category cluster with message `docs: <category> cleanup (S-67-B)`.
 
-### Stream C — `tools/robot-settings.py` permanent helper
-- Pure-Python stdlib. Subcommands:
-  - `lift push` / `lift checkout-main` / `lift filter-branch` — temporarily
-    remove specific denies + add the matching allows.
-  - `restore` — re-apply the canonical wave-mode deny profile (no flag-
-    chasing; the profile file is the source of truth).
-  - `push-then-restore` — convenience wrapper: lift push, `git push origin main`, restore.
-- `.claude/settings-wave-mode-profile.json` (tracked) — the canonical
-  wave-mode deny list. `restore` reads this; it's the source of truth.
-- Tests: lift/restore idempotency; multiple-lift accumulation; restore
-  recovers from arbitrary state.
-- ROBOT.md "Post-wave operator handoff" updated to point at this tool
-  (replaces the ad-hoc `python3 -c "import json..."` pattern that's been
-  used since 2026-05-28).
-- The tool needs `Edit/Write(.claude/settings.local.json)` permission —
-  add via the access-requests queue (entry referencing this stream).
+### Stream C — DEFERRED to S-68 (do not dispatch)
+The `tools/robot-settings.py` permanent helper and the canonical
+`.claude/settings-wave-mode-profile.json` deny profile are now owned by
+**S-68-SANCTIONED-CHANNEL-TOOLKIT** (Stream A creates the profile; Stream C
+ships `tools/sanctioned/robot_settings.py` with the `lift push` /
+`lift checkout-main` / `lift filter-branch` / `restore` / `push-then-restore`
+subcommands, built on the shared `_lift_restore` / `_audit` modules). Building
+the same artifacts in two waves of one batch would collide, so this stream is
+descoped here. The ROBOT.md "Post-wave operator handoff" update and the
+settings-write access-requests entry move to S-68 with it. No deliverable for
+this stream in S-67.
 
 ### Stream D — `tools/audit_orchestrator_dispatch.py` mechanical gate
 - Scan `.claude/run-archive/*/status/*.md` for the anti-pattern: multiple
@@ -119,12 +122,12 @@ For each of 88 broken-link warnings + 3 RELEASE_NOTES TODO refs + 4 CHANGELOG TO
   exit 0 (or warn-only without flagging the previously-false-positive paths).
 
 ## Verification
-1. `python3 -m pytest tests/test_robot_settings.py tests/test_audit_orchestrator_dispatch.py tests/test_validate_wave_file.py -v` — all pass.
+1. `python3 -m pytest tests/test_audit_orchestrator_dispatch.py tests/test_validate_wave_file.py -v` — all pass. (Stream C / `test_robot_settings.py` moved to S-68.)
 2. `python3 ms-enforce` exits 0 (warn-only checks may emit warnings; failures abort).
 3. `python3 tools/validate-wave-file.py .claude/waves/S-59-ACCESS-REQUESTS-PROCESSOR.md` exits 0.
-4. `python3 tools/robot-settings.py restore` is a no-op when settings already match the canonical profile.
-5. ROBOT.md references `tools/robot-settings.py` in the post-wave handoff section.
-6. BACKLOG entries from Stream A's `recoverable-work` classifications are present.
+4. BACKLOG entries from Stream A's `recoverable-work` classifications are present.
+   (The `robot-settings.py` restore-idempotency check and the ROBOT.md
+   post-wave-handoff reference are now verified by S-68.)
 
 ## Out of scope
 - The 12 unmasked + 30 A-bucket pre-existing test failures — owned by S-66.
@@ -133,14 +136,20 @@ For each of 88 broken-link warnings + 3 RELEASE_NOTES TODO refs + 4 CHANGELOG TO
 - Replacing `validate-wave-file.py` with a different framework — heuristic improvements only.
 
 ## Cross-wave dependencies (EXPLICIT)
-- Depends on batch-5 being fully merged to main first (S-59 Stream D may ship `tools/merge_wave_to_main.py` which informs how this wave's `robot-settings.py` integrates; if S-59 Stream D ships first, `robot-settings.py` becomes a subset of the merge tool's settings management; if not, robot-settings is the standalone tool).
+- Depends only on current main (batch-5 + the S-68/S-69 drafts are already merged).
+- **Stream C deferred to S-68** (sanctioned-channel toolkit). With C removed, this
+  wave is file-disjoint from S-68: S-67 touches `docs/**`, `tools/audit_orchestrator_dispatch.py`,
+  `tools/validate-wave-file.py`; S-68 owns `tools/sanctioned/**` + `robot_settings.py` +
+  the wave-mode profile. The only shared touch-point with S-68/S-69 is the
+  `ms-enforce` TIER_1 registration list (Stream D adds one line) — additive append,
+  resolve via the intra-wave additive-conflict default (keep-both).
 - File-disjoint and parallel-safe with S-66. May merge to main in any order with S-66.
-- Stream B sequential after Stream A inside this wave; everything else parallel.
+- Stream B sequential after Stream A inside this wave; D/E parallel.
 
 ## Robot mode (autonomous execution)
 Operate under `.claude/ROBOT.md` doctrine v4. Stream A sequential first; B
-after A; C/D/E parallel from start. Coordinator merges all to
-`wave/S-67-doc-and-tooling-hygiene`, never main. Post-wave merge through
-sanctioned operator channel.
+after A; D/E parallel from start (Stream C deferred to S-68 — not dispatched).
+Coordinator merges all to `wave/S-67-doc-and-tooling-hygiene`, never main.
+Post-wave merge through `python3 tools/merge_wave_to_main.py wave/S-67-doc-and-tooling-hygiene`.
 
 Invocation: `in Robot mode: execute the wave defined in .claude/waves/S-67-DOC-AND-TOOLING-HYGIENE.md as orchestrator.`

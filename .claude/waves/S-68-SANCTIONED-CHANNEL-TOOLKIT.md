@@ -24,8 +24,8 @@ says so and a gate enforces the dichotomy.
   rely on ad-hoc `python3 -c "import json..."` lift snippets or temp helpers:
   - merge-to-main (covered by `merge_wave_to_main.py`)
   - settings lift/restore for post-wave operator handoff (the `/tmp/lift-push-restore.py`
-    temp helper, slipped from S-56-B → tracked in BACKLOG `[→ S-67-C]` as
-    `tools/robot-settings.py`)
+    temp helper, slipped from S-56-B → S-67-C → retargeted to this wave as
+    `[→ S-68-C]` `tools/sanctioned/robot_settings.py`, batch-6 prep 2026-05-29)
   - force-push of a rewritten tag/ref after history scrub (Tailscale key-leak
     rewrite, 2026-05-28 — done by hand under a one-time lift)
   - `git filter-branch` secret-scrub (same incident)
@@ -97,8 +97,8 @@ Pure-stdlib module. **Public symbols (PINNED — C/D/E import exactly these):**
   `lift`/`restore` in `try/finally` (the preferred entry point for all callers).
 Plus:
 - Create `.claude/settings-wave-mode-profile.json` (tracked) capturing the current
-  canonical deny list as the restore source of truth. Coordinate with S-67-C if
-  that stream also creates this file (see Cross-wave dependencies — one creator).
+  canonical deny list as the restore source of truth. **S-68 is the sole creator
+  of this file** (S-67-C was descoped to S-68 for batch-6 — see Cross-wave dependencies).
 - Tests: lift/restore idempotency; multi-pattern lift; `lifted()` restores on
   exception; `restore()` recovers from arbitrary mangled state to match the profile.
 
@@ -128,11 +128,11 @@ Pure-stdlib module. **Public symbols (PINNED — C/D/E import exactly these):**
 - ROBOT.md "Post-wave operator handoff" updated to point at `robot_settings.py`
   (replaces the ad-hoc `python3 -c "import json..."` pattern).
 - Settings-write permission requested via the access-requests queue
-  (`docs/ACCESS-REQUESTS.md` `[allow]` entry referencing this stream).
-- **Coordinate with S-67-C:** if S-67-C's `tools/robot-settings.py` merges first,
-  this stream's tool becomes a thin re-export/alias under `tools/sanctioned/`
-  delegating to the shared modules; if this wave merges first, S-67-C folds into
-  it. State the resolution in a decision file at merge time.
+  (`docs/ACCESS-REQUESTS.md` `[allow]` entry referencing this stream). This is
+  the entry that was originally slated for S-67-C; it moves here with the stream.
+- **Sole owner of `robot_settings.py`:** S-67-C was descoped to S-68 for batch-6,
+  so this stream is the only place `robot_settings.py` is built — no merge-time
+  coordination with S-67 needed.
 
 ### Stream D — force-push + filter-branch sanctioned tools
 - `tools/sanctioned/force_push_tag.py` — sanctioned force-push of a single
@@ -182,17 +182,17 @@ Pure-stdlib module. **Public symbols (PINNED — C/D/E import exactly these):**
 - Generalizing the toolkit to non-deny operations.
 
 ## Cross-wave dependencies (EXPLICIT)
-- Depends ONLY on current main (`578c452`). Builds on `tools/merge_wave_to_main.py`
-  (already on main) as the prototype it refactors.
+- Depends ONLY on current main (`cdbf1dd` as of 2026-05-29; the orchestrator
+  re-confirms `git rev-parse origin/main` at startup). Builds on
+  `tools/merge_wave_to_main.py` (already on main) as the prototype it refactors.
 - File-disjoint with S-69 (this wave: `tools/sanctioned/**`, `merge_wave_to_main.py`
   refactor, `docs/SANCTIONED-OPS-LOG.md`, one new ms-enforce gate; S-69: `tools/audit_*.py`
   + doctrine cross-references). May merge to main in any order with S-69.
-- **Overlap risk with S-67-C** (`tools/robot-settings.py`) and S-67-A
-  (`.claude/settings-wave-mode-profile.json`): if S-67 has NOT merged when this wave
-  fires, this wave creates both. If S-67 merged first, Stream A consumes the existing
-  profile file (does not recreate it) and Stream C delegates to / aliases the existing
-  `robot-settings.py`. Coordinate scope at merge time; log the resolution in a
-  decision file. Both tools sharing the `tools/sanctioned/` modules is the target end state.
+- **S-67-C descoped into this wave (batch-6, 2026-05-29):** `robot_settings.py` +
+  `.claude/settings-wave-mode-profile.json` are owned exclusively by S-68. S-67 no
+  longer creates them, so there is NO overlap and NO merge-time coordination — S-68
+  is the single creator. (Earlier drafts hedged "if S-67 merges first"; that
+  conditional is void now that S-67-C is deferred.)
 - Both this wave's TIER_1 gate registration and any S-69 gate registration touch the
   `ms-enforce` TIER_1 list — additive append, keep-both per the intra-wave additive-conflict default.
 
