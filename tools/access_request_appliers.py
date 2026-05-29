@@ -415,3 +415,55 @@ def apply_deny(
             _write_json(settings_path, settings)
 
     return result
+
+
+
+# ── A<->B reconciliation adapter (added by operator at merge time per
+#    .claude/run-archive/2026-05-29-batch5/decisions/S-59-AB-interface-gap.md) ──
+def _pkg_from_subject(subject: str) -> str:
+    """Extract first backtick-quoted token (the package name) from an entry subject."""
+    import re
+    m = re.search(r"`([^`]+)`", subject or "")
+    return m.group(1).strip() if m else (subject or "").strip()
+
+
+def _install_adapter(entry, *, dry_run, target_paths):
+    pkg = _pkg_from_subject(entry.get("subject", ""))
+    try:
+        r = apply_install(pkg, requirements_path=target_paths["requirements"], dry_run=dry_run)
+        return {"ok": True, "action": r.get("action", ""), "error": ""}
+    except Exception as exc:
+        return {"ok": False, "action": "", "error": str(exc)[:200]}
+
+
+def _upgrade_adapter(entry, *, dry_run, target_paths):
+    pkg = _pkg_from_subject(entry.get("subject", ""))
+    try:
+        r = apply_upgrade(pkg, dry_run=dry_run)
+        return {"ok": True, "action": r.get("action", ""), "error": ""}
+    except Exception as exc:
+        return {"ok": False, "action": "", "error": str(exc)[:200]}
+
+
+def _allow_adapter(entry, *, dry_run, target_paths):
+    try:
+        r = apply_allow(entry, dry_run=dry_run)
+        return {"ok": True, "action": r.get("action", ""), "error": ""}
+    except Exception as exc:
+        return {"ok": False, "action": "", "error": str(exc)[:200]}
+
+
+def _deny_adapter(entry, *, dry_run, target_paths):
+    try:
+        r = apply_deny(entry, dry_run=dry_run, allow_deny_additions=True)
+        return {"ok": True, "action": r.get("action", ""), "error": ""}
+    except Exception as exc:
+        return {"ok": False, "action": "", "error": str(exc)[:200]}
+
+
+APPLIERS = {
+    "install": _install_adapter,
+    "upgrade": _upgrade_adapter,
+    "allow": _allow_adapter,
+    "deny": _deny_adapter,
+}
