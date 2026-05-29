@@ -1310,6 +1310,41 @@ def check_access_requests_stale() -> tuple[bool, str]:
     return True, f"{pending_count} pending entries, none older than {stale_threshold_days} days"
 
 
+def check_wave_subagent_preamble() -> tuple[bool, str]:
+    """Tier 1 (S-69-B): wave subagent preamble audit — warn-only.
+
+    Shells out to tools/audit_wave_subagent_preamble.py which parses every
+    .claude/waves/*.md file and warns when a wave's Robot-mode section omits
+    the three canonical subagent-preamble signals:
+      - venv-symlink (ln -sf .venv / "subagent preamble")
+      - file-creation-heredoc (Bash heredoc for new files)
+      - no-AskUserQuestion (never call AskUserQuestion)
+
+    Always returns True (warn-only). The goal is visibility for the operator
+    before batch dispatch, not hard CI blocking.
+    """
+    script = REPO / "tools" / "audit_wave_subagent_preamble.py"
+    if not script.exists():
+        return True, "audit_wave_subagent_preamble.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    ok_lines = [ln for ln in out.splitlines() if ln.startswith("OK")]
+
+    if warning_lines:
+        detail = f"{len(warning_lines)} wave file(s) missing preamble signals:\n"
+        detail += "\n".join(f"  {ln}" for ln in warning_lines[:5])
+        if len(warning_lines) > 5:
+            detail += f"\n  ... and {len(warning_lines) - 5} more"
+        return True, f"WARNING — {detail}"
+    if ok_lines:
+        return True, ok_lines[0]
+    return True, "wave subagent preamble audit complete (no output)"
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1356,6 +1391,8 @@ TIER_1: list[tuple[str, object]] = [
     ("LLM outbound scrub — cloud path through scrub() (ADR-0018)", check_llm_outbound_scrubbed),
     # ── Access-requests queue health (S-59-C) ─────────────────────────────
     ("Access-requests queue — stale entries (warn only)", check_access_requests_stale),
+    # ── Wave subagent preamble audit (S-69-B) ─────────────────────────────
+    ("Wave subagent preamble — orchestrator dispatch rules (warn only)", check_wave_subagent_preamble),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
