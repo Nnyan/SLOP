@@ -1280,6 +1280,8 @@ TIER_1: list[tuple[str, object]] = [
     ("Wave-file preflight — path/ref claims (warn only)", check_wave_file_preflight),
     # ── BACKLOG coverage audit (wave S-56-E) ──────────────────────────────
     ("BACKLOG coverage — floating-work audit (warn only)", check_backlog_coverage),
+    # ── Walk-back log required on doctrine removals (warn only) ────────────
+    ("Walk-back log — doctrine-removal discipline (warn only)", check_walkback_log),
     # ── LLM outbound scrub gate (ADR-0018 / S-61 Stream B) ────────────────
     ("LLM outbound scrub — cloud path through scrub() (ADR-0018)", check_llm_outbound_scrubbed),
 ]
