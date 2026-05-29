@@ -364,9 +364,13 @@ for fresh `bypassPermissions` sessions.
 
 **How to extend the test battery for future Robot iterations:** when any
 future run hits an unexpected prompt, add a test for that exact pattern to
-the permanent battery (planned in S-56 Stream D as `.claude/robot-test-battery/`).
-The battery should grow over time; once permanent, ideal end state is a CI
-check that flags any pattern that newly triggers a prompt.
+the permanent battery at [`.claude/robot-test-battery/`](.claude/robot-test-battery/).
+See `test-instructions.md` for the numbered tests, `runner.sh` to generate
+the operator prompt, and `RESULTS-TEMPLATE.md` for the results format.
+A warn-only CI static-analysis job runs monthly via
+`.github/workflows/robot-battery-validation.yml`.
+The battery should grow over time; ideal end state is that no pattern
+verified in a fresh `bypassPermissions` session ever prompts silently.
 
 ## Morning review workflow
 
