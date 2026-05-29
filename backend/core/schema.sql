@@ -92,6 +92,14 @@ CREATE TABLE IF NOT EXISTS external_resources (
     removed_at      INTEGER             -- NULL = still active
 );
 
+CREATE TABLE IF NOT EXISTS fix_attempts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_key    TEXT    NOT NULL,
+    fix_type   TEXT    NOT NULL,
+    outcome    TEXT    NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 CREATE TABLE IF NOT EXISTS fix_history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     app_key     TEXT NOT NULL,
@@ -374,6 +382,9 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_ts     ON audit_log(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_cloud_usage_created ON cloud_llm_usage (created_at);
 
 CREATE INDEX IF NOT EXISTS idx_cloud_usage_provider ON cloud_llm_usage (provider);
+
+CREATE INDEX IF NOT EXISTS idx_fix_attempts_app_fix_time
+    ON fix_attempts (app_key, fix_type, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_fix_history_app ON fix_history (app_key);
 
