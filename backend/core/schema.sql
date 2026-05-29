@@ -329,6 +329,18 @@ CREATE TABLE IF NOT EXISTS request_routing (
     updated_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+CREATE TABLE IF NOT EXISTS router_decisions (
+    id               INTEGER PRIMARY KEY,
+    prompt_chars     INT,
+    tier             TEXT,
+    chain            TEXT,          -- JSON array, e.g. '["ollama","openai"]'
+    chosen_provider  TEXT,
+    outcome          TEXT,          -- 'success' | 'all_failed' | NULL
+    cost_usd         REAL,
+    latency_ms       INT,
+    created_at       INT DEFAULT (unixepoch())
+);
+
 CREATE TABLE IF NOT EXISTS secrets (
     id              INTEGER PRIMARY KEY,
     key             TEXT NOT NULL UNIQUE,   -- env var name e.g. CF_DNS_API_TOKEN
@@ -403,4 +415,10 @@ CREATE INDEX IF NOT EXISTS idx_op_steps_key ON operation_steps(op_key, created_a
 CREATE INDEX IF NOT EXISTS idx_operations_started  ON operations(started_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_operations_subject ON operations(subject_type, subject_key);
+
+CREATE INDEX IF NOT EXISTS idx_router_decisions_chosen_provider
+    ON router_decisions (chosen_provider);
+
+CREATE INDEX IF NOT EXISTS idx_router_decisions_created_at
+    ON router_decisions (created_at);
 
