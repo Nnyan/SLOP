@@ -49,6 +49,24 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-29 — wave/S-71-test-data-hygiene
+
+- **Method:** tools/merge_wave_to_main.py
+- **Operator/Caller:** stack
+- **Pre-merge main HEAD:** `55aded1d935b9c60aac9473f9d67c1fb43a34ae5`
+- **Branches merged (in order):**
+  1. `wave/S-71-test-data-hygiene` → merge commit `96fd6a2b611d4dfbed0134d71f334945cbb290df`
+- **Post-merge main HEAD:** `96fd6a2b611d4dfbed0134d71f334945cbb290df`
+- **Pushed to origin:** yes — `96fd6a2` (pushed via lift-push-restore by Manager session post-merge, 2026-05-29)
+- **Pre-flight checks run:**
+  - working-tree: CLEAN
+  - branch-exists:wave/S-71-test-data-hygiene: OK
+  - status:wave/S-71-test-data-hygiene: COMPLETE
+  - diff:wave/S-71-test-data-hygiene: OK (13 diff-stat lines)
+  - ms-enforce:wave/S-71-test-data-hygiene: PASS (branch-isolated; separator line is the known cosmetic logging wart)
+- **Notes:** batch-8. S-71-TEST-DATA-HYGIENE — 4 streams (A sonnet ADR-0019 / B sonnet SLOP_AUDIT_LOG_PATH redirect / C opus check_test_isolation gate / D sonnet narrow autouse + sweep + test rename), all file-disjoint → zero conflicts, no decisions, no blockers. Manager review confirmed: merge-tree dry-run conflict-free; the 3 pinned contracts all hold in merged code (policy-doc path `docs/adr/0019-test-data-isolation.md` ↔ gate name `check_test_isolation` bidirectional; `SLOP_AUDIT_LOG_PATH` redirect only fires on default-path+env, production unchanged); `check_test_isolation` registered warn-only (ms-enforce:1704), exit 0; `_isolate_config_data_dir` narrowed autouse→opt-in; `test_preflight_harness.py`→`test_preflight_wave.py`. Full suite: 9 failures, all pre-existing on main (zero unique to wave). Stream worktrees already pruned by orchestrator; wave branch deleted post-merge.
+
+
 ## 2026-05-29 — docs/wave-draft-batch8 (S-71-TEST-DATA-HYGIENE wave draft)
 
 - **Method:** tools/merge_wave_to_main.py
