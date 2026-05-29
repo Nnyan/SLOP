@@ -17,37 +17,59 @@ You are NOT a Robot mode orchestrator. Orchestrators are fired in SEPARATE fresh
 
 You are NOT a wave-drafting session either; those are also separate fresh sessions when needed.
 
-## Current state (as of 2026-05-29, end of batch-6)
+## Current state (as of 2026-05-29, batch-7 in-flight)
 
-- **origin/main at `6bc5c82`** ("robot: lessons from batch-6"). Confirm with `git rev-parse origin/main`.
-- **Batch-6 FULLY LANDED** (S-66 + S-67 + S-68 + S-69). Merged via the merge-worktree pattern (additive conflicts resolved keep-both; S-69 ms-enforce difflib-reconstructed) → integration branch → one clean sanctioned merge `ebaf67c`. ms-enforce green on main; suite failures = known-17 residual subset only. MERGE-LOG has the comprehensive entry.
-- **Post-batch-6 follow-ups all done this session:** adapter `target_paths` settings-path fix (`77fb678`); SANCTIONED-OPS-LOG pollution stripped + `test_running_twice_is_noop` un-flaked (`1435529`); **both merge-tool bugs fixed** (dedent + from-main ms-enforce-skip, now branch-isolated, `cea63cb`); doctrine lessons + BACKLOG re-annotation (`6bc5c82`). All 21 batch-6 worktrees + branches pruned (orchestrator session was closed).
-- **BACKLOG re-annotated:** zero bare `[→ S-6x]` entries remain; S-73 logged.
-- **Next batch = batch-7 = S-73-WAVE-AUTHORING-RIGOR** (per-stream model column + complexity-gated automated pre-flight + first real `_TEMPLATE.md`). NOT yet drafted — the Manager drafts it (see memory `project-s73-wave-authoring-rigor`).
-- **No orchestrator/drafting session running.** Safe to do main-side operations.
+- **origin/main at `4989d87`** (+ a docs/handoff commit on top of that from this
+  session — confirm the live value with `git rev-parse origin/main`).
+- **⚠️ BATCH-7 (S-73) IS RUNNING RIGHT NOW** in a separate orchestrator session.
+  **Do NOT do main-side git operations** (merge/commit that moves main's HEAD, or
+  `merge_wave_to_main.py` which checks out main) until it's COMPLETE — cross-session
+  HEAD-collision risk (batch-5 lesson). Docs-only commits to files disjoint from
+  S-73's scope are lower-risk if needed, but prefer to wait or use a separate worktree.
+  - Liveness: the orchestrator is leaking an untracked `.claude/waves/_TEMPLATE.md`
+    into the MAIN working tree (S-73 Stream D output → repo-root pollution, the exact
+    class Test-Data-Hygiene fixes). Leave it; canonical copy is on the wave branch;
+    clean it during the merge (like the batch-6 stray files).
+- **YOUR FIRST ACTION:** when the orchestrator reports `wave/S-73-wave-authoring-rigor`
+  COMPLETE, review it (per-stream Model dogfood; the 3 pinned contracts held; ROBOT.md
+  additive merges resolved keep-both not union), then merge via
+  `python3 tools/merge_wave_to_main.py wave/S-73-wave-authoring-rigor` and push.
+- **Batch-6 FULLY LANDED** (`ebaf67c`) + all follow-ups done (both merge-tool bugs
+  FIXED `cea63cb`; scrub.py egress leak FIXED `cb58f70`; SANCTIONED-OPS-LOG cleaned).
+- **S-73 was drafted by a fresh session, reviewed, and merged to main** (`86cd5a1`) —
+  that's why its wave file is on main; it is now EXECUTING as batch-7. The merge was
+  the first on the fixed tool (validated: clean MERGE-LOG entry + branch-isolated ms-enforce ran).
+- **Consolidation done:** the 5 remaining candidates condensed → 3 waves + 1 direct
+  fix. The full spec is `docs/POST-BATCH6-WAVE-MAP.md` (READ IT — it's your roadmap).
 
 ## Wave queue (current)
 
-**Batch-6 (S-66+S-67+S-68+S-69) — LANDED on main (`ebaf67c`).** Done. The sanctioned
-toolkit (`tools/sanctioned/`), the 7 mechanical gates, the doc/tooling hygiene, and
-the post-S58 test fixes are all on main.
+The remaining roadmap is the consolidated 3-wave plan in `docs/POST-BATCH6-WAVE-MAP.md`
+(5 raw candidates → 3 waves + 1 direct fix; condensed 2026-05-29). Sequenced:
 
-**Next batch = batch-7 = S-73-WAVE-AUTHORING-RIGOR (NOT yet drafted — Manager drafts it):**
-- Per-stream `Model` column + selection rubric (Opus=judgment / Sonnet=default / Haiku=mechanical).
-- Complexity-gated automated pre-flight: `tools/wave_complexity.py` scores a wave, the
-  orchestrator runs the matching fact-check rigor (extend `validate-wave-file.py`) and
-  BLOCKS dispatch on FALSE claims; first real `.claude/waves/_TEMPLATE.md`.
-- Build on the merged `validate-wave-file.py` / `ROBOT.md` / `AUTONOMOUS-DEFAULTS.md`.
-- Memory: `project-s73-wave-authoring-rigor`. BACKLOG: `[→ S-73]` entry under "From batch-6 retro".
+- **Batch-7 = S-73-WAVE-AUTHORING-RIGOR** — RUNNING NOW. Per-stream Model column +
+  rubric, complexity-gated automated pre-flight (`tools/wave_complexity.py` +
+  extended `validate-wave-file.py` + orchestrator pre-flight step), first
+  `.claude/waves/_TEMPLATE.md`. 5 streams. Your job: review + merge its branch.
+- **Batch-8 = TEST-DATA-HYGIENE** (merge of S-71 + the batch-6 pollution root-cause) —
+  NOT yet drafted; **draft it AFTER S-73 lands, using S-73's new `_TEMPLATE.md` + Model
+  column.** Core: test-data lifecycle policy, finish the `write_entry`/scanner
+  repo-relative-path fix, `check_test_isolation` gate, sweep offenders (narrow the
+  S-66-B autouse fixture). See the brief in POST-BATCH6-WAVE-MAP.md.
+- **Batch-9 = ENFORCEMENT-LIFECYCLE** (merge of S-70 + S-72) — draft/fire LATER, once
+  the ~11 warn-only gates + doctrine have accumulated run-history (aging policy needs
+  signal). Core: gate-aging policy + `audit_gate_age.py`, doctrine-relevance audit.
+  **Two low-effort parked items woven in as bundled adjacents** (2026-05-29): the
+  pre-commit file-size-ratchet hook + provenance-headers `check_provenance` gate.
 
-Future candidates (from the Tier-1-7 meta-analysis, not drafted):
-- **S-70-AGING-POLICY-FOR-WARN-ONLY** — temporal escalation of warn-only checks (now ~9 warn-only gates live; aging policy is increasingly relevant)
-- **S-71-TEST-DATA-POLICY** — formal lifecycle policy (would have prevented the settings.local.json + SANCTIONED-OPS-LOG test-pollution class)
-- **S-72-DOCTRINE-SELF-AUDIT** — periodic relevance check on accumulated doctrine
-- Agent-code-quality cleanup wave — the 2 parked `scrub.py` items + apps.py TODO
+Parked (reviewed 2026-05-29 — do NOT fit batch-8/9 themes; forcing them would dilute
+coherence, the same reason we kept the batches separate): CLAUDE.md split, refresh-train
+auto-bisect, prometheus-instrumentator tracking, installer/state.py root-chown,
+`apps.py:964` register-endpoint TODO, scrub.py bare-"stack" over-redaction (cosmetic;
+direct-fix candidate), `.bak` cleanup (→ a small `robot_settings.py --prune-backups`
+direct follow-up), OPTIONAL-FILE-SIZE-REMEDIATION (re-eval 2026-08-27).
 
-Parked:
-- **OPTIONAL-FILE-SIZE-REMEDIATION** — re-eval 2026-08-27
+**Already direct-fixed this session (not waves):** scrub.py `is_external` egress leak (`cb58f70`).
 
 ## Read order (after you finish this file)
 
@@ -60,31 +82,42 @@ Parked:
 7. **`docs/MERGE-LOG.md`** — audit trail for every merge. Newest entries at top.
 8. **`docs/WALK-BACK-LOG.md`** — meta-process artifact for doctrine rule removals.
 9. **`tools/merge_wave_to_main.py`** + **`tools/sanctioned/`** — the sanctioned merge channel + toolkit (shipped/fixed in batch-6); your primary tools for handoffs. Use instead of inline lift-restore scripts.
-10. **memory `project-s73-wave-authoring-rigor`** — the approved next-wave (batch-7) plan you draft.
-(The batch-6 wave files `.claude/waves/S-66..S-69` are landed/spent — no longer queue items.)
+10. **`docs/POST-BATCH6-WAVE-MAP.md`** — THE ROADMAP. The consolidated 3-wave plan
+    (S-73 batch-7 / Test-Data-Hygiene batch-8 / Enforcement-Lifecycle batch-9) with
+    per-wave briefs, processor-contract pins, sequencing, and the woven parked items.
+11. **memory `project-s73-wave-authoring-rigor`** — the S-73 design rationale.
+(The batch-6 wave files `.claude/waves/S-66..S-69` are landed/spent; S-73 is executing — no longer queue items.)
 
-## Immediate next actions (batch-7)
+## Immediate next actions (picking up with batch-7 in-flight)
 
-Batch-6 is fully landed + swept (merge, fixes, prune, doctrine, BACKLOG re-annotation
-all done — see Current state). What remains:
+Batch-7 (S-73) is RUNNING when this handoff was written. In order:
 
-1. **Draft S-73-WAVE-AUTHORING-RIGOR** (the Manager drafts wave files for this batch per
-   the user's approval). Build on the merged `validate-wave-file.py` / `ROBOT.md` /
-   `AUTONOMOUS-DEFAULTS.md`. Two bundled features + a `_TEMPLATE.md` (see Wave queue +
-   memory `project-s73-wave-authoring-rigor`). Apply the new per-stream model convention
-   to the draft itself.
-2. **Then fire batch-7** (S-73 + optionally a co-batched cleanup wave): ONE fresh Opus
-   orchestrator. Hand the user the orchestrator prompt; confirm `git rev-parse origin/main`
-   for the base SHA at prompt-writing time. You coordinate, you don't run it.
-3. **Post-wave merge:** use `python3 tools/merge_wave_to_main.py wave/S-73-...` — the tool
-   now runs ms-enforce branch-isolated (bug fixed) and writes a correctly-formatted
-   MERGE-LOG entry (dedent bug fixed). Push via `/tmp/lift-push-restore.py all`.
-4. **If multiple branches with additive conflicts:** the merge-worktree integration pattern
-   (build off main in a scratch worktree, resolve keep-both / difflib-reconstruct, verify,
-   then one clean sanctioned merge) is the proven path — see the batch-6 MERGE-LOG entry.
+1. **WAIT for batch-7 to report COMPLETE.** While it runs, no main-side git ops
+   (HEAD-collision discipline). If you must touch main, use a separate worktree off
+   origin/main. (If it has already completed by the time you read this, proceed.)
+2. **Review + merge S-73.** When `wave/S-73-wave-authoring-rigor` is COMPLETE:
+   verify the per-stream Model dogfood, the 3 pinned contracts held (tier-string,
+   Model-column format, ROBOT.md subsection ownership), and that the ROBOT.md
+   additive merges across streams A/C/D/E were keep-both (NEVER `merge=union`; look
+   for an `S-73-MERGE-N.md` decision). Then:
+   `python3 tools/merge_wave_to_main.py wave/S-73-wave-authoring-rigor`
+   (the tool is FIXED: runs ms-enforce branch-isolated + writes a clean MERGE-LOG
+   entry). Push via `/tmp/lift-push-restore.py all`. Clean up the stray
+   `.claude/waves/_TEMPLATE.md` in the main tree (canonical version arrives via the merge).
+   Prune the batch-7 worktrees/branches once that orchestrator session is closed.
+3. **Draft batch-8 = TEST-DATA-HYGIENE** using S-73's freshly-landed `_TEMPLATE.md` +
+   Model column. Brief in `docs/POST-BATCH6-WAVE-MAP.md`. A fresh bypassPermissions
+   session drafts it (you supply the one-line pointer to the brief); you review + merge.
+4. **Batch-9 = ENFORCEMENT-LIFECYCLE later** (after the gates age). Same draft→review→merge.
+5. **Post-batch-7 BACKLOG sweep:** flip the `[→ S-73]` / batch-7 entries to `[x]`; retro.
 
-**Note:** the standalone batch-6 wave files (`.claude/waves/S-66..S-69`) are spent (landed).
-Don't re-fire them.
+**Merge mechanics reminder:** for multi-branch batches with additive conflicts, use
+the merge-worktree integration pattern (build off main in a scratch worktree, resolve
+keep-both / difflib-reconstruct, verify ms-enforce green + suite, then ONE clean
+sanctioned merge of the integration branch) — the batch-6 MERGE-LOG entry is the worked example.
+
+**Note:** the standalone batch-6 wave files (`.claude/waves/S-66..S-69`) and S-73 are
+spent/executing — don't re-fire them. New waves (batch-8/9) get drafted fresh.
 
 ## Working patterns / discipline
 
