@@ -465,6 +465,12 @@ those. Neither stream is then free to drift the interface. When you draft or
 review such a wave, treat an unpinned shared symbol as a wave-design defect:
 surface it as a blocker (wave instructions are wrong/impossible) rather than
 guessing a shape at runtime.
+
+**A shared symbol INCLUDES the filename / path of any tool, harness, or module a
+stream ships that another stream references in code or doctrine.** If Stream X
+ships `tools/foo.py` and Stream Y's doctrine/import names that path, pin the path
+in X's Deliverables — not just the functions inside it. The filename is part of
+the interface.
 **Escalate when:** a shared symbol is discovered at merge time that the wave file
 never pinned — write a decision file, commit a minimal adapter to bridge the two
 shapes (do NOT rewrite either stream's work), and flag the wave file for a
@@ -479,6 +485,13 @@ at merge time (`1b192d5`). S-68 and S-69 (the sanctioned-channel toolkit and
 audit-tool family) apply this rule prospectively — S-68 pins the
 `tools/sanctioned/_lift_restore.py` and `_audit.py` public symbols in its
 Deliverables section.
+**Lesson (filename-as-symbol):** S-73 (batch-7, 2026-05-29) — Stream C's doctrine
+referenced the pre-flight harness as `tools/preflight_harness.py`; Stream E
+actually shipped `tools/preflight_wave.py`. The harness FILENAME was never pinned
+in Deliverables (only the `score_wave()` interface and tier-string were), so C
+guessed it from an absent-in-its-worktree file. Reconciled at merge (`S-73-MERGE-2`:
+fixed the two doc refs to the shipped name). Fix: pin tool/harness paths, not just
+their contents.
 
 ---
 

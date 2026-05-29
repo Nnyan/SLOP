@@ -453,12 +453,24 @@ Do not call AskUserQuestion. Do not git push. Do not git checkout main. Commit
 ONLY to your own worktree branch — never merge into or move the wave/* branch
 ref; the orchestrator owns all wave-branch merges. On hard blocker, write
 .claude/run/blockers/<wave>-<stream>.md and halt only your stream.
+
+Pin EVERY git command to your worktree path with `git -C <your-worktree-path>
+...` (the path the orchestrator gave you), OR run `git rev-parse --show-toplevel`
+and confirm it equals your worktree before any `git commit`/`git add`. Your Bash
+cwd can silently reset to the main checkout between tool calls; a bare `git
+commit` after such a reset lands on main, not your branch.
 ```
 
 (The "never move the wave/* ref" rule was added 2026-05-29 after a batch-6 S-67-B
 subagent self-merged its commits into the wave branch — harmless that time, but a
 subagent advancing a wave branch that is checked out in the orchestrator's merge
 worktree can corrupt the worktree state. The orchestrator owns wave-branch merges.)
+
+(The "pin git to your worktree path" rule was added 2026-05-29 after a batch-7
+(S-73) Stream B subagent's Bash cwd reset to the main checkout and it committed
+there mid-run; it self-corrected (hard-reset main, cherry-picked onto its branch)
+and main was verified clean, but the class is real — `git -C <worktree>` makes the
+target explicit and removes the dependency on a stable cwd.)
 
 ### File creation pattern (empirically verified 2026-05-28)
 
