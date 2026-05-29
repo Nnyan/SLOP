@@ -334,6 +334,20 @@ S-48 + S-49 concurrently with 5 streams. The next-batch planning briefly
 drifted to one-prompt-per-wave (2026-05-29) and was corrected. Doctrine
 mirrored to CLAUDE.md so future sessions don't deviate.
 
+### Computing the base commit ("main HEAD") for a batch
+**Default:** Resolve the batch base with `git rev-parse origin/main`, NOT
+`git rev-parse HEAD`. Label it as `origin/main` in the orchestrator prompt. The
+orchestrator re-confirms `origin/main` at startup and rebases the wave branches
+on it if it has advanced since the prompt was written.
+**Escalate when:** local HEAD and `origin/main` disagree and `origin` is
+unreachable — surface a blocker rather than guess a base.
+**Lesson:** Batch 4 (2026-05-29) — the prompt stated main HEAD `d34cb2a`, which
+was actually the unmerged `wave/S-58` tip; real `origin/main` was `ed7e130`. The
+local working-copy HEAD can be ahead/behind/diverged from origin (e.g. the
+operator-assist session pushes commits after the orchestrator spawns). The
+orchestrator self-corrected and rebased, but the error was avoidable — generate
+the base SHA from `git rev-parse origin/main` at prompt-writing time.
+
 ### A wave's verification step requires running another wave's verification first
 **Default:** Treat as cross-wave dependency. Don't try to chain inside the
 orchestrator — surface as an observation and run the second wave's
