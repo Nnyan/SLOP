@@ -29,6 +29,9 @@ they don't ship.
 - docs/BACKLOG.md — broader project work queue
 - docs/ACCESS-REQUESTS.md — tracked install/upgrade/allow-list requests (queue file, processed by tools/process_access_requests.py per S-59; see ROBOT.md doctrine integration)
 - docs/RULES-TO-TESTS-AUDIT.md — CLAUDE.md rules audited for testability (S-50 Stream C output, S-55 Stream B consumer)
+- docs/MANAGER-HANDOFF.md — operator-assist session continuity guide (Robot batch handoff state, doctrine pointers)
+- docs/MERGE-LOG.md — audit trail of wave-branch merges to main (entry per batch)
+- docs/WALK-BACK-LOG.md — doctrine walk-back entries (each records the orphaned need + new mechanism)
 
 ## Catalog
 - catalog/MANIFEST_SPEC.md — app manifest format

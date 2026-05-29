@@ -1310,6 +1310,35 @@ def check_access_requests_stale() -> tuple[bool, str]:
     return True, f"{pending_count} pending entries, none older than {stale_threshold_days} days"
 
 
+def check_orchestrator_dispatch_pattern() -> tuple[bool, str]:
+    """Tier 1 (S-67-D): one-orchestrator-per-wave anti-pattern detector — warn-only.
+
+    Runs ``tools/audit_orchestrator_dispatch.py`` which scans
+    ``.claude/run-archive/*/status/*.md`` for evidence that separate orchestrator
+    sessions were launched per-wave rather than the doctrine ONE-per-batch.
+
+    Always returns True (warning only, never blocking) — the scanner emits
+    WARNING lines when it detects multiple different run-dirs each covering
+    disjoint wave-sets within the same hour.
+    """
+    script = REPO / "tools" / "audit_orchestrator_dispatch.py"
+    if not script.exists():
+        return True, "orchestrator-dispatch scanner not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    warnings = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if not warnings:
+        return True, out.strip().splitlines()[-1] if out.strip() else "no anti-pattern detected"
+    summary = f"WARNING — {len(warnings)} potential one-orchestrator-per-wave instance(s):\n"
+    summary += "\n".join(f"    {w}" for w in warnings[:5])
+    if len(warnings) > 5:
+        summary += f"\n    ... and {len(warnings) - 5} more"
+    return True, summary  # always True — warn-only
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1356,6 +1385,8 @@ TIER_1: list[tuple[str, object]] = [
     ("LLM outbound scrub — cloud path through scrub() (ADR-0018)", check_llm_outbound_scrubbed),
     # ── Access-requests queue health (S-59-C) ─────────────────────────────
     ("Access-requests queue — stale entries (warn only)", check_access_requests_stale),
+    # ── Orchestrator dispatch pattern (S-67-D) ────────────────────────────
+    ("Orchestrator dispatch — one-per-batch doctrine (warn only)", check_orchestrator_dispatch_pattern),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),

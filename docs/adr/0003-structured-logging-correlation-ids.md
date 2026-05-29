@@ -3,7 +3,7 @@
 **Status:** Accepted 2026-05-08 (step 2.3)
 **Decided by:** OPUS during cleanup step 2.3.a + 2.3.c
 **Supersedes:** the implicit pre-2.3 convention of `logging.getLogger(__name__)` + f-string messages
-**See also:** [`docs/cleanup/STEP_2_3_STRUCTURED_LOGGING_STRATEGY.md`](../cleanup/STEP_2_3_STRUCTURED_LOGGING_STRATEGY.md), Core Rule 4.13 (Structured Logging Discipline) — enforced by ms-enforce
+**See also:** STEP_2_3_STRUCTURED_LOGGING_STRATEGY.md (cleanup strategy doc moved to slop-process private repo), Core Rule 4.13 (Structured Logging Discipline) — enforced by ms-enforce
 **Review by:** 2026-11-08
 
 ## Context
