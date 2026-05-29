@@ -437,10 +437,16 @@ the Write tool — the Write tool requires a prior Read of the file (even for
 new files) and Bash touch does NOT satisfy that requirement. For existing
 files, Read then Edit is fine.
 
-Do not call AskUserQuestion. Do not git push. Do not git checkout main. On
-hard blocker, write .claude/run/blockers/<wave>-<stream>.md and halt only
-your stream.
+Do not call AskUserQuestion. Do not git push. Do not git checkout main. Commit
+ONLY to your own worktree branch — never merge into or move the wave/* branch
+ref; the orchestrator owns all wave-branch merges. On hard blocker, write
+.claude/run/blockers/<wave>-<stream>.md and halt only your stream.
 ```
+
+(The "never move the wave/* ref" rule was added 2026-05-29 after a batch-6 S-67-B
+subagent self-merged its commits into the wave branch — harmless that time, but a
+subagent advancing a wave branch that is checked out in the orchestrator's merge
+worktree can corrupt the worktree state. The orchestrator owns wave-branch merges.)
 
 ### File creation pattern (empirically verified 2026-05-28)
 

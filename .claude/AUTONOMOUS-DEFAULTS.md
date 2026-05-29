@@ -128,6 +128,19 @@ The broader pattern: **any worktree-only "fix" to a test that depends on
 gitignored runtime artifacts is a worktree-artifact trap.** Verify in the
 real checkout before merging the worktree's commit.
 
+**Known gitignored artifacts that false-fail in a worktree** (present in the main
+checkout, ABSENT in any `git worktree`): `data/coverage_map.json` (coverage
+snapshots), `backend/static` (built frontend assets → favicon/static-route +
+`test_cli_snapshots` tests), `.claude/run-archive/**` (the track-status gate reads
+wave-file run-archive references), and `.venv` (imports). When you MUST run
+ms-enforce or the suite in a worktree, symlink these from the main checkout AND add
+them to the worktree's `.git/info/exclude` (else the track-status gate flags the
+symlinks themselves as untracked). `tools/merge_wave_to_main.py::_run_ms_enforce`
+now bakes this in for its branch-isolated pre-flight (batch-6). **Lesson:** batch-6
+morning-merge verification false-failed on `backend/static` (favicon) and
+`.claude/run-archive` (track-status) in the integration worktree; both pass on
+`main`. Don't treat them as wave regressions.
+
 ---
 
 ## Category: git operations
@@ -258,6 +271,19 @@ check_track_status + check_referenced_files; tools/ms_deps/__init__.py docstring
 The strict abort default's "disjoint files" premise didn't apply because the wave
 explicitly assigned multiple streams to the same registration file. Aborting would
 have wasted the parallel work for no safety gain.
+**NEVER use `git merge=union` to auto-resolve these.** Union is LINE-level: for
+source files whose additive blocks share boilerplate (function bodies with
+identical `_rc, out = _run(...)` / `return True, ...` lines, near-identical
+registration lines), it INTERLEAVES the blocks — weaving one function's body into
+another, producing a function that returns None and crashes the runner. Resolve
+"keep both" at the WHOLE-BLOCK level instead: for N=2 streams, strip markers
+keeping each side's complete blocks; for N>2 streams touching one file, reconstruct
+deterministically (difflib each side's inserts vs the merge-base, concatenate
+block-wise) and verify the rebuilt file parses + runs. **Lesson:** S-69 (batch-6,
+2026-05-29) — `merge=union` interleaved 7 `check_*` gate functions in `ms-enforce`;
+`check_backlog_stale` lost its return path → `run_tier` crashed on a None unpack.
+Reconstructed via difflib (`S-69-MERGE-1` decision). Batch-6's merge-to-main hit
+the same file again across S-67/S-68/S-69 and used the difflib reconstruction.
 
 ### Command-style discipline (avoid hardcoded safety-check prompts)
 
