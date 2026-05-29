@@ -49,6 +49,29 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-29 — batch-5: S-59 + S-63 + S-64 + doctrine recovery + adapter fix
+
+- **Method:** operator-manual via /tmp/batch5-recovery-and-merge.py + /tmp/batch5-continue.py (S-59 Stream D shipped `tools/merge_wave_to_main.py` THIS batch; will be the sanctioned channel for future batches)
+- **Operator/Caller:** Nnyan (orchestrator + operator-assist session collaboration)
+- **Pre-batch main HEAD:** `4af5f0d` (doctrine + waves: BACKLOG triage + S-66/S-67 drafts + re-annotation)
+- **Pre-merge sequence:**
+  1. Rewound `wave/S-63-router-wiring-and-cost` from `995a4c7` → `e48516b` (drop misplaced operator-assist doctrine commit per S-63-operator-commit-collision.md)
+  2. Cherry-picked `995a4c7` (the doctrine commit: walk-back log + sensitive-path dead-end + ms-enforce gate + CLAUDE.md) onto main → commit `73a8fe0`
+  3. Added missing TIER_1 registration for `check_walkback_log` (the Edit that didn't apply previously) — separate commit
+- **Branches merged (in order):**
+  1. `wave/S-59-access-requests-processor` (no-ff) → merge commit `fa90d02` (with one additive ms-enforce conflict resolved keep-both: check_walkback_log + check_access_requests_stale)
+  2. (mid-step) S-59 A↔B adapter fix per `.claude/run-archive/2026-05-29-batch5/decisions/S-59-AB-interface-gap.md` exact snippet
+  3. `wave/S-63-router-wiring-and-cost` (no-ff, clean tip `e48516b`) → merge commit `a726ace`
+  4. `wave/S-64-agent-safe-autofix` (no-ff) → merge commit `adb3cd8`
+- **Post-merge main HEAD:** (audit-log commit on top after this entry) — push step follows
+- **Pre-flight checks:**
+  - Orchestrator per-wave verification (S-59: 73 tests; S-63: 111 router tests; S-64: 15 tests; all wave-internal ms-enforce green)
+  - Track-status gate observation cleared by this merge (S-66/S-67 wave files now part of main)
+- **Notes:**
+  - **S-63 operator-commit collision recovery:** misplaced doctrine commit (`995a4c7`) rewound from wave/S-63 and cherry-picked to main directly. Clean wave/S-63 tip restored. Per orchestrator's decision file recommendation (option a).
+  - **S-59 A↔B adapter:** Stream A and Stream B were dispatched in parallel against an under-specified contract. Wave file under-specified the wiring symbol. Adapter committed mid-merge per the decision file's exact snippet. **Follow-up:** amend S-59 wave file to pin the A↔B contract (BACKLOG candidate).
+  - **Orchestrator retro candidate:** dedicated merge worktrees + detached HEAD to prevent cross-session collisions. Two collisions this batch (S-63 doctrine + S-64-A stray). Worth folding into ROBOT.md / AUTONOMOUS-DEFAULTS in a follow-up doctrine sweep.
+
 ## 2026-05-29 — batch-4 follow-ups: BACKLOG + S-63/S-64 drafts + origin/main doctrine
 
 - **Method:** operator-manual via operator-assist session lift-restore (tools/merge_wave_to_main.py pending S-59 Stream D)
