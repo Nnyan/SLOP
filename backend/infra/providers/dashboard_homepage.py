@@ -45,7 +45,7 @@ class HomepageProvider(InfraProvider):
         host_port = cfg.get("port", INTERNAL_PORT)
 
         # Create config directories — Homepage reads YAML configs from here
-        cfg_dir = Path(platform.config_root or config.data_dir) / "homepage"
+        cfg_dir = Path(cfg.get("config_root") or platform.config_root or config.data_dir) / "homepage"
         for sub in ("config",):
             (cfg_dir / sub).mkdir(parents=True, exist_ok=True)
 
