@@ -17,28 +17,29 @@ You are NOT a Robot mode orchestrator. Orchestrators are fired in SEPARATE fresh
 
 You are NOT a wave-drafting session either; those are also separate fresh sessions when needed.
 
-## Current state (as of 2026-05-29, batch-7 in-flight)
+## Current state (as of 2026-05-29, batch-7 LANDED)
 
-- **origin/main at `4989d87`** (+ a docs/handoff commit on top of that from this
-  session — confirm the live value with `git rev-parse origin/main`).
-- **⚠️ BATCH-7 (S-73) IS RUNNING RIGHT NOW** in a separate orchestrator session.
-  **Do NOT do main-side git operations** (merge/commit that moves main's HEAD, or
-  `merge_wave_to_main.py` which checks out main) until it's COMPLETE — cross-session
-  HEAD-collision risk (batch-5 lesson). Docs-only commits to files disjoint from
-  S-73's scope are lower-risk if needed, but prefer to wait or use a separate worktree.
-  - Liveness: the orchestrator is leaking an untracked `.claude/waves/_TEMPLATE.md`
-    into the MAIN working tree (S-73 Stream D output → repo-root pollution, the exact
-    class Test-Data-Hygiene fixes). Leave it; canonical copy is on the wave branch;
-    clean it during the merge (like the batch-6 stray files).
-- **YOUR FIRST ACTION:** when the orchestrator reports `wave/S-73-wave-authoring-rigor`
-  COMPLETE, review it (per-stream Model dogfood; the 3 pinned contracts held; ROBOT.md
-  additive merges resolved keep-both not union), then merge via
-  `python3 tools/merge_wave_to_main.py wave/S-73-wave-authoring-rigor` and push.
+- **origin/main at `8c2415c`** (batch-7 bookkeeping commit on top of the S-73 merge
+  `ff27adb` — confirm the live value with `git rev-parse origin/main`).
+- **✅ BATCH-7 (S-73-WAVE-AUTHORING-RIGOR) IS LANDED.** Merged via
+  `tools/merge_wave_to_main.py` → `ff27adb`, pushed; bookkeeping (BACKLOG flip +
+  MERGE-LOG corrections) in `8c2415c`. All 5 stream worktrees + wave/stream branches
+  pruned. Run-state archived to `.claude/run-archive/2026-05-29-batch7/`. No
+  orchestrator/drafting session running — **main-side git ops are safe.**
+  - Shipped on main: ROBOT.md per-stream Model column + rubric + complexity-gate
+    doctrine; `tools/wave_complexity.py` scorer; `tools/preflight_wave.py` harness +
+    `.claude/run/preflight/` wiring; `validate-wave-file.py --json`; first
+    `.claude/waves/_TEMPLATE.md` (11 sections).
+  - Merge review confirmed: merge-tree conflict-free (wave change-set disjoint from the
+    in-run external docs push `02769fe`); MERGE-1/2/3 decisions verified in the real diff.
+  - **Open cosmetic follow-up:** `tests/test_preflight_harness.py` tests
+    `tools/preflight_wave.py` (name mismatch) — rename in the batch-8 sweep.
+  - **Batch-7 lesson (see retro):** a subagent's Bash cwd reset to the main checkout and
+    Stream B briefly committed to main mid-run (self-corrected). Harden via `git -C
+    <worktree>` in the orchestrator preamble. Also: pin harness/tool filenames in
+    Deliverables (the unpinned-symbol gap MERGE-2 reconciled).
 - **Batch-6 FULLY LANDED** (`ebaf67c`) + all follow-ups done (both merge-tool bugs
   FIXED `cea63cb`; scrub.py egress leak FIXED `cb58f70`; SANCTIONED-OPS-LOG cleaned).
-- **S-73 was drafted by a fresh session, reviewed, and merged to main** (`86cd5a1`) —
-  that's why its wave file is on main; it is now EXECUTING as batch-7. The merge was
-  the first on the fixed tool (validated: clean MERGE-LOG entry + branch-isolated ms-enforce ran).
 - **Consolidation done:** the 5 remaining candidates condensed → 3 waves + 1 direct
   fix. The full spec is `docs/POST-BATCH6-WAVE-MAP.md` (READ IT — it's your roadmap).
 
@@ -47,15 +48,17 @@ You are NOT a wave-drafting session either; those are also separate fresh sessio
 The remaining roadmap is the consolidated 3-wave plan in `docs/POST-BATCH6-WAVE-MAP.md`
 (5 raw candidates → 3 waves + 1 direct fix; condensed 2026-05-29). Sequenced:
 
-- **Batch-7 = S-73-WAVE-AUTHORING-RIGOR** — RUNNING NOW. Per-stream Model column +
-  rubric, complexity-gated automated pre-flight (`tools/wave_complexity.py` +
-  extended `validate-wave-file.py` + orchestrator pre-flight step), first
-  `.claude/waves/_TEMPLATE.md`. 5 streams. Your job: review + merge its branch.
+- **Batch-7 = S-73-WAVE-AUTHORING-RIGOR** — ✅ LANDED (`ff27adb`). Per-stream Model
+  column + rubric, complexity-gated automated pre-flight (`tools/wave_complexity.py` +
+  extended `validate-wave-file.py` + `tools/preflight_wave.py`), first
+  `.claude/waves/_TEMPLATE.md`. Done — no longer a queue item.
 - **Batch-8 = TEST-DATA-HYGIENE** (merge of S-71 + the batch-6 pollution root-cause) —
-  NOT yet drafted; **draft it AFTER S-73 lands, using S-73's new `_TEMPLATE.md` + Model
-  column.** Core: test-data lifecycle policy, finish the `write_entry`/scanner
-  repo-relative-path fix, `check_test_isolation` gate, sweep offenders (narrow the
-  S-66-B autouse fixture). See the brief in POST-BATCH6-WAVE-MAP.md.
+  **NEXT. Draft it now using S-73's new `_TEMPLATE.md` + Model column** (S-73 has landed,
+  so the tooling is on main and dogfoodable). Core: test-data lifecycle policy, finish
+  the `write_entry`/scanner repo-relative-path fix, `check_test_isolation` gate, sweep
+  offenders (narrow the S-66-B autouse fixture). Fold in the cosmetic
+  `test_preflight_harness.py`→`preflight_wave` rename. See the brief in
+  POST-BATCH6-WAVE-MAP.md.
 - **Batch-9 = ENFORCEMENT-LIFECYCLE** (merge of S-70 + S-72) — draft/fire LATER, once
   the ~11 warn-only gates + doctrine have accumulated run-history (aging policy needs
   signal). Core: gate-aging policy + `audit_gate_age.py`, doctrine-relevance audit.
@@ -88,28 +91,25 @@ direct follow-up), OPTIONAL-FILE-SIZE-REMEDIATION (re-eval 2026-08-27).
 11. **memory `project-s73-wave-authoring-rigor`** — the S-73 design rationale.
 (The batch-6 wave files `.claude/waves/S-66..S-69` are landed/spent; S-73 is executing — no longer queue items.)
 
-## Immediate next actions (picking up with batch-7 in-flight)
+## Immediate next actions (picking up with batch-7 landed)
 
-Batch-7 (S-73) is RUNNING when this handoff was written. In order:
+Batch-7 (S-73) is LANDED, pushed, swept, and archived. Post-merge BACKLOG flip +
+MERGE-LOG corrections are done (`8c2415c`). What remains, in order:
 
-1. **WAIT for batch-7 to report COMPLETE.** While it runs, no main-side git ops
-   (HEAD-collision discipline). If you must touch main, use a separate worktree off
-   origin/main. (If it has already completed by the time you read this, proceed.)
-2. **Review + merge S-73.** When `wave/S-73-wave-authoring-rigor` is COMPLETE:
-   verify the per-stream Model dogfood, the 3 pinned contracts held (tier-string,
-   Model-column format, ROBOT.md subsection ownership), and that the ROBOT.md
-   additive merges across streams A/C/D/E were keep-both (NEVER `merge=union`; look
-   for an `S-73-MERGE-N.md` decision). Then:
-   `python3 tools/merge_wave_to_main.py wave/S-73-wave-authoring-rigor`
-   (the tool is FIXED: runs ms-enforce branch-isolated + writes a clean MERGE-LOG
-   entry). Push via `/tmp/lift-push-restore.py all`. Clean up the stray
-   `.claude/waves/_TEMPLATE.md` in the main tree (canonical version arrives via the merge).
-   Prune the batch-7 worktrees/branches once that orchestrator session is closed.
-3. **Draft batch-8 = TEST-DATA-HYGIENE** using S-73's freshly-landed `_TEMPLATE.md` +
-   Model column. Brief in `docs/POST-BATCH6-WAVE-MAP.md`. A fresh bypassPermissions
-   session drafts it (you supply the one-line pointer to the brief); you review + merge.
-4. **Batch-9 = ENFORCEMENT-LIFECYCLE later** (after the gates age). Same draft→review→merge.
-5. **Post-batch-7 BACKLOG sweep:** flip the `[→ S-73]` / batch-7 entries to `[x]`; retro.
+1. **Draft batch-8 = TEST-DATA-HYGIENE** using S-73's freshly-landed `_TEMPLATE.md` +
+   Model column (now dogfoodable: run `tools/wave_complexity.py` + `validate-wave-file.py`
+   + `tools/preflight_wave.py` on the draft). Brief in `docs/POST-BATCH6-WAVE-MAP.md`.
+   Either a fresh bypassPermissions session drafts it (you supply the one-line pointer to
+   the brief) OR the Manager drafts it directly when the operator so directs; you review +
+   merge the draft branch to main before firing. Fold in the cosmetic
+   `test_preflight_harness.py`→`preflight_wave` rename.
+2. **Fire batch-8:** ONE fresh Opus orchestrator (one-orchestrator-per-batch). Confirm
+   `git rev-parse origin/main` for the base SHA at prompt-writing time. You coordinate,
+   you don't run it; then review + merge its branch via `merge_wave_to_main.py` + push.
+3. **Batch-9 = ENFORCEMENT-LIFECYCLE later** (after the warn-only gates age and accumulate
+   run-history). Same draft→review→merge. Two low-effort parked adjacents woven in
+   (pre-commit ratchet hook + `check_provenance` gate).
+4. **Each batch landing:** BACKLOG re-annotation + retro + MERGE-LOG audit (the standing ritual).
 
 **Merge mechanics reminder:** for multi-branch batches with additive conflicts, use
 the merge-worktree integration pattern (build off main in a scratch worktree, resolve
@@ -142,7 +142,7 @@ spent/executing — don't re-fire them. New waves (batch-8/9) get drafted fresh.
 ### Cross-session HEAD safety
 - Batch-5 hit two collisions because main's working tree was shared with the orchestrator session.
 - If a Robot orchestrator is running in parallel, do NOT do main-side operations in `/home/stack/code/slop/`. Either wait or use a separate worktree (`git worktree add /tmp/slop-manager origin/main`).
-- The drafting session currently running is a wave-file drafter, not an orchestrator — same caveat applies but lower risk (they don't switch branches).
+- When a wave-file drafter session is running (as opposed to an orchestrator), the same caveat applies but at lower risk — drafters don't switch branches. (None running as of this refresh.)
 
 ### BACKLOG triage (enforced)
 - Every entry: `[→ S-NN-stream]` | `[park: trigger=X]` | `[x]` done | `[—]` won't fix.
@@ -170,7 +170,11 @@ The user asked me to identify where ad-hoc point-fixes hide structural patterns.
 6. **Doctrine self-audit** — periodic relevance check on accumulated doctrine. S-72 candidate.
 7. **Wave-file schema** — convert prose convention to structured fields. Parked (high effort, unclear payoff).
 
-Currently in flight: 1, 2 (S-68 + S-69 drafting). Already done: 3. Future: 4, 5, 6. Parked: 7.
+Status (2026-05-29): 1 + 2 LANDED (S-68 sanctioned toolkit + S-69 mechanical-enforcement
+gates, batch-6 `ebaf67c`). 3 done. 5 (test-data lifecycle) → **batch-8 = TEST-DATA-HYGIENE,
+next.** 4 + 6 (aging policy + doctrine self-audit) → **batch-9 = ENFORCEMENT-LIFECYCLE,
+later.** 7 (wave-file schema) was effectively addressed by batch-7's `_TEMPLATE.md` + the
+complexity-gated validator (structured pre-flight without a hard schema rewrite).
 
 ## Communication with the user
 
@@ -195,29 +199,42 @@ These are NOT canonical tools. S-68 will promote the durable ones to `tools/sanc
 
 ## Open follow-up items (BACKLOG entries to remember)
 
-After the drafting session merges, several BACKLOG entries get either closed or re-targeted:
-- "Merge-worktree doctrine" → `[→ S-69]` (drafting session may absorb into S-69)
-- "Pin A↔B contract" → drafting session's small doctrine commit closes this
-- Various `[→ S-67-*]` entries get realized when S-67 fires
-- Various `[→ S-66-*]` entries get realized when S-66 fires
+The batch-6 (S-66/S-67/S-68/S-69) and batch-7 (S-73) follow-up entries are all realized
+and flipped. Currently open / re-targeted:
+- `[→ batch-8]` test-data hygiene: `write_entry`/scanner repo-root-relative pollution +
+  narrow the S-66-B `_isolate_config_data_dir` autouse fixture (both core, not adjacents).
+- `[→ batch-9]` enforcement-lifecycle: gate-aging policy + `audit_gate_age.py`;
+  doctrine-relevance audit; + 2 woven adjacents (pre-commit ratchet hook, `check_provenance`).
+- Cosmetic: rename `tests/test_preflight_harness.py` → match `tools/preflight_wave.py`
+  (fold into batch-8).
 
-Your job after the next batch: do another re-annotation pass.
+Your job after each batch lands: do another BACKLOG re-annotation pass.
 
 ## What this session's prior Manager (me) did, and where you pick up
 
-Done this session:
-1. Merged the `docs/wave-drafts-s68-s69-doctrine` branch via `tools/merge_wave_to_main.py` (first real use; found + logged two tool bugs for S-68-C).
-2. Resolved the S-67↔S-68 file collision (descoped S-67-C into S-68).
-3. Pre-flighted all four batch-6 wave files with parallel verification agents; corrected stale counts/SHAs/attribution. No FALSE claims, no blockers.
-4. Refreshed this handoff.
+Done this session (2026-05-29, batch-7 landing):
+1. Reviewed batch-7 (S-73) on `wave/S-73-wave-authoring-rigor`: merge-tree dry-run
+   (conflict-free vs current main), verified the 3 MERGE decisions in the real diff,
+   confirmed the keep-both ROBOT.md subsection ordering and harness-name consistency.
+   (Caught + corrected my own false alarm: the orchestrator's disjointness claim was
+   right; I'd computed `comm` against `main..wave` instead of the wave's change-set.)
+2. Merged via `tools/merge_wave_to_main.py` → `ff27adb`; pushed; corrected the
+   auto-generated MERGE-LOG entry (push status + ms-enforce field).
+3. Swept: removed stray `_TEMPLATE.md` + old `.bak`, pruned 5 stream worktrees +
+   wave/stream branches, archived run-state to `.claude/run-archive/2026-05-29-batch7/`,
+   flipped BACKLOG `[→ S-73]`→`[x]` (`8c2415c`).
+4. Refreshed this handoff to post-batch-7 state.
 
-You pick up at: **batch-6 is ready to fire.** Either the user fires the orchestrator (prompt above) and you handle the post-wave merge, or they direct something else. After batch-6 lands: BACKLOG re-annotation + retro + audit log.
+You pick up at: **batch-7 landed; batch-8 (TEST-DATA-HYGIENE) is next and undrafted.**
+See Immediate next actions above.
 
-**New user-preference memory this session:** `feedback-prompt-and-menu-formatting` — (1) set copy-paste prompts off with blank lines before/after, (2) ask "what next" as a menu list not a paragraph, (3) decision asks get a concise recommendation with no whys, and recommend multiple options when more than one is right.
+**User-preference memory (reaffirmed this session):** `feedback-prompt-and-menu-formatting`
+— always label selectable options with a number/letter so the user can pick by it; prompt
+comes LAST; menus not paragraphs; concise recs without whys.
 
 ## Final notes
 
-- The user explicitly fired the drafting session before requesting this handoff. So as you read this, that session is producing wave files on `docs/wave-drafts-s68-s69-doctrine`. They will ping you (in your fresh session terminal) when done.
+- No orchestrator or drafting session is running as of this refresh — main-side git ops are safe.
 - Trust the audit trails. `docs/MERGE-LOG.md`, `docs/BACKLOG.md`, `.claude/run-archive/`, memory entries — these are the institutional memory.
 - When in doubt, ask the user. They prefer one clarification question over silent wrong action.
 
