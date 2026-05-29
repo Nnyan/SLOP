@@ -6,7 +6,7 @@
 - **See also:** none
 - **Review by:** 2027-05-18
 
-> Enforcement: [manual — verified by `installer/tests/test_uninstall.py` (unit + integration coverage of the three subcommands' semantics) and the v5.0.0 audit gate's INV-12 through INV-16 checks (`docs/cleanup/COMPLETION_AUDIT_v5_0_0.md`). Uninstall is installer-scoped and runs against a real host's filesystem, outside ms-enforce's backend-repo drift surface.]
+> Enforcement: [manual — verified by `installer/tests/test_uninstall.py` (unit + integration coverage of the three subcommands' semantics) and the v5.0.0 audit gate's INV-12 through INV-16 checks (completion audit moved to slop-process private repo). Uninstall is installer-scoped and runs against a real host's filesystem, outside ms-enforce's backend-repo drift surface.]
 
 ## Context
 
@@ -16,7 +16,7 @@ The defining feature of uninstall — and the load-bearing sentence in this ADR 
 
 The third movement is composition. The `clean` subcommand resets all mediastack-managed apps (managed containers and their volumes) while leaving mediastack itself running. This operation is structurally distinct from `uninstall` and `purge` — it does not stop the mediastack service, does not touch the install dir, does not touch the state file. What it does need is a way to enumerate the managed containers, dispatch a removal to each app's backend representation, and report per-app status. The backend already has this capability: `backend/manifests/executor.py::remove_app(key, delete_config=None)` implements a seven-step removal sequence (validate → stop → unregister → unwire → fragment → config → state), returns a rich `ExecutionResult` with per-step status, and is the same path the in-product UI takes for app removal via `frontend/src/views/AppDetailView.vue:410`. Operator verification at Step 4.1 design start confirmed the function is well-structured, actively maintained (commit a681874 split `_remove_inner` into per-phase helpers — testable, recoverable), and reliably reports failure modes per step. `clean` therefore composes with `executor.remove_app` rather than re-implementing per-app teardown in installer code. This is the highest-leverage design decision in the ADR; the alternative (duplicate the seven-step sequence in `installer/uninstall.py`) was considered and rejected on the reliability evidence.
 
-The contract this ADR establishes is consumed by `installer/uninstall.py` (the three subcommands' implementation in Step 4.1.b), by `installer/tests/test_uninstall.py` (the unit and integration tests in Step 4.1.c), by `backend/manifests/<compose-generator>` (the two-label application contract in §D), and by `docs/cleanup/COMPLETION_AUDIT_v5_0_0.md` (the audit gate's INV-12 through INV-16 checks in Step 4.5). It depends on `installer/state.py::read_state_file()` (Tier 1.3.c), `installer/post_install.py::_resolve_hostname()` (Tier 3.2.b — re-used by `clean`'s post-output), and the existing `backend/manifests/executor.py::remove_app()` (pre-v5 backend code). No new modules are required outside `installer/uninstall.py` itself; everything else extends or imports existing surface.
+The contract this ADR establishes is consumed by `installer/uninstall.py` (the three subcommands' implementation in Step 4.1.b), by `installer/tests/test_uninstall.py` (the unit and integration tests in Step 4.1.c), by `backend/manifests/<compose-generator>` (the two-label application contract in §D), and by the v5.0.0 completion audit (the audit gate's INV-12 through INV-16 checks in Step 4.5; moved to slop-process private repo). It depends on `installer/state.py::read_state_file()` (Tier 1.3.c), `installer/post_install.py::_resolve_hostname()` (Tier 3.2.b — re-used by `clean`'s post-output), and the existing `backend/manifests/executor.py::remove_app()` (pre-v5 backend code). No new modules are required outside `installer/uninstall.py` itself; everything else extends or imports existing surface.
 
 ## Scope
 
@@ -186,7 +186,7 @@ class RemovalVerification:
 
 The function performs no removals — it reads filesystem state, queries `systemctl`, `getent`, and `docker` via `installer._run.run_required` (Core Rule 5.27), and returns the structured result. The audit gate at Step 4.5 imports and calls this function (per IA-4: installer-importable, not a new `tools/` wrapper). Sonnet's Step 4.1.c tests cover the function in isolation: each U-predicate is exercised on synthetic post-action filesystem states, the §A.6/§A.6.5 skip behavior is exercised, and the diagnostic-command output is asserted to match the §B.3 failure-mode table.
 
-The function is the single point of audit-mode access. No code re-implements its checks inline. Future tooling — a hypothetical `mediastack status` subcommand, a CI harness for migration testing, a `tools/check-uninstall-residue.py` if ever extracted — imports and consumes `verify_removed()` rather than duplicating the checks.
+The function is the single point of audit-mode access. No code re-implements its checks inline. Future tooling — a hypothetical `mediastack status` subcommand, a CI harness for migration testing, a check-uninstall-residue.py if ever extracted — imports and consumes `verify_removed()` rather than duplicating the checks.
 
 ### §B — `uninstall` and `purge` shared structure
 
@@ -625,11 +625,11 @@ The substantive code and document changes that follow from this ADR:
 - `tools/install-smoke` harness is extended for INV-12 through INV-16 verification on dev VMs (extends the install-smoke pattern from Step 3.2.d's INV-7 through INV-11 harness work).
 - Paired-commit retag of ADR 0013's forward references: §1 Scope ("ADR 0014's subject" → "ADR 0017's subject"), §3 boundary 4 ("ADR 0014" → "ADR 0017"), INV-4 ("label set per ADR 0014" → "label set per ADR 0017 §D"). The retag commit is small and mechanical; bundling with this ADR's substantive content is acceptable.
 - Paired-commit retag of ADR 0015's forward reference: INV-11 ("along with everything else INV-4 lists" → "along with the rest of ADR 0017 INV-13's predicates").
-- Paired-commit edit of `V5_INSTALLER_PLAN.md`: Step 4.1.a "Write `docs/adr/0014-uninstall-semantics.md`" → "Write `docs/adr/0017-uninstall-semantics.md`."
-- Paired-commit IA-5 baseline capture: `docs/cleanup/ms_enforce_baseline_2026_05_18.txt` (or whatever date is at apply time) captured by Sonnet via `ms-enforce --fast` at apply-time, before the uninstall ADR's prose commit lands. The uninstall ADR's Consequences cite this file as the content-level baseline; the v5.0.0 audit gate cites the same file.
+- Paired-commit edit of V5_INSTALLER_PLAN.md (moved to slop-process private repo): Step 4.1.a "Write docs/adr/0014-uninstall-semantics.md" → "Write `docs/adr/0017-uninstall-semantics.md`." (0014 was the originally planned ADR number; 0017 is the actual number assigned)
+- Paired-commit IA-5 baseline capture: ms_enforce_baseline_2026_05_18.txt (moved to slop-process private repo; or whatever date is at apply time) captured by Sonnet via `ms-enforce --fast` at apply-time, before the uninstall ADR's prose commit lands. The uninstall ADR's Consequences cite this file as the content-level baseline; the v5.0.0 audit gate cites the same file.
 - Core Rule 5.26 (installer hardcoded paths) is unaffected — `uninstall.py` reads `<install_dir>` and `<data_dir>` from the state file exclusively; no literal paths are added.
-- `docs/agent-context/CITATIONS.md` gains three entries (per operator request, drafts at the end of this document): `COMPOSE-WITH-BACKEND`, `ADR-0017-INV-13`, `LABEL-SCHEME`. Sonnet's apply-session lands these.
-- `docs/cleanup/COMPLETION_AUDIT_v5_0_0.md` (Step 4.5.a, future work) verifies INV-12 through INV-16 against the three target distros. The audit-gate findings list extends: finding 3 ("uninstall+purge leaves no mediastack files behind") gains explicit INV-12 + INV-13 + INV-14 verification, finding 11 ("ADRs land") adds ADR 0017 to the required-landed list, finding 7 (structural audit clean) extends to INV-15 (label-application content-level check).
+- docs/agent-context/CITATIONS.md (removed from public repo; moved to slop-process private repo) gains three entries (per operator request, drafts at the end of this document): `COMPOSE-WITH-BACKEND`, `ADR-0017-INV-13`, `LABEL-SCHEME`. Sonnet's apply-session lands these.
+- The v5.0.0 completion audit (Step 4.5.a, future work; moved to slop-process private repo) verifies INV-12 through INV-16 against the three target distros. The audit-gate findings list extends: finding 3 ("uninstall+purge leaves no mediastack files behind") gains explicit INV-12 + INV-13 + INV-14 verification, finding 11 ("ADRs land") adds ADR 0017 to the required-landed list, finding 7 (structural audit clean) extends to INV-15 (label-application content-level check).
 
 ## What this does NOT govern
 
@@ -656,7 +656,7 @@ The substantive code and document changes that follow from this ADR:
 
 **Duplicate `executor.remove_app`'s seven-step sequence in `installer/uninstall.py`.** Rejected per the operator's verification at design start. The backend's `remove_app` is well-structured (commit a681874 split `_remove_inner` into per-phase helpers; the function returns rich `ExecutionResult` per step; the UI calls it via the same path). Re-implementing the sequence in installer code would create two parallel implementations to maintain, with predictable divergence over time (the backend evolves; the installer copy lags; bugs surface). Composition with the backend is the right shape; the cost is the HTTP round-trip per app and a dependency on the backend being `active (running)` (§C.4 pre-condition), both of which are accepted.
 
-**Standalone `tools/check-uninstall-residue.py` for audit-mode verification.** Rejected per IA-4 (tools/ subprocess wrapper duplication concern). `installer/uninstall.py::verify_removed()` is installer-importable; the audit gate consumes it directly. A new `tools/` script would extend F-OF-3's duplication (the existing `tools/check-readiness.py` and `tools/capture-step33-evidence.py` already inline-re-implement Core Rule 5.27's `run_required` wrapper). Avoiding the structural debt's growth is the right choice for v5.0; the F-OF-3 structural fix (extract `tools/_run.py`) remains deferred-post-v5.0.
+**Standalone check-uninstall-residue.py for audit-mode verification.** Rejected per IA-4 (tools/ subprocess wrapper duplication concern). `installer/uninstall.py::verify_removed()` is installer-importable; the audit gate consumes it directly. A new tools/ script would extend F-OF-3's duplication (the existing check-readiness.py and capture-step33-evidence.py already inline-re-implement Core Rule 5.27's `run_required` wrapper; both moved to slop-process private repo). Avoiding the structural debt's growth is the right choice for v5.0; the F-OF-3 structural fix (extract tools/_run.py) remains deferred-post-v5.0.
 
 **`uninstall` removes apt-installed packages (Docker engine, Node.js, Python 3.11, curl, netcat-openbsd, git).** Rejected per D3 rationale. The operator consented to install these (interactively or via `--install-docker=yes`); the operator decides removal. The installer is not the right tool to remove apt packages; the operator's distribution's package manager is. INSTALL.md documents the manual `apt purge` invocation for operators who want full system rollback.
 
@@ -677,7 +677,7 @@ Accepted; implemented in V5_INSTALLER_PLAN.md Step 4.1.b (`installer/uninstall.p
 
 Depends on the paired-commit edits to ADR 0013 (§1 Scope, §3 boundary 4, INV-4 forward references), ADR 0015 (INV-11 forward reference), V5_INSTALLER_PLAN.md (Step 4.1.a's ADR-number citation), and the backend's compose-fragment generator (two-label application per §D.2). All paired edits land in the same commit-sequence as this ADR; the prose commit is not standalone-mergeable without the paired retags.
 
-Depends on the IA-5 baseline capture (`docs/cleanup/ms_enforce_baseline_2026_05_18.txt` or contemporaneous date) landing before this ADR's prose commit, so the audit gate's content-level reference is stable.
+Depends on the IA-5 baseline capture (ms_enforce_baseline_2026_05_18.txt or contemporaneous date; moved to slop-process private repo) landing before this ADR's prose commit, so the audit gate's content-level reference is stable.
 
 Revisit when:
 
@@ -694,7 +694,7 @@ Revisit when:
 
 # Appendix — CITATIONS.md entry candidates
 
-The three entries below are drafted for Sonnet to add to `docs/agent-context/CITATIONS.md` during the apply-session for this ADR. Each entry follows the cite-by-key shape established by the existing `D10-clean`, `D10-purge`, and `ADR-0013-INV-4` entries (per operator confirmation at the framing-correction round).
+The three entries below are drafted for Sonnet to add to docs/agent-context/CITATIONS.md (removed from public repo; moved to slop-process private repo) during the apply-session for this ADR. Each entry follows the cite-by-key shape established by the existing `D10-clean`, `D10-purge`, and `ADR-0013-INV-4` entries (per operator confirmation at the framing-correction round).
 
 ## Entry 1: `COMPOSE-WITH-BACKEND`
 
