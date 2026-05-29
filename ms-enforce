@@ -1388,6 +1388,20 @@ def check_merge_log_completeness() -> tuple[bool, str]:
     script = REPO / "tools" / "audit_merge_log_completeness.py"
     if not script.exists():
         return True, "audit_merge_log_completeness.py not present (skip)"
+def check_status_file_freshness() -> tuple[bool, str]:
+    """Tier 1 (S-69-E): status-file freshness audit — warn-only.
+
+    Shells out to tools/audit_status_file_freshness.py which checks:
+    - Status files where "Last updated" == "Started" despite merged streams
+      (file was never updated during the run, only at initial write).
+    - Active run: status files not updated within --max-stale-min minutes.
+
+    Clean pass when no active run directory exists.
+    Always returns True (warn-only; visibility, not blocking).
+    """
+    script = REPO / "tools" / "audit_status_file_freshness.py"
+    if not script.exists():
+        return True, "audit_status_file_freshness.py not present (skip)"
 
     venv_py = REPO / ".venv" / "bin" / "python3"
     py = str(venv_py) if venv_py.exists() else "python3"
@@ -1426,6 +1440,15 @@ def check_merge_log_completeness() -> tuple[bool, str]:
             summary += f"\n    ... and {len(warnings) - 5} more"
         return True, "WARNING — " + summary  # always True — warn-only
     return True, "all merge commits have a MERGE-LOG audit trail"
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if lines:
+        detail = f"{len(lines)} status-file freshness warning(s):\n"
+        detail += "\n".join(f"    {ln[:120]}" for ln in lines[:5])
+        if len(lines) > 5:
+            detail += f"\n    ... and {len(lines) - 5} more"
+        return True, f"WARNING — {detail}"
+    return True, "status-file freshness clean (no active run or all files current)"
 
 
 # ── Runner ────────────────────────────────────────────────────────────────
@@ -1482,6 +1505,8 @@ TIER_1: list[tuple[str, object]] = [
     ("Orchestrator prompt format — git-base/models/preamble (warn only)", check_orchestrator_prompt_format),
     # ── Merge-log completeness (S-69-D) ───────────────────────────────────
     ("Merge-log completeness — every merge has audit trail (warn only)", check_merge_log_completeness),
+    # ── Status-file freshness audit (S-69-E) ──────────────────────────────
+    ("Status-file freshness — run update discipline (warn only)", check_status_file_freshness),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
