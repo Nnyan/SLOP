@@ -49,6 +49,24 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-29 — wave/S-73-wave-authoring-rigor
+
+- **Method:** tools/merge_wave_to_main.py
+- **Operator/Caller:** stack
+- **Pre-merge main HEAD:** `02769fe57c30b62947c3e4a4ef6e6322ff4fb057`
+- **Branches merged (in order):**
+  1. `wave/S-73-wave-authoring-rigor` → merge commit `ff27adb4d19f792859e940edafcf746940268dc6`
+- **Post-merge main HEAD:** `ff27adb4d19f792859e940edafcf746940268dc6`
+- **Pushed to origin:** yes — `ff27adb` (pushed via lift-push-restore by Manager session post-merge, 2026-05-29)
+- **Pre-flight checks run:**
+  - working-tree: CLEAN
+  - branch-exists:wave/S-73-wave-authoring-rigor: OK
+  - status:wave/S-73-wave-authoring-rigor: COMPLETE
+  - diff:wave/S-73-wave-authoring-rigor: OK (11 diff-stat lines)
+  - ms-enforce:wave/S-73-wave-authoring-rigor: PASS (branch-isolated; pre-flight [5/5] reported OK — the captured separator line is the known cosmetic logging wart)
+- **Notes:** batch-7. S-73-WAVE-AUTHORING-RIGOR — 5 streams (A opus / B opus / C sonnet / D haiku / E sonnet), all merged into the wave branch by the orchestrator. Manager review confirmed: merge-tree dry-run conflict-free vs current main (wave change-set disjoint from the in-run external docs push `02769fe`); MERGE-1 keep-both ROBOT.md subsections in correct order, no `merge=union`, no leftover markers; MERGE-2 doctrine references `preflight_wave.py` (no stale `preflight_harness.py`); MERGE-3 fixture verified. Stray untracked `_TEMPLATE.md` + old `.bak` removed pre-merge; 5 stream worktrees + wave/stream branches pruned post-merge. Open cosmetic follow-up: test file `tests/test_preflight_harness.py` still tests `tools/preflight_wave.py` (rename in batch-8 sweep).
+
+
 ## 2026-05-29 — docs/wave-draft-s73
 
 - **Method:** tools/merge_wave_to_main.py
