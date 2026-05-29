@@ -150,7 +150,8 @@ async def _query_llm_for_diagnosis(prompt: str) -> str | None:
         import json as _json
         import httpx
         from backend.core.state import StateDB
-        from backend.health.checker import _dispatch_llm_call, _load_provider_config
+        from backend.health.checker import _load_provider_config
+        from backend.agent.router.dispatch import route_and_dispatch
 
         provider, api_key, model, cloud_providers = _load_provider_config()
 
@@ -165,9 +166,16 @@ async def _query_llm_for_diagnosis(prompt: str) -> str | None:
             model = cfg.get("ollama_model", "phi4-mini")
 
         async with httpx.AsyncClient(timeout=30) as client:
-            return await _dispatch_llm_call(
-                client, prompt, base_url, provider, api_key, model, cloud_providers
+            # route_and_dispatch routes every per-provider call through
+            # _dispatch_llm_call (scrub preserved) and degrades to the legacy
+            # single-provider path on empty chain / router error. Returns ''
+            # on all-failed; preserve today's None-on-failure semantics.
+            raw = await route_and_dispatch(
+                client, prompt, cfg,
+                ollama_url=base_url, model=model, api_key=api_key,
+                cloud_providers=cloud_providers,
             )
+            return raw if raw else None
     except Exception:
         return None
 
