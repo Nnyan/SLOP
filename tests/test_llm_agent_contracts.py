@@ -396,8 +396,11 @@ class TestOllamaUrlDefault:
     def test_scheduler_ollama_default_is_docker_hostname(self):
         """Scheduler must use http://ollama:11434 not localhost (unreachable in Docker)."""
         src = (REPO / "backend" / "health" / "scheduler.py").read_text()
-        # Should NOT have localhost as the default
-        defaults = re.findall(r'ollama_url.*?localhost', src)
+        # Match the "ollama_url" config key having a localhost default value.
+        # Use the quoted key form to avoid false-positives where the Python
+        # variable `ollama_url` is assigned a llamacpp_url (which correctly
+        # defaults to localhost for the non-ollama provider path).
+        defaults = re.findall(r'"ollama_url"[^)]*?localhost', src)
         assert not defaults, (
             f"Scheduler uses localhost as ollama_url default — "
             f"unreachable from inside Docker containers: {defaults}"
