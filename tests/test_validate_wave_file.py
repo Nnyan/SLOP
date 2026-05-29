@@ -274,3 +274,183 @@ class TestInboundRefMismatch:
         assert failures == [], (
             f"Expected no failures for correct count claim, got: {failures}"
         )
+
+
+# ---------------------------------------------------------------------------
+# (d) Known false-positive wave files — all three must exit 0 after the fix
+# ---------------------------------------------------------------------------
+
+
+_WAVE_DIR = Path(__file__).resolve().parent.parent / ".claude" / "waves"
+
+
+class TestKnownFalsePositiveWaveFiles:
+    """Regression tests for the three wave files that previously triggered false
+    positives.  Each must exit 0 (or warn-only without failures) after the
+    heuristic improvements landed in S-67-E."""
+
+    def test_optional_file_size_remediation_exits_0(self) -> None:
+        """OPTIONAL-FILE-SIZE-REMEDIATION.md must exit 0.
+
+        Previously false-positived on ``api/platform.py`` — a path fragment
+        without a top-level dir prefix appearing in a narrative/table context.
+        The new heuristic skips tokens that don't start with a known top-level
+        directory prefix.
+        """
+        wave_path = _WAVE_DIR / "OPTIONAL-FILE-SIZE-REMEDIATION.md"
+        assert wave_path.exists(), f"Wave file not found: {wave_path}"
+        failures, _warnings = vwf.validate(wave_path)
+        assert failures == [], (
+            f"OPTIONAL-FILE-SIZE-REMEDIATION.md must not produce failures; got: {failures}"
+        )
+
+    def test_s46_pin_relax_exits_0(self) -> None:
+        """S-46-PIN-RELAX.md must exit 0.
+
+        Previously false-positived on ``backend/requirements.txt`` which is
+        explicitly marked for deletion in the wave (``(delete)`` suffix in the
+        parallelization table, dedicated ``A3. Delete`` section heading).  The
+        new heuristic skips paths on lines that contain delete-related keywords.
+        """
+        wave_path = _WAVE_DIR / "S-46-PIN-RELAX.md"
+        assert wave_path.exists(), f"Wave file not found: {wave_path}"
+        failures, _warnings = vwf.validate(wave_path)
+        assert failures == [], (
+            f"S-46-PIN-RELAX.md must not produce failures; got: {failures}"
+        )
+
+    def test_s59_access_requests_processor_exits_0(self) -> None:
+        """S-59-ACCESS-REQUESTS-PROCESSOR.md must exit 0.
+
+        Previously false-positived on ``/tmp/access-requests-setup.py`` —
+        an absolute system path mentioned in the Context section as an
+        historical/illustrative reference.  The new heuristic skips paths
+        that start with ``/tmp/`` (and other system path prefixes).
+        """
+        wave_path = _WAVE_DIR / "S-59-ACCESS-REQUESTS-PROCESSOR.md"
+        assert wave_path.exists(), f"Wave file not found: {wave_path}"
+        failures, _warnings = vwf.validate(wave_path)
+        assert failures == [], (
+            f"S-59-ACCESS-REQUESTS-PROCESSOR.md must not produce failures; got: {failures}"
+        )
+
+    def test_subprocess_optional_file_size_remediation_exits_0(self) -> None:
+        """Subprocess invocation against OPTIONAL-FILE-SIZE-REMEDIATION.md exits 0."""
+        wave_path = _WAVE_DIR / "OPTIONAL-FILE-SIZE-REMEDIATION.md"
+        assert wave_path.exists(), f"Wave file not found: {wave_path}"
+        rc, output = _run_validator(wave_path)
+        assert rc == 0, (
+            f"Expected exit 0 for OPTIONAL-FILE-SIZE-REMEDIATION.md, got {rc}.\n{output}"
+        )
+
+    def test_subprocess_s59_exits_0(self) -> None:
+        """Subprocess invocation against S-59-ACCESS-REQUESTS-PROCESSOR.md exits 0."""
+        wave_path = _WAVE_DIR / "S-59-ACCESS-REQUESTS-PROCESSOR.md"
+        assert wave_path.exists(), f"Wave file not found: {wave_path}"
+        rc, output = _run_validator(wave_path)
+        assert rc == 0, (
+            f"Expected exit 0 for S-59-ACCESS-REQUESTS-PROCESSOR.md, got {rc}.\n{output}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# (e) New heuristics — unit tests for the specific improvements
+# ---------------------------------------------------------------------------
+
+
+class TestTopLevelDirFilter:
+    """Paths without a known top-level dir prefix are silently skipped."""
+
+    def test_path_fragment_without_toplevel_prefix_skipped(self, tmp_path: Path) -> None:
+        """A bare fragment like ``api/platform.py`` (no ``backend/`` prefix) must not fail."""
+        wave = tmp_path / "wave-fragment.md"
+        wave.write_text(
+            "# Wave\n\n"
+            "## Context\n"
+            "e.g., wave agents fail on `executor.py` or `api/platform.py`.\n"
+        )
+        original_repo = vwf.REPO
+        try:
+            vwf.REPO = tmp_path
+            failures, _warnings = vwf.validate(wave)
+        finally:
+            vwf.REPO = original_repo
+        assert failures == [], f"Fragment without toplevel prefix must be skipped: {failures}"
+
+    def test_path_with_known_toplevel_prefix_checked(self, tmp_path: Path) -> None:
+        """A path starting with ``backend/`` IS checked against the repo."""
+        wave = tmp_path / "wave-has-prefix.md"
+        wave.write_text(
+            "# Wave\n\n"
+            "## Context\n"
+            "Uses `backend/api/nonexistent_router.py`.\n"
+        )
+        original_repo = vwf.REPO
+        try:
+            vwf.REPO = tmp_path  # file won't exist under tmp_path
+            failures, _warnings = vwf.validate(wave)
+        finally:
+            vwf.REPO = original_repo
+        assert any("backend/api/nonexistent_router.py" in f for f in failures), (
+            f"Path with known toplevel prefix must be checked; failures: {failures}"
+        )
+
+
+class TestDeleteSectionMarker:
+    """Paths in 'Authorized deletions' sections or on lines with 'delete' are skipped."""
+
+    def test_authorized_deletions_section_skips_paths(self, tmp_path: Path) -> None:
+        """Paths listed under an 'Authorized deletions' heading are NOT existence-checked."""
+        wave = tmp_path / "wave-authorized-deletions.md"
+        wave.write_text(
+            "# Wave\n\n"
+            "## Authorized deletions\n"
+            "- `backend/legacy_module.py` — stale, no references remain.\n"
+        )
+        original_repo = vwf.REPO
+        try:
+            vwf.REPO = tmp_path
+            failures, _warnings = vwf.validate(wave)
+        finally:
+            vwf.REPO = original_repo
+        assert failures == [], (
+            f"Paths in Authorized deletions section must be skipped: {failures}"
+        )
+
+    def test_line_with_delete_keyword_skips_path(self, tmp_path: Path) -> None:
+        """A path on a line that contains 'delete' is not existence-checked."""
+        wave = tmp_path / "wave-delete-keyword.md"
+        wave.write_text(
+            "# Wave\n\n"
+            "## Stream A\n"
+            "| A — deps | worktree | `backend/old_file.py` (delete), `uv.lock` |\n"
+        )
+        original_repo = vwf.REPO
+        try:
+            vwf.REPO = tmp_path
+            failures, _warnings = vwf.validate(wave)
+        finally:
+            vwf.REPO = original_repo
+        assert failures == [], (
+            f"Path on a line with 'delete' keyword must be skipped: {failures}"
+        )
+
+
+class TestSystemPathSkip:
+    """Paths starting with /tmp/, /var/, etc. are silently skipped."""
+
+    def test_tmp_path_skipped(self, tmp_path: Path) -> None:
+        """/tmp/ paths must not be checked for existence."""
+        wave = tmp_path / "wave-tmp-path.md"
+        wave.write_text(
+            "# Wave\n\n"
+            "## Context\n"
+            "Manual bootstrap used `/tmp/setup-script.py` (2026-05-29).\n"
+        )
+        original_repo = vwf.REPO
+        try:
+            vwf.REPO = tmp_path
+            failures, _warnings = vwf.validate(wave)
+        finally:
+            vwf.REPO = original_repo
+        assert failures == [], f"/tmp/ path must be skipped: {failures}"
