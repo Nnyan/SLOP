@@ -868,7 +868,13 @@ def check_logging_discipline() -> tuple[bool, str]:
     #   - backend/scripts/ are operator-facing CLI scripts; their print()
     #     calls are intentional UX output, not service logs (their output
     #     format is pinned by snapshot tests under Rule 4.11).
-    excluded_files = {"backend/core/logging.py"}
+    excluded_files = {
+        "backend/core/logging.py",
+        # backend/agent/router/cli.py is an operator-facing CLI
+        # (`python -m backend.agent.router status`); its print() output is the
+        # UX, same rationale as backend/scripts/ below (S-62-MS-ROUTER).
+        "backend/agent/router/cli.py",
+    }
     excluded_prefixes = ("backend/scripts/",)
     print_calls = 0
     logging_calls = 0

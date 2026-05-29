@@ -19,13 +19,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import Any
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _fetch_llm_agent_config() -> dict:
+def _fetch_llm_agent_config() -> dict[str, Any]:
     """Return the llm_agent_config dict from the settings DB, or {} on any error."""
     try:
         from backend.core.state import StateDB  # noqa: PLC0415
@@ -57,7 +58,7 @@ def _print_registry() -> None:
     print()
 
 
-def _print_available(cfg: dict) -> list[str]:
+def _print_available(cfg: dict[str, Any]) -> list[str]:
     """Print configured / available providers and return the list."""
     from backend.agent.router.registry import available_providers  # noqa: PLC0415
 
@@ -72,7 +73,7 @@ def _print_available(cfg: dict) -> list[str]:
     return providers
 
 
-def _print_dry_run(cfg: dict, providers: list[str]) -> None:  # noqa: C901
+def _print_dry_run(cfg: dict[str, Any], providers: list[str]) -> None:  # noqa: C901
     """Print a dry-run routing decision for a sample prompt.
 
     Requires backend.agent.router.selector and backend.agent.router.scoring
