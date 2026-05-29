@@ -69,6 +69,7 @@ Append a line to the appropriate category section using this format:
 - `[x]` **[allow] `Bash(ls /tmp)`** — Bare /tmp/ listing. Applied 2026-05-29.
 - `[x]` **[allow] `Read(/tmp/**)`** — Read tool access to /tmp/ for helper scripts. Applied 2026-05-29.
 - `[x]` **[allow] `Bash(.venv/bin/pip-audit *)`**, `Bash(pip-audit *)`, `Bash(/home/stack/code/slop/.venv/bin/pip-audit *)` — Three variants of pip-audit invocation paths. Applied 2026-05-29 alongside pip-audit install.
+- `[x]` **[allow] `.claude/waves/` + `.claude/run/` write access** (6 entries: Bash heredoc `cat >` patterns + Write/Edit tool globs for both paths). These paths leak in acceptEdits sessions per ROBOT.md doctrine v4 caveats — `.claude/` exemption list only covers commands/agents/skills/worktrees, not waves/ or run/. Orchestrator + processor sessions write to these constantly (wave drafts, status files, decision files). Requested by: this session 2026-05-29 (one prompt during S-59 wave draft heredoc). **Applied 2026-05-29 via `/tmp/apply-waves-run-allows.py` queue-bootstrap pattern.** Patterns added: `Bash(cat > /home/stack/code/slop/.claude/waves/*)`, `Bash(cat > /home/stack/code/slop/.claude/run/*)`, `Write(/home/stack/code/slop/.claude/waves/**)`, `Edit(/home/stack/code/slop/.claude/waves/**)`, `Write(/home/stack/code/slop/.claude/run/**)`, `Edit(/home/stack/code/slop/.claude/run/**)`.
 
 ## `[deny]` — Settings deny-list additions
 
