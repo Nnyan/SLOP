@@ -1092,6 +1092,79 @@ def check_adr_present_for_breaking_change() -> tuple[bool, str]:
     return True, msg  # warning, not blocking
 
 
+def check_llm_outbound_scrubbed() -> tuple[bool, str]:
+    """ADR 0018: cloud-bound LLM calls must pass through scrub() before dispatch.
+
+    Verifies that backend/health/checker.py::_dispatch_llm_call routes text
+    destined for cloud providers through scrub() before the HTTP call.
+    Fails if the scrub import or the scrub() call-site is absent.
+
+    NOTE: this check is expected to FAIL until Stream C (S-61) wires scrub()
+    into _dispatch_llm_call.  A clean violation message is correct; a Python
+    traceback inside this function is a bug in the check itself.
+    """
+    checker = REPO / "backend" / "health" / "checker.py"
+    if not checker.exists():
+        return False, "backend/health/checker.py not found"
+
+    src = checker.read_text(encoding="utf-8")
+
+    # 1. The function _dispatch_llm_call must exist
+    if "_dispatch_llm_call" not in src:
+        return False, "backend/health/checker.py: _dispatch_llm_call not found"
+
+    # 2. scrub must be imported
+    has_import = (
+        "from backend.agent.scrub import scrub" in src
+        or "from backend.agent import scrub" in src
+        or "import scrub" in src
+    )
+    if not has_import:
+        return (
+            False,
+            "backend/health/checker.py: missing 'from backend.agent.scrub import scrub' "
+            "— ADR-0018 requires scrub() to be imported before use on cloud path",
+        )
+
+    # 3. scrub() must be called somewhere in the function body — locate the
+    #    function via AST and check for a scrub() call within it.
+    try:
+        tree = ast.parse(src, filename=str(checker))
+    except SyntaxError as exc:
+        return False, f"backend/health/checker.py: SyntaxError — {exc}"
+
+    dispatch_fn: ast.AsyncFunctionDef | ast.FunctionDef | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
+            if node.name == "_dispatch_llm_call":
+                dispatch_fn = node
+                break
+
+    if dispatch_fn is None:
+        return False, "backend/health/checker.py: _dispatch_llm_call AST node not found"
+
+    # Walk the function body for a Call to scrub(...)
+    scrub_called = False
+    for node in ast.walk(dispatch_fn):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id == "scrub":
+                scrub_called = True
+                break
+            if isinstance(func, ast.Attribute) and func.attr == "scrub":
+                scrub_called = True
+                break
+
+    if not scrub_called:
+        return (
+            False,
+            "backend/health/checker.py::_dispatch_llm_call does not call scrub() "
+            "on the cloud path — ADR-0018 violation; wire Stream C to fix",
+        )
+
+    return True, "_dispatch_llm_call routes cloud text through scrub() (ADR-0018 satisfied)"
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1132,6 +1205,8 @@ TIER_1: list[tuple[str, object]] = [
     ("Wave-file preflight — path/ref claims (warn only)", check_wave_file_preflight),
     # ── BACKLOG coverage audit (wave S-56-E) ──────────────────────────────
     ("BACKLOG coverage — floating-work audit (warn only)", check_backlog_coverage),
+    # ── LLM outbound scrub gate (ADR-0018 / S-61 Stream B) ────────────────
+    ("LLM outbound scrub — cloud path through scrub() (ADR-0018)", check_llm_outbound_scrubbed),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
