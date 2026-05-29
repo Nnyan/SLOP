@@ -79,7 +79,7 @@ checks, unverified merges).
   3. Added missing TIER_1 registration for `check_walkback_log` (the Edit that didn't apply previously) — separate commit
 - **Branches merged (in order):**
   1. `wave/S-59-access-requests-processor` (no-ff) → merge commit `fa90d02` (with one additive ms-enforce conflict resolved keep-both: check_walkback_log + check_access_requests_stale)
-  2. (mid-step) S-59 A↔B adapter fix per `.claude/run-archive/2026-05-29-batch5/decisions/S-59-AB-interface-gap.md` exact snippet
+  2. (mid-step) S-59 A↔B adapter fix per S-59-AB-interface-gap.md decision record (run-archive; untracked) exact snippet
   3. `wave/S-63-router-wiring-and-cost` (no-ff, clean tip `e48516b`) → merge commit `a726ace`
   4. `wave/S-64-agent-safe-autofix` (no-ff) → merge commit `adb3cd8`
 - **Post-merge main HEAD:** (audit-log commit on top after this entry) — push step follows
@@ -130,6 +130,6 @@ checks, unverified merges).
   - Full pytest re-run skipped (orchestrators already verified; operator chose to trust the audit trail rather than re-run a 2400-test suite)
 - **Notes:**
   - First entry under the new merge-log convention (created same day, 2026-05-29).
-  - Operator-manual method used because `tools/merge-wave-to-main.py` doesn't exist yet (S-59 Stream D scope, in-flight).
+  - Operator-manual method used because `tools/merge_wave_to_main.py` didn't exist yet at this batch (shipped in S-59 Stream D).
   - `--ff-only` failed on first attempt (main had the docs/MERGE-LOG.md commit ahead of the wave branches' base); switched all merges to `--no-ff`. Wave-branch merges proceeded clean — no conflicts, the orchestrators' "additive ms-enforce + disjoint files" claim held.
   - Stream C snapshot-regression lesson from S-58 will be captured for AUTONOMOUS-DEFAULTS doctrine update in the next commit (same batch).

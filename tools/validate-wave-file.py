@@ -97,9 +97,59 @@ _DELIVERABLE_HEADINGS = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+# Section headings or line markers that indicate paths are being DELETED or
+# are purely illustrative — existence checks are skipped in these contexts.
+_DELETE_SECTION_HEADINGS = re.compile(
+    r"^#{1,6}\s+(authorized\s+deletions?|delete|deletions?)",
+    re.IGNORECASE,
+)
+
+# Line-level keywords that signal a path is being DELETED (not claimed-existing).
+# Matches patterns like "(delete)", "delete backend/foo.py", etc.
+_DELETE_KEYWORDS = re.compile(
+    r"\b(delete|deleted|deleting|authorized\s+deletions?)\b",
+    re.IGNORECASE,
+)
+
+# Line-level keywords that signal a path is illustrative / not a real claim.
+_ILLUSTRATIVE_KEYWORDS = re.compile(
+    r"\b(example|illustrative|e\.g\.|e\.g,|for\s+example|such\s+as)\b",
+    re.IGNORECASE,
+)
+
+# Known top-level directories in this repository.  A path fragment that does
+# NOT start with one of these is almost certainly a partial path reference or a
+# narrative mention — not a concrete claim about a repo-relative path.
+# Also includes dot-directories that hold project config/tooling.
+_KNOWN_TOP_LEVEL_DIRS = (
+    "backend/",
+    "catalog/",
+    "cli/",
+    "data/",
+    "docs/",
+    "frontend/",
+    "installer/",
+    "migrations/",
+    "secrets/",
+    "tests/",
+    "tools/",
+    ".claude/",
+    ".github/",
+)
+
 # Path prefixes to skip entirely — run artifacts whose existence depends on
-# whether the wave has already been executed.
-_SKIP_PATH_PREFIXES = (".claude/run/",)
+# whether the wave has already been executed, plus system paths (/tmp/, etc.)
+# that are never repo-relative.
+_SKIP_PATH_PREFIXES = (
+    ".claude/run/",
+    "/tmp/",
+    "/var/",
+    "/opt/",
+    "/etc/",
+    "/usr/",
+    "/home/",
+    "/srv/",
+)
 
 # Backtick-quoted tokens: `something`
 _BACKTICK_RE = re.compile(r"`([^`\n]+)`")
@@ -179,7 +229,17 @@ def _is_command_invocation(backtick_content: str) -> bool:
     return bool(_COMMAND_PREFIXES.match(content))
 
 
-def _classify_path(token: str, line: str, in_deliverable_section: bool) -> str:
+def _has_known_top_level_prefix(token: str) -> bool:
+    """Return True if token starts with a known top-level repo directory."""
+    return any(token.startswith(d) for d in _KNOWN_TOP_LEVEL_DIRS)
+
+
+def _classify_path(
+    token: str,
+    line: str,
+    in_deliverable_section: bool,
+    in_delete_section: bool,
+) -> str:
     """Return 'new', 'existing', or 'skip'."""
     token = token.strip()
     # Skip tokens that look like URLs.
@@ -191,8 +251,23 @@ def _classify_path(token: str, line: str, in_deliverable_section: bool) -> str:
     # Skip tokens with shell/template placeholders.
     if "<" in token or ">" in token or "{" in token or "}" in token:
         return "skip"
-    # Skip run-artifact paths.
+    # Skip run-artifact paths and system paths (/tmp/, /var/, etc.).
     if _is_skipped_path(token):
+        return "skip"
+    # Skip path fragments that don't start with a known top-level dir.
+    # These are almost always partial path mentions or narrative examples,
+    # not concrete claims about repo-relative file existence.
+    if not _has_known_top_level_prefix(token):
+        return "skip"
+    # Skip paths inside "Authorized deletions" sections or lines with
+    # delete-related keywords — these paths are being removed, not asserted
+    # to exist.
+    if in_delete_section:
+        return "skip"
+    if _DELETE_KEYWORDS.search(line):
+        return "skip"
+    # Skip paths on lines that are explicitly illustrative/example.
+    if _ILLUSTRATIVE_KEYWORDS.search(line):
         return "skip"
     # If the line has new-file keywords, classify as new.
     if _NEW_KEYWORDS.search(line):
@@ -240,11 +315,13 @@ def _extract_paths(content: str) -> list[tuple[str, str]]:
 
     lines = content.splitlines()
     in_deliverable = False
+    in_delete = False
 
     for line in lines:
         # Track section headings.
         if re.match(r"^#{1,6}\s+", line):
             in_deliverable = bool(_DELIVERABLE_HEADINGS.match(line))
+            in_delete = bool(_DELETE_SECTION_HEADINGS.match(line))
 
         # Find command-invocation ranges to exclude from bare-token extraction.
         cmd_ranges = _command_ranges(line)
@@ -257,7 +334,7 @@ def _extract_paths(content: str) -> list[tuple[str, str]]:
             if _is_command_invocation(m.group(1)):
                 continue
             if _is_path_candidate(raw):
-                cls = _classify_path(raw, line, in_deliverable)
+                cls = _classify_path(raw, line, in_deliverable, in_delete)
                 if cls != "skip":
                     raw_results.append((raw, cls))
 
@@ -270,7 +347,7 @@ def _extract_paths(content: str) -> list[tuple[str, str]]:
             if _in_command_range(word_m.start(), cmd_ranges):
                 continue
             if _is_path_candidate(word):
-                cls = _classify_path(word, line, in_deliverable)
+                cls = _classify_path(word, line, in_deliverable, in_delete)
                 if cls != "skip":
                     raw_results.append((word, cls))
 

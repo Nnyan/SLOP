@@ -125,12 +125,12 @@
     },
     {
       "category": "tests",
-      "lines": 1202,
+      "lines": 1205,
       "path": "tests/test_api_coverage.py"
     },
     {
       "category": "tests",
-      "lines": 2933,
+      "lines": 2937,
       "path": "tests/test_comprehensive_contracts.py"
     },
     {

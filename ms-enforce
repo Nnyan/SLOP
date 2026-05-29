@@ -1240,6 +1240,36 @@ def check_walkback_log() -> tuple[bool, str]:
     return True, summary  # warn-only: True means pass
 
 
+def check_orchestrator_prompt_format() -> tuple[bool, str]:
+    """Tier 1 (S-69-C): orchestrator prompt format audit — warn-only.
+
+    Runs tools/audit_orchestrator_prompt_format.py against wave files and
+    run-archive records, checking for:
+      1. Explicit git rev-parse origin/main base (not bare HEAD)
+      2. Per-stream model assignments in the Parallelization section
+      3. Subagent preamble reference in the Robot mode section (S-56+)
+
+    Always returns True (warn-only, never blocking).
+    """
+    script = REPO / "tools" / "audit_orchestrator_prompt_format.py"
+    if not script.exists():
+        return True, "orchestrator-prompt-format scanner not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if not warning_lines:
+        return True, "all checked orchestrator prompt files pass format checks"
+    summary = f"WARNING — {len(warning_lines)} orchestrator prompt format issue(s):"
+    for ln in warning_lines[:5]:
+        summary += f"\n    {ln[:100]}"
+    if len(warning_lines) > 5:
+        summary += f"\n    ... and {len(warning_lines) - 5} more"
+    return True, summary  # always True — warn-only
+
+
 def check_access_requests_stale() -> tuple[bool, str]:
     """Tier 1 (S-59-C): access-requests queue health — warn-only.
 
@@ -1310,6 +1340,307 @@ def check_access_requests_stale() -> tuple[bool, str]:
     return True, f"{pending_count} pending entries, none older than {stale_threshold_days} days"
 
 
+def check_orchestrator_dispatch_pattern() -> tuple[bool, str]:
+    """Tier 1 (S-67-D): one-orchestrator-per-wave anti-pattern detector — warn-only.
+
+    Runs ``tools/audit_orchestrator_dispatch.py`` which scans
+    ``.claude/run-archive/*/status/*.md`` for evidence that separate orchestrator
+    sessions were launched per-wave rather than the doctrine ONE-per-batch.
+
+    Always returns True (warning only, never blocking) — the scanner emits
+    WARNING lines when it detects multiple different run-dirs each covering
+    disjoint wave-sets within the same hour.
+    """
+    script = REPO / "tools" / "audit_orchestrator_dispatch.py"
+    if not script.exists():
+        return True, "orchestrator-dispatch scanner not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    warnings = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if not warnings:
+        return True, out.strip().splitlines()[-1] if out.strip() else "no anti-pattern detected"
+    summary = f"WARNING — {len(warnings)} potential one-orchestrator-per-wave instance(s):\n"
+    summary += "\n".join(f"    {w}" for w in warnings[:5])
+    if len(warnings) > 5:
+        summary += f"\n    ... and {len(warnings) - 5} more"
+    return True, summary  # always True — warn-only
+
+
+def check_sanctioned_channels_complete() -> tuple[bool, str]:
+    """Tier 1 (S-68-E): every deny rule maps to a sanctioned tool OR a no-exceptions rationale.
+
+    Parses permissions.deny from .claude/settings.local.json and verifies each
+    rule is EITHER:
+      (a) listed in the REGISTRY section of docs/SANCTIONED-CHANNELS.md
+          (i.e., handled by a tool under tools/sanctioned/ or merge_wave_to_main.py), OR
+      (b) listed in the NO-EXCEPTIONS section of docs/SANCTIONED-CHANNELS.md
+          with a "no-exceptions-period" rationale.
+
+    Any deny rule absent from both sections is a gap — warns (never blocks).
+
+    Always returns True (warn-only TIER_1). Graduates to blocking when the
+    sanctioned-channels doctrine is mature enough for hard enforcement.
+    """
+    settings_path = REPO / ".claude" / "settings.local.json"
+    channels_path = REPO / "docs" / "SANCTIONED-CHANNELS.md"
+
+    if not settings_path.exists():
+        return True, ".claude/settings.local.json not found (skip)"
+    if not channels_path.exists():
+        return True, "docs/SANCTIONED-CHANNELS.md not found (skip)"
+
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return True, f"could not parse settings.local.json: {exc}"
+
+    deny_rules: list[str] = settings.get("permissions", {}).get("deny", [])
+    if not deny_rules:
+        return True, "no deny rules found — nothing to check"
+
+    try:
+        channels_text = channels_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        return True, f"could not read SANCTIONED-CHANNELS.md: {exc}"
+
+    # Collect all deny-rule strings mentioned in either table of SANCTIONED-CHANNELS.md.
+    # A rule is "covered" if its exact string appears in the channels doc anywhere
+    # inside a table row (surrounded by | characters).
+    covered: set[str] = set()
+    for line in channels_text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [c.strip() for c in stripped.split("|") if c.strip()]
+        if cells:
+            # First cell in a data row is the deny rule (backtick-quoted in the table)
+            raw = cells[0].strip("`").strip()
+            if raw and raw not in ("Deny rule", "---"):
+                covered.add(raw)
+
+    gaps: list[str] = [rule for rule in deny_rules if rule not in covered]
+
+    if gaps:
+        detail = "\n".join(f"    {g}" for g in gaps[:10])
+        suffix = f"\n    ... and {len(gaps) - 10} more" if len(gaps) > 10 else ""
+        return True, (
+            f"WARNING — {len(gaps)} deny rule(s) not covered by SANCTIONED-CHANNELS.md "
+            f"(no tool registered AND no no-exceptions rationale):\n{detail}{suffix}\n"
+            f"    Add each rule to docs/SANCTIONED-CHANNELS.md in either the\n"
+            f"    Registry table (sanctioned tool) or No-exceptions table."
+        )
+
+    return True, f"all {len(deny_rules)} deny rule(s) covered by SANCTIONED-CHANNELS.md"
+
+
+def check_backlog_stale() -> tuple[bool, str]:
+    """Tier 1 (S-69-A): BACKLOG triage discipline — bare [ ] entries older than 14 days.
+
+    Shells out to tools/audit_backlog_stale.py which parses docs/BACKLOG.md and
+    warns on any entry whose status token is bare `[ ]` (not scheduled, parked,
+    done, or won't-fix) AND whose 'Date added: YYYY-MM-DD' provenance is older
+    than 14 days.
+
+    Mechanical backing for the BACKLOG-triage doctrine:
+      CLAUDE.md § "BACKLOG triage — no item stays bare [ ] open"
+      .claude/ROBOT.md § "BACKLOG triage discipline"
+      .claude/AUTONOMOUS-DEFAULTS.md § "BACKLOG entry sits bare [ ] for >14 days"
+
+    Always returns True (warning only, never blocking). Items >14 days bare [ ]
+    are triage failures; the gate surfaces them, humans act.
+    Graduates to TIER_2/fail only after explicit future escalation decision.
+    """
+    scanner = REPO / "tools" / "audit_backlog_stale.py"
+    if not scanner.exists():
+        return True, "tools/audit_backlog_stale.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(scanner), "--repo", str(REPO)], timeout=30)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING:")]
+    if warning_lines:
+        detail = f"WARNING — {len(warning_lines)} stale bare [ ] entry/entries in BACKLOG.md:\n"
+        detail += "\n".join(f"    {ln[:120]}" for ln in warning_lines[:5])
+        if len(warning_lines) > 5:
+            detail += f"\n    ... and {len(warning_lines) - 5} more"
+        return True, detail  # always True — warn-only
+    # No stale entries — summarise the OK message from scanner stderr.
+    ok_lines = [ln for ln in out.splitlines() if ln.startswith("OK")]
+    summary = ok_lines[0] if ok_lines else "no stale bare [ ] entries in BACKLOG.md"
+    return True, summary
+
+
+def check_wave_subagent_preamble() -> tuple[bool, str]:
+    """Tier 1 (S-69-B): wave subagent preamble audit — warn-only.
+
+    Shells out to tools/audit_wave_subagent_preamble.py which parses every
+    .claude/waves/*.md file and warns when a wave's Robot-mode section omits
+    the three canonical subagent-preamble signals:
+      - venv-symlink (ln -sf .venv / "subagent preamble")
+      - file-creation-heredoc (Bash heredoc for new files)
+      - no-AskUserQuestion (never call AskUserQuestion)
+
+    Always returns True (warn-only). The goal is visibility for the operator
+    before batch dispatch, not hard CI blocking.
+    """
+    script = REPO / "tools" / "audit_wave_subagent_preamble.py"
+    if not script.exists():
+        return True, "audit_wave_subagent_preamble.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    ok_lines = [ln for ln in out.splitlines() if ln.startswith("OK")]
+
+    if warning_lines:
+        detail = f"{len(warning_lines)} wave file(s) missing preamble signals:\n"
+        detail += "\n".join(f"  {ln}" for ln in warning_lines[:5])
+        if len(warning_lines) > 5:
+            detail += f"\n  ... and {len(warning_lines) - 5} more"
+        return True, f"WARNING — {detail}"
+    if ok_lines:
+        return True, ok_lines[0]
+    return True, "wave subagent preamble audit complete (no output)"
+
+
+def check_merge_log_completeness() -> tuple[bool, str]:
+    """Tier 1 (S-69-D): merge-log completeness — warn-only.
+
+    Runs tools/audit_merge_log_completeness.py which walks git log for
+    merge commits and warns when no corresponding docs/MERGE-LOG.md entry
+    exists within 3 commits (before or after) or in the merge message itself.
+
+    Pre-MERGE-LOG-era merges are excluded (FP1). Always returns True (warn-only).
+    """
+    script = REPO / "tools" / "audit_merge_log_completeness.py"
+    if not script.exists():
+        return True, "audit_merge_log_completeness.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=60)
+    warnings = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if warnings:
+        summary = f"{len(warnings)} merge commit(s) with no MERGE-LOG audit trail:\n"
+        summary += "\n".join(f"    {ln[:100]}" for ln in warnings[:5])
+        if len(warnings) > 5:
+            summary += f"\n    ... and {len(warnings) - 5} more"
+        return True, "WARNING — " + summary  # always True — warn-only
+    return True, "all merge commits have a MERGE-LOG audit trail"
+
+
+def check_status_file_freshness() -> tuple[bool, str]:
+    """Tier 1 (S-69-E): status-file freshness audit — warn-only.
+
+    Shells out to tools/audit_status_file_freshness.py which checks:
+    - Status files where "Last updated" == "Started" despite merged streams
+      (file was never updated during the run, only at initial write).
+    - Active run: status files not updated within --max-stale-min minutes.
+
+    Clean pass when no active run directory exists.
+    Always returns True (warn-only; visibility, not blocking).
+    """
+    script = REPO / "tools" / "audit_status_file_freshness.py"
+    if not script.exists():
+        return True, "audit_status_file_freshness.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if lines:
+        detail = f"{len(lines)} status-file freshness warning(s):\n"
+        detail += "\n".join(f"    {ln[:120]}" for ln in lines[:5])
+        if len(lines) > 5:
+            detail += f"\n    ... and {len(lines) - 5} more"
+        return True, f"WARNING — {detail}"
+    return True, "status-file freshness clean (no active run or all files current)"
+
+
+def check_memory_staleness() -> tuple[bool, str]:
+    """Tier 1 (S-69 Stream F): memory-file staleness audit — warn-only.
+
+    Shells out to tools/audit_memory_staleness.py which scans the project
+    auto-memory directory for entries containing dated language (YYYY-MM-DD
+    dates) that are older than 60 days.  Warns → operator-driven prune.
+    Conservative: only flags entries with an explicit parseable date >60 days
+    old.  Never auto-deletes.  Always returns True (warn-only).
+    """
+    script = REPO / "tools" / "audit_memory_staleness.py"
+    if not script.exists():
+        return True, "audit_memory_staleness.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if not warning_lines:
+        return True, "no memory entries with dates older than 60 days"
+
+    detail = f"{len(warning_lines)} stale memory file(s) (operator-driven prune):\n"
+    detail += "\n".join(f"    {ln[:120]}" for ln in warning_lines[:5])
+    if len(warning_lines) > 5:
+        detail += f"\n    ... and {len(warning_lines) - 5} more"
+    return True, f"WARNING — {detail}"  # always True — warn-only
+
+
+def check_merge_worktree_pattern() -> tuple[bool, str]:
+    """Tier 1 (S-69-G): merge-worktree pattern — warn-only.
+
+    Shells out to tools/audit_merge_worktree_pattern.py to verify that wave-branch
+    merge operations (recorded in .claude/run-archive/) were performed in dedicated
+    .claude/worktrees/merge-* worktrees with detached HEAD, not in the shared main
+    working tree.
+
+    Introduced after the batch-5 retro documented two cross-session HEAD collisions
+    caused by the orchestrator and operator sharing the same working tree HEAD during
+    merge operations.
+
+    Always returns True (warn-only). Emits WARNING when archived run artifacts show
+    merges performed without dedicated-worktree evidence.
+    """
+    script = REPO / "tools" / "audit_merge_worktree_pattern.py"
+    if not script.exists():
+        return True, "audit_merge_worktree_pattern.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=60)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    violations   = [ln for ln in warning_lines if "[violation]" in ln]
+    low_conf     = [ln for ln in warning_lines if "[low-confidence]" in ln]
+
+    if not warning_lines:
+        return True, "merge-worktree pattern: all examined run artifacts compliant (or no archive)"
+
+    parts: list[str] = []
+    if violations:
+        parts.append(f"WARNING — {len(violations)} violation(s) (merge in shared worktree):")
+        parts.extend(f"  {ln[:120]}" for ln in violations[:3])
+        if len(violations) > 3:
+            parts.append(f"  ... and {len(violations) - 3} more")
+    if low_conf:
+        parts.append(
+            f"WARNING — {len(low_conf)} low-confidence item(s) "
+            "(pre-pattern historical runs expected; see tool docstring):"
+        )
+        parts.extend(f"  {ln[:120]}" for ln in low_conf[:3])
+        if len(low_conf) > 3:
+            parts.append(f"  ... and {len(low_conf) - 3} more")
+
+    return True, "\n".join(parts)  # always True — warn-only
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1356,6 +1687,24 @@ TIER_1: list[tuple[str, object]] = [
     ("LLM outbound scrub — cloud path through scrub() (ADR-0018)", check_llm_outbound_scrubbed),
     # ── Access-requests queue health (S-59-C) ─────────────────────────────
     ("Access-requests queue — stale entries (warn only)", check_access_requests_stale),
+    # ── Orchestrator dispatch pattern (S-67-D) ────────────────────────────
+    ("Orchestrator dispatch — one-per-batch doctrine (warn only)", check_orchestrator_dispatch_pattern),
+    # ── Sanctioned-channels completeness gate (S-68-E) ─────────────────────
+    ("Sanctioned channels — every deny has a tool or rationale (warn only)", check_sanctioned_channels_complete),
+    # ── BACKLOG stale triage discipline (S-69-A) ───────────────────────────
+    ("BACKLOG stale — bare [ ] entries >14 days (warn only)", check_backlog_stale),
+    # ── Wave subagent preamble audit (S-69-B) ─────────────────────────────
+    ("Wave subagent preamble — orchestrator dispatch rules (warn only)", check_wave_subagent_preamble),
+    # ── Orchestrator prompt format audit (S-69-C) ──────────────────────────
+    ("Orchestrator prompt format — git-base/models/preamble (warn only)", check_orchestrator_prompt_format),
+    # ── Merge-log completeness (S-69-D) ───────────────────────────────────
+    ("Merge-log completeness — every merge has audit trail (warn only)", check_merge_log_completeness),
+    # ── Status-file freshness audit (S-69-E) ──────────────────────────────
+    ("Status-file freshness — run update discipline (warn only)", check_status_file_freshness),
+    # ── Memory staleness audit (S-69 Stream F) ────────────────────────────
+    ("Memory staleness — dated entries >60d old (warn only)", check_memory_staleness),
+    # ── Merge-worktree pattern (S-69-G) ───────────────────────────────────
+    ("Merge-worktree pattern — dedicated worktrees for wave merges (warn only)", check_merge_worktree_pattern),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),

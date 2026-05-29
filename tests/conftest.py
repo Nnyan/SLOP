@@ -85,6 +85,77 @@ from backend.core.state import StateDB, init_db
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# CWD isolation — autouse, function-scoped (S-66 Stream B, Cluster 2b)
+# ──────────────────────────────────────────────────────────────────────────────
+# tests/test_merge_wave_to_main.py has 4 bare os.chdir() calls with no
+# restore, leaving cwd set to a tmp git repo. Downstream tests using
+# Path("relative/path") then fail silently.  This autouse fixture saves
+# and restores cwd around EVERY test, eliminating that pollution without
+# editing test_merge_wave_to_main.py (which S-68 owns).
+import os as _os
+
+
+@pytest.fixture(autouse=True)
+def _restore_cwd():
+    """Save and restore os.getcwd() around every test (S-66 cwd isolation)."""
+    _saved = _os.getcwd()
+    yield
+    _os.chdir(_saved)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# config.data_dir isolation — autouse, function-scoped (S-66 Stream B, Cluster 1)
+# ──────────────────────────────────────────────────────────────────────────────
+# Infra providers (GlanceDashboardProvider, HomepageProvider) call
+# cfg_dir.mkdir() using platform.config_root or config.data_dir.
+# In CI / sandbox, platform.config_root is NULL and config.data_dir
+# resolves to /srv/mediastack or /var/lib/mediastack — paths that don't
+# exist and aren't writable. Redirecting data_dir → tmp_path makes
+# providers write to an isolated temp directory, fixing the PermissionError
+# without touching product code.  compose_dir is a property derived from
+# data_dir, so it is automatically redirected as well.
+@pytest.fixture(autouse=True)
+def _isolate_config_data_dir(tmp_path: Path):
+    """Redirect config.data_dir (and derived compose_dir) to tmp_path (S-66)."""
+    from backend.core import config as _cfg_mod
+    _cfg = _cfg_mod.config
+    _orig = _cfg.data_dir
+    _new = tmp_path / "ms_data"
+    _new.mkdir(parents=True, exist_ok=True)
+    object.__setattr__(_cfg, "data_dir", _new)
+    yield
+    object.__setattr__(_cfg, "data_dir", _orig)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Event-loop isolation — autouse, function-scoped (S-66 Stream B, Cluster 2a)
+# ──────────────────────────────────────────────────────────────────────────────
+# asyncio.run() in test_llm_diagnose_refactor.py closes + clears the
+# current event loop.  Downstream tests in test_llm_models.py call
+# asyncio.get_event_loop().run_until_complete() which raises RuntimeError
+# when no loop is set.  Creating a fresh loop before each test ensures
+# get_event_loop() always succeeds for sync callers.
+# pytest-asyncio (strict mode) manages its own loop per async test and
+# always calls asyncio.set_event_loop(), so this fixture does not
+# interfere with async tests.
+@pytest.fixture(autouse=True)
+def _ensure_event_loop():
+    """Ensure a usable asyncio event loop exists before every test (S-66)."""
+    import asyncio
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                raise RuntimeError("closed")
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+    yield
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Community catalog pollution scrubber (step 2.6 Bucket D)
 # ──────────────────────────────────────────────────────────────────────────────
 # `catalog/community/` is gitignored and used in production for

@@ -142,9 +142,8 @@ verifying 13 findings across three categories:
 The audit caught and fixed five code bugs in installer/main.py,
 installer/uninstall.py, installer/user.py, and installer/fetch.py — all
 related to either pre-flight ordering or system-call tolerance for
-already-absent targets. Each fix is documented in
-`docs/cleanup/COMPLETION_AUDIT_v5_0_0.md` and
-`docs/cleanup/LESSONS_LEARNED.md`.
+already-absent targets. Each fix is documented in the v5.0.0 completion
+audit and lessons-learned records (moved to slop-process private repo).
 
 ---
 
@@ -158,18 +157,16 @@ The following are documented and deferred to future releases:
   release (Direction Decision D7).
 - **Pre-release tag semver ordering:** the operator install path correctly
   filters pre-release tags, but the underlying `_parse_v5_semver` does
-  not implement full semver pre-release ordering. Proper fix deferred per
-  `docs/TODO_2026_05_21_post_v5_0_0_proper_semver_pre_release.md`.
+  not implement full semver pre-release ordering. Proper fix tracked in
+  `docs/BACKLOG.md` (post-v5.0 work item).
 - **Pre-flight ordering for Docker checks:** Docker daemon and consent=no
-  edge cases fire after first writes. Deferred per
-  `docs/TODO_2026_05_22_post_v5_0_0_docker_preflight_ordering.md`. Does
+  edge cases fire after first writes. Tracked in `docs/BACKLOG.md`. Does
   not affect normal install path.
 - **F-07 structural-antipattern allowlist:** test infrastructure issue
-  (root-owned basetemp cascade) deferred per
-  `docs/TODO_2026_05_10_root_owned_test_files.md` (v4.3 backlog).
-- **F-08 known flakes:** documented in `docs/KNOWN_FLAKES.md`. The 104-test
-  PermissionError cascade and 3 `test_readiness_manifest.py` failures are
-  pre-existing infrastructure issues, not regressions.
+  (root-owned basetemp cascade) tracked in `docs/BACKLOG.md` (v4.3 backlog).
+- **F-08 known flakes:** The 104-test PermissionError cascade and 3
+  `test_readiness_manifest.py` failures are pre-existing infrastructure
+  issues, not regressions. Known-flakes doc moved to slop-process private repo.
 - **Rootless Docker, `--dry-run`, `mediastack uninstall-replay`, standalone
   `mediastack smoke`:** alternatives considered and deferred per ADRs
   0013/0015/0017.
@@ -199,8 +196,8 @@ v5.0.0 is the product of an extended development arc covering four tiers
 of work: foundation (Tier 1), core machinery (Tier 2), distro matrix and
 service contract (Tier 3), and the audit-gated release process (Tier 4).
 Architecture decisions are captured in ADRs 0013, 0015, 0016, and 0017.
-The audit gate is captured in `docs/cleanup/COMPLETION_AUDIT_v5_0_0.md`
-and the evidence archive at `docs/cleanup/audit_v5_0_0_evidence/`.
+The audit gate is captured in the v5.0.0 completion audit and evidence
+archive (moved to slop-process private repo after initial release sanitization).
 
 ---
 
@@ -209,7 +206,7 @@ and the evidence archive at `docs/cleanup/audit_v5_0_0_evidence/`.
 - **Repository:** https://github.com/Nnyan/SLOP
 - **Installation:** `docs/INSTALL.md`
 - **Architecture:** `docs/adr/`
-- **Audit document:** `docs/cleanup/COMPLETION_AUDIT_v5_0_0.md`
+- **Audit document:** v5.0.0 completion audit (moved to slop-process private repo)
 - **Glossary:** `docs/GLOSSARY.md`
 
 ---

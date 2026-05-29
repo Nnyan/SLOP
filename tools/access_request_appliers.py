@@ -457,13 +457,25 @@ def _upgrade_adapter(entry, *, dry_run, target_paths):
         return {"ok": False, "action": "", "error": str(exc)[:200]}
 
 
+def _settings_path_from(target_paths):
+    """Resolve the settings.local.json path the processor wants written.
+
+    The processor passes target_paths["settings_local"]; tests pass a tmp path
+    there. Honor it so the appliers never touch the REAL settings file during a
+    test run. Falls back to apply_*'s own default (the repo-relative file) when
+    no override is supplied.
+    """
+    sp = (target_paths or {}).get("settings_local")
+    return {"settings_path": sp} if sp is not None else {}
+
+
 def _allow_adapter(entry, *, dry_run, target_paths):
     # Extract the permission pattern from the entry's subject (handles both
     # backtick-wrapped `WebFetch(...)` and bare Bash(...) subjects). Passing the
     # whole entry dict here corrupts permissions.allow — see the deny/allow guard.
     try:
         pattern = _pkg_from_subject(entry.get("subject", "")) if isinstance(entry, dict) else entry
-        r = apply_allow(pattern, dry_run=dry_run)
+        r = apply_allow(pattern, dry_run=dry_run, **_settings_path_from(target_paths))
         return {"ok": True, "action": r.get("action", ""), "error": ""}
     except Exception as exc:
         return {"ok": False, "action": "", "error": str(exc)[:200]}
@@ -473,7 +485,8 @@ def _deny_adapter(entry, *, dry_run, target_paths):
     # Same subject-extraction as _allow_adapter (mirrors install/upgrade adapters).
     try:
         pattern = _pkg_from_subject(entry.get("subject", "")) if isinstance(entry, dict) else entry
-        r = apply_deny(pattern, dry_run=dry_run, allow_deny_additions=True)
+        r = apply_deny(pattern, dry_run=dry_run, allow_deny_additions=True,
+                       **_settings_path_from(target_paths))
         return {"ok": True, "action": r.get("action", ""), "error": ""}
     except Exception as exc:
         return {"ok": False, "action": "", "error": str(exc)[:200]}

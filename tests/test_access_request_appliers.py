@@ -404,3 +404,39 @@ class TestAdapterPassesString:
         settings_path = _make_settings(tmp_path)
         with pytest.raises(TypeError):
             apply_allow({"subject": "Bash(ls *)"}, settings_path=settings_path)
+
+
+# ---------------------------------------------------------------------------
+# Regression: adapters must honor target_paths["settings_local"] and never
+# write the REAL settings file during a test run (batch-6 /doctor finding —
+# a [deny] Bash(rm -rf *) fixture polluted the live settings via the default path)
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterHonorsTargetPath:
+    def _entry(self, category: str, subject: str) -> dict:
+        return {"category": category, "status": "pending", "subject": subject,
+                "raw_line": f"- `[ ]` **[{category}] {subject}**", "date": "2026-05-29",
+                "source": "TEST", "line_index": 0}
+
+    def test_deny_adapter_writes_to_target_path_not_default(self, tmp_path: Path) -> None:
+        target = tmp_path / "settings.local.json"
+        target.write_text(json.dumps({"permissions": {"allow": [], "deny": []}}) + "\n")
+        res = APPLIERS["deny"](self._entry("deny", "Bash(rm -rf *)"),
+                               dry_run=False,
+                               target_paths={"settings_local": target})
+        assert res["ok"] is True, res
+        # the supplied tmp file got the rule (as a STRING) ...
+        data = json.loads(target.read_text())
+        assert "Bash(rm -rf *)" in data["permissions"]["deny"]
+        assert all(isinstance(v, str) for v in data["permissions"]["deny"])
+
+    def test_allow_adapter_writes_to_target_path(self, tmp_path: Path) -> None:
+        target = tmp_path / "settings.local.json"
+        target.write_text(json.dumps({"permissions": {"allow": [], "deny": []}}) + "\n")
+        res = APPLIERS["allow"](self._entry("allow", "`WebFetch(domain:example.com)`"),
+                                dry_run=False,
+                                target_paths={"settings_local": target})
+        assert res["ok"] is True, res
+        data = json.loads(target.read_text())
+        assert "WebFetch(domain:example.com)" in data["permissions"]["allow"]
