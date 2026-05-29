@@ -521,6 +521,51 @@ This makes deletions visible at wave-design time (when errors can be caught)
 and lets the agent proceed autonomously when the wave designer has
 deliberately authorized them.
 
+### Sanctioned channels (S-68)
+
+Every entry in the Robot deny list is intentional. Over time, recurring
+wave-level operations (merge-to-main, post-wave push, recursive delete of
+generated files) require lifting specific denies — but doing so by hand-editing
+`.claude/settings.local.json` is error-prone and unaudited.
+
+**The sanctioned-channel toolkit** (`tools/sanctioned/`) solves this:
+
+```
+tools/sanctioned/
+  _lift_restore.py        # lift(), restore(), lifted() context manager
+  _audit.py               # write_entry() → docs/SANCTIONED-OPS-LOG.md
+  rm_recursive_safe.py    # recursive delete, project tree only
+  robot_settings.py       # lift/restore for push + operator handoff
+  force_push_tag.py       # force-push a single rewritten tag/ref
+  filter_branch_secret_scrub.py  # secret-scrub via git filter-branch
+tools/merge_wave_to_main.py      # merge wave branch to main (S-59-D)
+```
+
+**Invariant — every tool that lifts a deny MUST:**
+1. Call `lifted()` (or `lift()` / `restore()` in an explicit `try/finally`).
+2. Write an audit entry via `write_entry()` to `docs/SANCTIONED-OPS-LOG.md`
+   (merge ops continue to write to `docs/MERGE-LOG.md`).
+3. Restore the canonical wave-mode profile on SUCCESS AND on every ERROR path.
+   A tool that lifts and crashes before restore is a security hole.
+
+**Rule: every deny maps to a sanctioned tool OR a no-exceptions-period rationale.**
+
+- Denies in the registry section of `docs/SANCTIONED-CHANNELS.md` have a
+  dedicated sanctioned tool that is the ONLY authorized code path for the operation.
+- Denies in the no-exceptions section of `docs/SANCTIONED-CHANNELS.md` are
+  NEVER lifted by any tool, for any reason — the rationale is documented there.
+- Any deny not present in either section is a gap flagged by the
+  `check_sanctioned_channels_complete` TIER_1 gate in `ms-enforce` (warn-only).
+
+**Never hand-edit `.claude/settings.local.json` to work around a deny.**
+If a deny needs a legitimate one-time lift, the correct path is:
+```
+# Use the appropriate tool, e.g.:
+python3 tools/merge_wave_to_main.py wave/S-NN-topic
+python3 tools/sanctioned/robot_settings.py push-then-restore
+python3 tools/sanctioned/rm_recursive_safe.py <path-inside-repo>
+```
+
 ### Post-wave operator handoff
 
 The Robot deny list blocks `git checkout main`, `git switch main`, and `git push*`.

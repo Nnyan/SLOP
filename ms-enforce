@@ -1310,6 +1310,73 @@ def check_access_requests_stale() -> tuple[bool, str]:
     return True, f"{pending_count} pending entries, none older than {stale_threshold_days} days"
 
 
+def check_sanctioned_channels_complete() -> tuple[bool, str]:
+    """Tier 1 (S-68-E): every deny rule maps to a sanctioned tool OR a no-exceptions rationale.
+
+    Parses permissions.deny from .claude/settings.local.json and verifies each
+    rule is EITHER:
+      (a) listed in the REGISTRY section of docs/SANCTIONED-CHANNELS.md
+          (i.e., handled by a tool under tools/sanctioned/ or merge_wave_to_main.py), OR
+      (b) listed in the NO-EXCEPTIONS section of docs/SANCTIONED-CHANNELS.md
+          with a "no-exceptions-period" rationale.
+
+    Any deny rule absent from both sections is a gap — warns (never blocks).
+
+    Always returns True (warn-only TIER_1). Graduates to blocking when the
+    sanctioned-channels doctrine is mature enough for hard enforcement.
+    """
+    settings_path = REPO / ".claude" / "settings.local.json"
+    channels_path = REPO / "docs" / "SANCTIONED-CHANNELS.md"
+
+    if not settings_path.exists():
+        return True, ".claude/settings.local.json not found (skip)"
+    if not channels_path.exists():
+        return True, "docs/SANCTIONED-CHANNELS.md not found (skip)"
+
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return True, f"could not parse settings.local.json: {exc}"
+
+    deny_rules: list[str] = settings.get("permissions", {}).get("deny", [])
+    if not deny_rules:
+        return True, "no deny rules found — nothing to check"
+
+    try:
+        channels_text = channels_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        return True, f"could not read SANCTIONED-CHANNELS.md: {exc}"
+
+    # Collect all deny-rule strings mentioned in either table of SANCTIONED-CHANNELS.md.
+    # A rule is "covered" if its exact string appears in the channels doc anywhere
+    # inside a table row (surrounded by | characters).
+    covered: set[str] = set()
+    for line in channels_text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        cells = [c.strip() for c in stripped.split("|") if c.strip()]
+        if cells:
+            # First cell in a data row is the deny rule (backtick-quoted in the table)
+            raw = cells[0].strip("`").strip()
+            if raw and raw not in ("Deny rule", "---"):
+                covered.add(raw)
+
+    gaps: list[str] = [rule for rule in deny_rules if rule not in covered]
+
+    if gaps:
+        detail = "\n".join(f"    {g}" for g in gaps[:10])
+        suffix = f"\n    ... and {len(gaps) - 10} more" if len(gaps) > 10 else ""
+        return True, (
+            f"WARNING — {len(gaps)} deny rule(s) not covered by SANCTIONED-CHANNELS.md "
+            f"(no tool registered AND no no-exceptions rationale):\n{detail}{suffix}\n"
+            f"    Add each rule to docs/SANCTIONED-CHANNELS.md in either the\n"
+            f"    Registry table (sanctioned tool) or No-exceptions table."
+        )
+
+    return True, f"all {len(deny_rules)} deny rule(s) covered by SANCTIONED-CHANNELS.md"
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1356,6 +1423,8 @@ TIER_1: list[tuple[str, object]] = [
     ("LLM outbound scrub — cloud path through scrub() (ADR-0018)", check_llm_outbound_scrubbed),
     # ── Access-requests queue health (S-59-C) ─────────────────────────────
     ("Access-requests queue — stale entries (warn only)", check_access_requests_stale),
+    # ── Sanctioned-channels completeness gate (S-68-E) ─────────────────────
+    ("Sanctioned channels — every deny has a tool or rationale (warn only)", check_sanctioned_channels_complete),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
