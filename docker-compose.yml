@@ -35,8 +35,8 @@ services:
       # ── CRITICAL: mount at the same absolute path as MS_HOST_DATA_DIR ──
       - /srv/mediastack/data:/srv/mediastack/data
       - /srv/mediastack/config:/srv/mediastack/config
-      # Docker socket — required to manage host containers
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Docker socket — required to manage host containers (read-only: SLOP only reads)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       # .env — read by Mediastack AND by docker compose when starting apps
       - /srv/mediastack/.env:/srv/mediastack/.env
     environment:
