@@ -173,17 +173,30 @@ _MEDIUM_WAVE_OK = """\
 # S-MEDIUM-GOOD-WAVE
 
 ## Goal
-Multi-stream wave, some repo claims.
+Multi-stream additive wave with several repo claims.
 
 ## Complexity & Pre-flight
-**Tier: Medium.** Multiple streams; some repo claims; no shared symbols.
+**Tier: Medium.** Multiple streams; several repo claims; no shared symbols.
+
+## Parallelization
+**Models:** coordinator = **opus**, subagents = **sonnet**.
+
+| Stream | Model | Order | Subagent type | Scope |
+|---|---|---|---|---|
+| A — add tool a | _(blank → sonnet)_ | parallel | `general-purpose` in worktree | Add `tools/new_tool_a.py` |
+| B — add tool b | _(blank → sonnet)_ | parallel | `general-purpose` in worktree | Add `tools/new_tool_b.py` |
+| C — add tool c | _(blank → sonnet)_ | parallel | `general-purpose` in worktree | Add `tools/new_tool_c.py` |
+| D — extend validator | _(blank → sonnet)_ | parallel | `general-purpose` in worktree | Extend `tools/validate-wave-file.py` |
 
 ## Deliverables per stream
 ### Stream A
-1. Add `tools/new_tool_a.py` (new file).
-
+1. Add `tools/new_tool_a.py` (new file). `tools/validate-wave-file.py` exists today.
 ### Stream B
-1. Extend `tools/validate-wave-file.py`.
+1. Add `tools/new_tool_b.py`. `tools/wave_complexity.py` exists today.
+### Stream C
+1. Add `tools/new_tool_c.py`. `README.md` exists today.
+### Stream D
+1. Extend `tools/validate-wave-file.py`. `ms-enforce` exists today.
 """
 
 _MEDIUM_WAVE_NO_TIER_DECL = """\
