@@ -179,7 +179,7 @@ Supporting non-apt families requires substantially different installer code:
 - Different default user database (sssd in some RHEL configurations).
 
 The Tier 2 installer's `installer/deps_debian.py` module is the sole OS-deps
-surface in v5.0. Expanding to Fedora requires a parallel `installer/deps_fedora.py`
+surface in v5.0. Expanding to Fedora requires a parallel <!-- TEMPLATE: installer/deps_fedora.py --> (v5.1+ planned; does not exist yet)
 with its own boundary tests, its own dependency-version contract, and its own
 VM matrix row in Step 3.3 / audit Step 4.5. This is v5.1+ scope (per
 `V5_INSTALLER_PLAN.md` D4 and `NON-GOALS`), or post-v5.0 fully-Docker rebuild

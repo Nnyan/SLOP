@@ -15,7 +15,7 @@
 Mediastack offers user-facing extension points in two places:
 
 1. **Custom catalog manifests.** Users can drop a YAML file into `catalog/community/` (or use the API to install one from a GitHub URL) to add a new app to their catalog. The community catalog is gitignored — entries are user-supplied and not curated.
-2. **Custom infra providers.** A user could conceivably add `backend/infra/providers/auth_my_custom_sso.py` to support an auth backend not shipped with Mediastack.
+2. **Custom infra providers.** A user could conceivably add <!-- TEMPLATE: backend/infra/providers/auth_my_custom_sso.py --> (a hypothetical example; this file does not exist) to support an auth backend not shipped with Mediastack.
 
 Beyond those two, every other extension would require **a plugin system**: a documented stable API surface that third-party Python code can target, dynamically loaded at runtime, with versioning and isolation guarantees.
 

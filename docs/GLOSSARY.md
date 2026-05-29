@@ -59,7 +59,7 @@ Bare terms with multiple in-use senses. Use the qualified form in new writing:
 
 ### ADR (Architecture Decision Record)
 
-**Definition.** A numbered durable record at `docs/adr/NNNN-name.md` documenting the *why* of an architectural decision in Context / Decision / Consequences / Status format. ADRs are immutable once accepted; superseded ADRs stay in the directory with `Status: Superseded` and a `Supersedes:` link in the replacement.
+**Definition.** A numbered durable record at <!-- TEMPLATE: docs/adr/NNNN-name.md --> (e.g., `docs/adr/0001-database-migrations.md`) documenting the *why* of an architectural decision in Context / Decision / Consequences / Status format. ADRs are immutable once accepted; superseded ADRs stay in the directory with `Status: Superseded` and a `Supersedes:` link in the replacement.
 
 **Scope.** All decisions that constrain code structure: library choices, thresholds, exception clauses, enforcement mechanisms.
 

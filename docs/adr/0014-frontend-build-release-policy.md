@@ -91,7 +91,7 @@ matches Option C and accepts the ADR accordingly.
 For source-based installs (git clone of a development branch without
 pre-built artifacts), `build_frontend()` runs the full npm pipeline as
 before. Option C applies specifically to tagged-release installs where
-`backend/static/index.html` is already present in the checkout.
+<!-- TEMPLATE: backend/static/index.html --> (gitignored; only present in tagged release artifacts, not in dev checkouts) is already present in the checkout.
 
 Tier 3 VM disk-usage data is moot under Option C since npm never runs on
 tagged installs. The network-dependency and disk-footprint costs named in
