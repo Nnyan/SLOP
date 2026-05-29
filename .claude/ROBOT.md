@@ -389,12 +389,21 @@ git worktree remove .claude/worktrees/merge-S-NN
    _not-mechanically-enforced (self-referential; no audit artifact produced)_
 3. Read the wave file end-to-end — confirm streams, models, deliverables.
    _not-mechanically-enforced (pre-run intent; auditable only via presence of status file)_
-4. **Pre-flight fact-check:** spot-check the wave file's factual claims
-   against the actual repo. At minimum: every named file path exists with the
-   content the wave claims; every named inbound-reference count is current.
-   This catches wave-design errors before they propagate (S-47 lesson: the
-   wave had docker-compose labels inverted).
-   _not-mechanically-enforced (judgment step; outcome visible in decision files)_
+4. **Pre-flight fact-check (complexity-gated):** compute the wave's tier via
+   `python3 tools/wave_complexity.py <wave-file>` (final stdout line is the
+   bare tier: `Low`, `Medium`, or `High`).  Run the matching rigor level as
+   defined in "### Complexity-gated pre-flight" under "## Wave file conventions":
+   - **Low** → run `tools/validate-wave-file.py <wave-file>`.
+   - **Medium** → Low + one fact-check subagent on the wave's factual claims.
+   - **High** → Medium + processor-contract-pinned check + cross-wave
+     disjointness + edited-wave consistency.
+   **BLOCK dispatch if any check returns FALSE.**  Warnings do not block.
+   Write the verdict to `.claude/run/preflight/<wave-name>.md` (DISPATCH-OK or
+   BLOCKED, with per-claim detail).  The pre-flight harness
+   (`tools/preflight_harness.py`, Stream E, S-73) automates this for
+   batch-8+; for S-73 itself the High-tier rigor is run manually (the
+   tooling is what this wave builds).
+   _enforced at startup by pre-flight harness (Stream E, S-73); outcome visible in `.claude/run/preflight/`_
 5. Create `.claude/run/status/<wave>.md` with start-time. **Use a Bash heredoc,
    not the Write tool, for any new file** (see "File creation pattern" below).
    → enforced by `check_status_file_freshness` (warn-only TIER_1 in ms-enforce, S-69-E)
@@ -688,6 +697,52 @@ Two operating patterns; pick whichever fits the moment:
 
   **Never** hand-edit `.claude/settings.local.json` to lift a deny — always use
   a sanctioned tool so the lift-restore discipline and audit trail are enforced.
+
+### Complexity-gated pre-flight
+_added S-73-C; enforced at orchestrator startup step 4 (see "Orchestrator startup sequence")_
+
+The pre-flight rigor the orchestrator applies at startup scales with the wave's
+complexity tier, computed mechanically by `tools/wave_complexity.py` (Stream B,
+S-73).  Three tiers, three rigor levels:
+
+- **Low** = `tools/validate-wave-file.py` only.
+  The cheap mechanical gate: every named claimed-existing path must exist on
+  disk; every exact inbound-reference count must match `grep -r`.  Exits 0 on
+  pass, 1 on failure.  A failure BLOCKS dispatch.
+
+- **Medium** = Low + one fact-check subagent.
+  After the mechanical gate passes, dispatch a single `general-purpose` subagent
+  to fact-check the wave's factual prose claims (e.g. "file X does Y", "count N
+  references").  Any claim the subagent proves **FALSE** BLOCKS dispatch.  Claims
+  it cannot verify (missing context, approximate language) are WARN-only and do
+  NOT block.
+
+- **High** = Medium + processor-contract-pinned check + cross-wave disjointness
+  + edited-wave consistency.
+  After the Medium checks pass:
+  1. **Processor-contract-pinned check:** every symbol declared as PINNED in the
+     wave's "Deliverables" section must appear verbatim in at least one stream's
+     Deliverables block.  A PINNED symbol absent from ALL streams' Deliverables
+     BLOCKS dispatch.
+  2. **Cross-wave disjointness:** for each file the wave modifies or creates,
+     confirm no other in-flight wave (a `wave/*` branch present in the local
+     repo) claims the same file.  An overlap BLOCKS dispatch (requires explicit
+     coordination note in the wave's "Cross-wave dependencies" section to clear).
+  3. **Edited-wave consistency:** if the wave edits an existing file (vs. creating
+     a new one), re-read the live file and confirm its current content is
+     consistent with the wave's description of what it claims to modify.  A
+     factual mismatch (e.g. wave says "step 4 says X" but step 4 says Y) BLOCKS
+     dispatch.
+
+**Result artifact:** all pre-flight runs write
+`.claude/run/preflight/<wave-name>.md` listing each check, its PASS/FALSE/WARN
+verdict, and an overall `DISPATCH-OK` or `BLOCKED` verdict.  Stream E
+(`tools/preflight_harness.py`) is the implementation; it consumes B's
+`score_wave()` and the tier strings `"Low"` / `"Medium"` / `"High"`.
+
+**Conservative by design:** mirrors `tools/validate-wave-file.py`'s philosophy —
+BLOCK only on clearly FALSE claims.  Missing-but-to-be-created paths, approximate
+claims, and stylistic issues are WARN-only and never block dispatch.
 
 ## How Robot mode improves over time
 
