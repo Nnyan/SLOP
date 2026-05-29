@@ -10,6 +10,34 @@ nothing dangerous can happen because the settings deny it.
 Robot mode is OPT-IN per session. A user launches a wave "in Robot mode" by
 prefixing the prompt. Regular interactive sessions are unaffected.
 
+## BACKLOG triage discipline (added 2026-05-29)
+
+`docs/BACKLOG.md` is **not a forever-parking lot**. Every entry MUST be in one of four
+explicit states — pure `[ ]` open without an assigned target is not a valid end state:
+
+- `[→ S-NN-stream]` scheduled into a specific wave + stream
+- `[park]` deferred WITH a documented re-eval trigger (when/why we'll revisit)
+- `[x]` done (kept for provenance; prune after 60 days)
+- `[—]` won't fix / superseded with reason
+
+**Before any new batch fires:** review BACKLOG's open items. Each one must be
+(a) folded into a wave going out in this batch, (b) explicitly parked with a trigger,
+or (c) explicitly denied. Items that have been bare `[ ]` for >14 days are a
+process failure — they indicate the triage discipline lapsed.
+
+**Cleanup waves are how pre-existing failures get fixed.** The "fix all pre-existing
+failures inside any wave" rule was rightly walked back — focused waves don't expand
+scope. The inverse is enshrined here: **dedicated cleanup waves are how accumulated
+pre-existing issues get drained.** S-57 (TIER_2 cleanup), S-58 (TestClient sweep),
+S-66 (post-S-58 unmask cleanup), S-67 (doc + tooling hygiene) are all instances of
+this pattern. Whenever BACKLOG accumulates ≥10 open items in a single category, draft
+a cleanup wave; don't let the category grow unbounded.
+
+**Mechanical enforcement:** `tools/audit_backlog_stale.py` (planned in S-67 alongside
+the orchestrator-dispatch gate) will flag entries that have been bare `[ ]` for >14
+days. Until that ships, the operator-assist session does this check by hand before
+each batch-planning conversation.
+
 ## When to use it
 
 - Overnight or away-from-keyboard runs of mechanical waves.

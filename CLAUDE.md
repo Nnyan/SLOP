@@ -7,6 +7,21 @@ Backend: FastAPI + Python (`backend/`). Frontend: Vue 3 + TypeScript (`frontend/
 Catalog: YAML manifests for 56 installable apps (`catalog/apps/`).
 Backend tests run against a local venv; no external server required for unit tests.
 
+## BACKLOG triage — no item stays bare `[ ]` open
+
+`docs/BACKLOG.md` is not a forever-parking lot. Every entry must be in one of:
+`[→ S-NN-stream]` (scheduled), `[park]` (with documented re-eval trigger),
+`[x]` (done), or `[—]` (won't fix with reason). Pure `[ ]` without an assigned
+target is not a valid long-term state.
+
+Pre-batch planning includes a BACKLOG review. Items >14 days bare `[ ]` are
+triage failures, not normal pending. Cleanup waves (S-57, S-58, S-66, S-67
+pattern) are how accumulated pre-existing work gets drained — the no-fix-all-
+failures rule applies to focused waves, NOT to dedicated cleanup waves.
+
+Reference: `.claude/ROBOT.md` § "BACKLOG triage discipline" and
+`.claude/AUTONOMOUS-DEFAULTS.md` § "BACKLOG entry sits bare `[ ]` for >14 days".
+
 ## Robot mode dispatch — ONE orchestrator per batch (not one per wave)
 
 When firing the next Robot batch, the default is **ONE Opus orchestrator session
