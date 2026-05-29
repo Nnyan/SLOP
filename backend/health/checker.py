@@ -587,10 +587,10 @@ async def _llm_diagnose(
 
     start = time.monotonic()
     try:
+        from backend.agent.router.dispatch import route_and_dispatch  # scrub path preserved
         async with httpx.AsyncClient(timeout=50) as client:
-            raw = await _dispatch_llm_call(
-                client, prompt, ollama_url, provider, api_key, model, cloud_providers,
-            )
+            raw = await route_and_dispatch(  # keeps per-provider _dispatch_llm_call scrub
+                client, prompt, {"provider": provider, "api_key": api_key, "enabled": True}, ollama_url=ollama_url, model=model, api_key=api_key, cloud_providers=cloud_providers)
             raw = await _maybe_rag_expand(
                 raw, prompt, app_key, ollama_url, model, logs,
             )
