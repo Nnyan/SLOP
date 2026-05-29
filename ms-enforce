@@ -624,26 +624,109 @@ def check_track_status() -> tuple[bool, str]:
 
 
 def check_referenced_files() -> tuple[bool, str]:
-    """Tier 1: orphan-file detector (wave S-48-TRACK-GATE Stream B).
+    """Tier 1: orphan/doc-audit check (S-48-TRACK-GATE Stream B + S-56 Stream C).
 
-    Runs ``tools/check_referenced_files.py`` to find tracked files with zero
-    inbound references.  Always returns True (warning-only, never blocking) —
-    orphan detection is a nudge for humans, not a hard gate.  Files under 30
-    days old and files in ``.orphan-allowlist`` are excluded.
+    Runs ``tools/check_referenced_files.py`` which performs four checks:
+    1. Generic orphan detection — tracked files with zero inbound refs > 30 days.
+    2. Broken Markdown links in docs/ — [text](path) or `path` pointing to
+       non-existent files.
+    3. Doc orphans — tracked .md files in docs/ with zero inbound refs > 30 days.
+    4. Doc MAP coverage — tracked docs/ .md files absent from docs/MAP.md.
+
+    Always returns True (warning-only, never blocking).  Categories are tagged
+    in the WARNING lines as ``[doc-broken-link]``, ``[doc-orphan]``,
+    ``[doc-missing-from-MAP]``, or generic orphan warnings.
     """
     script = REPO / "tools" / "check_referenced_files.py"
     if not script.exists():
         return True, "orphan-file script not present (skip)"
     _rc, out = _run(["python3", str(script)], timeout=120)
     # Always True — this check is warning-only.
-    warnings = [line for line in out.splitlines() if line.startswith("WARNING")]
-    if warnings:
-        summary = f"{len(warnings)} orphan file(s) detected (warning only):\n"
-        summary += "\n".join(f"    {w}" for w in warnings[:5])
-        if len(warnings) > 5:
-            summary += f"\n    ... and {len(warnings) - 5} more"
-        return True, summary
-    return True, "no orphan files detected (or all within grace window / allowlist)"
+    all_warnings = [line for line in out.splitlines() if line.startswith("WARNING")]
+    if not all_warnings:
+        return True, "no issues detected (orphans, broken links, MAP coverage all clean)"
+
+    # Categorise for a structured summary.
+    orphans = [w for w in all_warnings if "orphan file" in w and "[doc-" not in w]
+    broken_links = [w for w in all_warnings if "[doc-broken-link]" in w]
+    doc_orphans = [w for w in all_warnings if "[doc-orphan]" in w]
+    map_missing = [w for w in all_warnings if "[doc-missing-from-MAP]" in w]
+
+    parts: list[str] = []
+    if orphans:
+        parts.append(f"  {len(orphans)} generic orphan file(s):")
+        for w in orphans[:3]:
+            parts.append(f"    {w}")
+        if len(orphans) > 3:
+            parts.append(f"    ... and {len(orphans) - 3} more")
+    if broken_links:
+        parts.append(f"  {len(broken_links)} broken doc link(s):")
+        for w in broken_links[:3]:
+            parts.append(f"    {w}")
+        if len(broken_links) > 3:
+            parts.append(f"    ... and {len(broken_links) - 3} more")
+    if doc_orphans:
+        parts.append(f"  {len(doc_orphans)} doc orphan(s):")
+        for w in doc_orphans[:3]:
+            parts.append(f"    {w}")
+        if len(doc_orphans) > 3:
+            parts.append(f"    ... and {len(doc_orphans) - 3} more")
+    if map_missing:
+        parts.append(f"  {len(map_missing)} doc(s) missing from MAP.md:")
+        for w in map_missing[:3]:
+            parts.append(f"    {w}")
+        if len(map_missing) > 3:
+            parts.append(f"    ... and {len(map_missing) - 3} more")
+
+    total = len(all_warnings)
+    summary = f"{total} total warning(s) (all warn-only):\n" + "\n".join(parts)
+    return True, summary
+
+
+def check_backlog_coverage() -> tuple[bool, str]:
+    """Tier 1: BACKLOG coverage audit (wave S-56-E) — warn-only.
+
+    Runs three floating-work scanners:
+      tools/audit_todos.py            — code TODO/FIXME/HACK/XXX markers
+      tools/audit_archived_observations.py — archive files with future-work signals
+      tools/audit_wave_out_of_scope.py     — wave out-of-scope bullets not in BACKLOG
+
+    Exits 0 always (visibility, not blocking). Emits WARNING when any scanner
+    finds items not referenced in docs/BACKLOG.md.
+    """
+    todo_script = REPO / "tools" / "audit_todos.py"
+    obs_script  = REPO / "tools" / "audit_archived_observations.py"
+    oos_script  = REPO / "tools" / "audit_wave_out_of_scope.py"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    results = []
+    total_untracked = 0
+
+    for script, label in [
+        (todo_script, "todos"),
+        (obs_script,  "observations"),
+        (oos_script,  "wave-oos"),
+    ]:
+        if not script.exists():
+            results.append(f"    {label}: script not present (skip)")
+            continue
+        _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=60)
+        lines = [ln for ln in out.splitlines() if ln.startswith("UNTRACKED") or ln.startswith("CANDIDATE")]
+        total_untracked += len(lines)
+        if lines:
+            results.append(f"    {label}: {len(lines)} untracked item(s)")
+            results.extend(f"      {ln[:100]}" for ln in lines[:3])
+            if len(lines) > 3:
+                results.append(f"      ... and {len(lines) - 3} more")
+        else:
+            results.append(f"    {label}: clean")
+
+    detail = f"{total_untracked} total untracked item(s) across scanners:\n" + "\n".join(results)
+    if total_untracked == 0:
+        return True, "all floating-work scanners clean — BACKLOG.md is current"
+    return True, f"WARNING — {detail}"  # always True — warn-only
 
 
 def check_wave_file_preflight() -> tuple[bool, str]:
@@ -1047,6 +1130,8 @@ TIER_1: list[tuple[str, object]] = [
     ("Orphan files — zero inbound refs (warn only)", check_referenced_files),
     # ── Wave-file preflight validator (wave S-55-DEPS-AND-TOOLING Stream C) ─
     ("Wave-file preflight — path/ref claims (warn only)", check_wave_file_preflight),
+    # ── BACKLOG coverage audit (wave S-56-E) ──────────────────────────────
+    ("BACKLOG coverage — floating-work audit (warn only)", check_backlog_coverage),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
