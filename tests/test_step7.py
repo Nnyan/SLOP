@@ -302,7 +302,7 @@ class TestHealthAPI:
         import backend.core.state as sm
         from backend.api.main import app
         from fastapi.testclient import TestClient
-        with TestClient(app) as c:
+        with TestClient(app, base_url="http://localhost") as c:
             sm.configure(db)
             yield c
 

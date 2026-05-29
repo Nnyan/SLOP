@@ -46,7 +46,7 @@ def api_client(ready_platform: Path):
     import backend.core.state as sm
     from backend.api.main import app
     from fastapi.testclient import TestClient
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://localhost") as c:
         sm.configure(ready_platform)
         yield c
 

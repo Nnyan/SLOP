@@ -42,7 +42,7 @@ def db_path(tmp_path):
 def client(db_path):
     from fastapi.testclient import TestClient
     from backend.api.main import app
-    return TestClient(app, raise_server_exceptions=False)
+    return TestClient(app, base_url="http://localhost", raise_server_exceptions=False)
 
 
 @pytest.fixture
