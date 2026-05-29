@@ -253,14 +253,37 @@ Resuming saved ~30 min of redundant agent work with no quality loss.
 ## Category: tool / settings / permission
 
 ### A tool call would prompt for permission (not on allow list)
-**Default:** Settings should catch this. If the agent foresees the prompt, halt
-the action and write a decision file naming the tool + arguments + why it was
-needed.
-**Escalate:** always — missed allow entries are a settings update for next run.
+**Default:** Append an entry to `docs/ACCESS-REQUESTS.md` under the `[allow]`
+category describing the missing permission, why it's needed, and the
+exact tool-pattern string. Then either: (a) take an alternate path that
+IS on the allow list (preferred when possible), or (b) halt the stream
+with a blocker referencing the queue entry.
+**Escalate:** never — the queue file is the canonical path. The processor
+(manual today, automated via S-59) applies the change. Do NOT call
+AskUserQuestion; do NOT modify settings.local.json directly.
+
+### A package needs to be installed (pip / uv / system)
+**Default:** Append an entry to `docs/ACCESS-REQUESTS.md` under the
+`[install]` category. Then either: (a) take an alternate path that doesn't
+need the package (preferred when possible), or (b) halt the stream with a
+blocker referencing the queue entry. The S-49 refresh-train integration
+(planned in S-59) will pick up `[install]` entries and add them to
+`requirements*.txt` automatically.
+**Escalate:** never — same as the allow-list case.
+
+### A package needs to be upgraded beyond what S-49 refresh-train auto-resolves
+**Default:** Append an entry to `docs/ACCESS-REQUESTS.md` under the
+`[upgrade]` category, naming the package, the current version, the desired
+version, and what's blocking the auto-resolution (e.g., a transitive cap
+from another dep). The S-49 train handles routine upgrades; the
+access-requests queue handles the exceptional cases.
+**Escalate:** never.
 
 ### `.claude/settings.local.json` modification is needed
-**Default:** Forbidden during Robot run. Write decision file with the proposed
-settings change for morning review.
+**Default:** Forbidden during Robot run. Append an entry to
+`docs/ACCESS-REQUESTS.md` under the appropriate category (`[allow]` or
+`[deny]`). The queue is the canonical path; do not write a settings-change
+decision file or hand-edit settings.local.json.
 
 ### A bash command needs a new flag or pattern not on the allow list
 **Default:** Try a different command pattern that IS on the allow list. If no

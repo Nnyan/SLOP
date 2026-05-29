@@ -70,7 +70,12 @@ prefixing the prompt. Regular interactive sessions are unaffected.
 
 8. **NEVER modify `.claude/settings.local.json` or `~/.claude/**`** during a
    Robot run. Settings are immutable for the duration. If you think you need
-   a new permission, write a decision file.
+   a new permission, append an entry to `docs/ACCESS-REQUESTS.md` per the
+   convention in that file (categories: `[install]`, `[upgrade]`, `[allow]`,
+   `[deny]`). The processor (manual today, automated via S-59) handles the
+   actual settings change later. Do NOT write a decision file for this — the
+   access-requests queue is the canonical path for needs you can't satisfy
+   directly.
 
 9. **One try on test failures.** Do not aggressively retry. If a stream's tests
    fail, write a blocker file with the failing output, halt the stream.

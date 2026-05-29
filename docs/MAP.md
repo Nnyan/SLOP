@@ -26,6 +26,9 @@ they don't ship.
 ## Wave / project state
 - .claude/waves/ — active wave prompt files
 - CHANGELOG.md — release-tagged change history
+- docs/BACKLOG.md — broader project work queue
+- docs/ACCESS-REQUESTS.md — tracked install/upgrade/allow-list requests (queue file, processed by tools/process_access_requests.py per S-59; see ROBOT.md doctrine integration)
+- docs/RULES-TO-TESTS-AUDIT.md — CLAUDE.md rules audited for testability (S-50 Stream C output, S-55 Stream B consumer)
 
 ## Catalog
 - catalog/MANIFEST_SPEC.md — app manifest format
