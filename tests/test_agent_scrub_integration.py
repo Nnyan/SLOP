@@ -236,3 +236,51 @@ class TestLocalProviderPassthrough:
         assert "192.168.1.50" in content, (
             f"ollama provider should receive raw IP; content={content!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Regression (batch-6 / POST-BATCH6-WAVE-MAP direct fix): the scrub decision
+# must key off the SAME cloud_providers set routing uses — NOT only the canonical
+# _CLOUD_PROVIDERS constant. A provider in the routing set but missing from the
+# constant must still be scrubbed (else a silent egress leak).
+# ---------------------------------------------------------------------------
+
+class TestScrubFollowsRoutingSet:
+    def test_provider_in_routing_set_but_not_constant_is_scrubbed(self) -> None:
+        import asyncio
+        import httpx
+        from backend.core.agent import _CLOUD_PROVIDERS
+        from backend.health import checker
+
+        rogue = "newcloud-provider"
+        assert rogue not in _CLOUD_PROVIDERS, "test premise: rogue must be absent from the constant"
+
+        seen = {}
+
+        async def _fake_cloud(client, prompt, provider, api_key, model):
+            seen["prompt"] = prompt          # capture what routing would send out
+            return _FAKE_CLOUD_BODY
+
+        async def _inner():
+            with patch.object(checker, "_call_cloud_provider", _fake_cloud):
+                client = httpx.AsyncClient()
+                # rogue IS in the routing cloud set → routed to _call_cloud_provider
+                return await _dispatch_llm_call(
+                    client, _SENSITIVE_PROMPT, "http://ignored:11434",
+                    rogue, "fake-key", "test-model", {rogue},
+                )
+
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_inner())
+        finally:
+            loop.close()
+
+        assert "prompt" in seen, "rogue provider was not routed to the cloud path"
+        assert "/opt/mediastack" not in seen["prompt"], (
+            f"LEAK: raw path sent to cloud-routed provider absent from _CLOUD_PROVIDERS; got {seen['prompt']!r}"
+        )
+        assert "192.168.1.50" not in seen["prompt"], "LEAK: raw IP sent to cloud-routed provider"
+        assert any(ph in seen["prompt"] for ph in ("<PATH>", "<IP>", "<APP>", "<USER>")), (
+            "scrub() did not run for a provider in the routing set but not the constant"
+        )

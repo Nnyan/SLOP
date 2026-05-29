@@ -402,7 +402,7 @@ async def _dispatch_llm_call(client: httpx.AsyncClient, prompt: str,
     allow_raw: when True, skip scrub() even for cloud providers (opt-out).
     Default False means cloud-bound prompts are always scrubbed (ADR-0018).
     """
-    if is_external(provider) and not allow_raw:
+    if (is_external(provider) or provider in cloud_providers) and not allow_raw:
         prompt = scrub(prompt)
     if provider == "ollama":
         return await _call_ollama(client, prompt, ollama_url, model)
