@@ -1360,6 +1360,24 @@ def check_backlog_stale() -> tuple[bool, str]:
     scanner = REPO / "tools" / "audit_backlog_stale.py"
     if not scanner.exists():
         return True, "tools/audit_backlog_stale.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(scanner), "--repo", str(REPO)], timeout=30)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING:")]
+    if warning_lines:
+        detail = f"WARNING — {len(warning_lines)} stale bare [ ] entry/entries in BACKLOG.md:\n"
+        detail += "\n".join(f"    {ln[:120]}" for ln in warning_lines[:5])
+        if len(warning_lines) > 5:
+            detail += f"\n    ... and {len(warning_lines) - 5} more"
+        return True, detail  # always True — warn-only
+    # No stale entries — summarise the OK message from scanner stderr.
+    ok_lines = [ln for ln in out.splitlines() if ln.startswith("OK")]
+    summary = ok_lines[0] if ok_lines else "no stale bare [ ] entries in BACKLOG.md"
+    return True, summary
+
+
 def check_wave_subagent_preamble() -> tuple[bool, str]:
     """Tier 1 (S-69-B): wave subagent preamble audit — warn-only.
 
@@ -1376,6 +1394,25 @@ def check_wave_subagent_preamble() -> tuple[bool, str]:
     script = REPO / "tools" / "audit_wave_subagent_preamble.py"
     if not script.exists():
         return True, "audit_wave_subagent_preamble.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    ok_lines = [ln for ln in out.splitlines() if ln.startswith("OK")]
+
+    if warning_lines:
+        detail = f"{len(warning_lines)} wave file(s) missing preamble signals:\n"
+        detail += "\n".join(f"  {ln}" for ln in warning_lines[:5])
+        if len(warning_lines) > 5:
+            detail += f"\n  ... and {len(warning_lines) - 5} more"
+        return True, f"WARNING — {detail}"
+    if ok_lines:
+        return True, ok_lines[0]
+    return True, "wave subagent preamble audit complete (no output)"
+
+
 def check_merge_log_completeness() -> tuple[bool, str]:
     """Tier 1 (S-69-D): merge-log completeness — warn-only.
 
@@ -1388,6 +1425,21 @@ def check_merge_log_completeness() -> tuple[bool, str]:
     script = REPO / "tools" / "audit_merge_log_completeness.py"
     if not script.exists():
         return True, "audit_merge_log_completeness.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=60)
+    warnings = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if warnings:
+        summary = f"{len(warnings)} merge commit(s) with no MERGE-LOG audit trail:\n"
+        summary += "\n".join(f"    {ln[:100]}" for ln in warnings[:5])
+        if len(warnings) > 5:
+            summary += f"\n    ... and {len(warnings) - 5} more"
+        return True, "WARNING — " + summary  # always True — warn-only
+    return True, "all merge commits have a MERGE-LOG audit trail"
+
+
 def check_status_file_freshness() -> tuple[bool, str]:
     """Tier 1 (S-69-E): status-file freshness audit — warn-only.
 
@@ -1402,6 +1454,21 @@ def check_status_file_freshness() -> tuple[bool, str]:
     script = REPO / "tools" / "audit_status_file_freshness.py"
     if not script.exists():
         return True, "audit_status_file_freshness.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if lines:
+        detail = f"{len(lines)} status-file freshness warning(s):\n"
+        detail += "\n".join(f"    {ln[:120]}" for ln in lines[:5])
+        if len(lines) > 5:
+            detail += f"\n    ... and {len(lines) - 5} more"
+        return True, f"WARNING — {detail}"
+    return True, "status-file freshness clean (no active run or all files current)"
+
+
 def check_memory_staleness() -> tuple[bool, str]:
     """Tier 1 (S-69 Stream F): memory-file staleness audit — warn-only.
 
@@ -1414,6 +1481,22 @@ def check_memory_staleness() -> tuple[bool, str]:
     script = REPO / "tools" / "audit_memory_staleness.py"
     if not script.exists():
         return True, "audit_memory_staleness.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if not warning_lines:
+        return True, "no memory entries with dates older than 60 days"
+
+    detail = f"{len(warning_lines)} stale memory file(s) (operator-driven prune):\n"
+    detail += "\n".join(f"    {ln[:120]}" for ln in warning_lines[:5])
+    if len(warning_lines) > 5:
+        detail += f"\n    ... and {len(warning_lines) - 5} more"
+    return True, f"WARNING — {detail}"  # always True — warn-only
+
+
 def check_merge_worktree_pattern() -> tuple[bool, str]:
     """Tier 1 (S-69-G): merge-worktree pattern — warn-only.
 
@@ -1436,59 +1519,6 @@ def check_merge_worktree_pattern() -> tuple[bool, str]:
     venv_py = REPO / ".venv" / "bin" / "python3"
     py = str(venv_py) if venv_py.exists() else "python3"
 
-    _rc, out = _run([py, str(scanner), "--repo", str(REPO)], timeout=30)
-    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING:")]
-    if warning_lines:
-        detail = f"WARNING — {len(warning_lines)} stale bare [ ] entry/entries in BACKLOG.md:\n"
-        detail += "\n".join(f"    {ln[:120]}" for ln in warning_lines[:5])
-        if len(warning_lines) > 5:
-            detail += f"\n    ... and {len(warning_lines) - 5} more"
-        return True, detail  # always True — warn-only
-    # No stale entries — summarise the OK message from scanner stderr.
-    ok_lines = [ln for ln in out.splitlines() if ln.startswith("OK")]
-    summary = ok_lines[0] if ok_lines else "no stale bare [ ] entries in BACKLOG.md"
-    return True, summary
-    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
-    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
-    ok_lines = [ln for ln in out.splitlines() if ln.startswith("OK")]
-
-    if warning_lines:
-        detail = f"{len(warning_lines)} wave file(s) missing preamble signals:\n"
-        detail += "\n".join(f"  {ln}" for ln in warning_lines[:5])
-        if len(warning_lines) > 5:
-            detail += f"\n  ... and {len(warning_lines) - 5} more"
-        return True, f"WARNING — {detail}"
-    if ok_lines:
-        return True, ok_lines[0]
-    return True, "wave subagent preamble audit complete (no output)"
-    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=60)
-    warnings = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
-    if warnings:
-        summary = f"{len(warnings)} merge commit(s) with no MERGE-LOG audit trail:\n"
-        summary += "\n".join(f"    {ln[:100]}" for ln in warnings[:5])
-        if len(warnings) > 5:
-            summary += f"\n    ... and {len(warnings) - 5} more"
-        return True, "WARNING — " + summary  # always True — warn-only
-    return True, "all merge commits have a MERGE-LOG audit trail"
-    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
-    lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
-    if lines:
-        detail = f"{len(lines)} status-file freshness warning(s):\n"
-        detail += "\n".join(f"    {ln[:120]}" for ln in lines[:5])
-        if len(lines) > 5:
-            detail += f"\n    ... and {len(lines) - 5} more"
-        return True, f"WARNING — {detail}"
-    return True, "status-file freshness clean (no active run or all files current)"
-    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
-    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
-    if not warning_lines:
-        return True, "no memory entries with dates older than 60 days"
-
-    detail = f"{len(warning_lines)} stale memory file(s) (operator-driven prune):\n"
-    detail += "\n".join(f"    {ln[:120]}" for ln in warning_lines[:5])
-    if len(warning_lines) > 5:
-        detail += f"\n    ... and {len(warning_lines) - 5} more"
-    return True, f"WARNING — {detail}"  # always True — warn-only
     _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=60)
     warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
     violations   = [ln for ln in warning_lines if "[violation]" in ln]
