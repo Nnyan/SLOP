@@ -15,7 +15,9 @@ import pytest
 
 # The cutoff is the commit that landed the commit-msg hook (step 1.3.c).
 # Inclusive: cutoff SHA itself is the first post-policy commit and must conform.
-CUTOFF_SHA = "45bb063"
+# NOTE: Updated from 45bb063 to 36d45be (initial public release) — original SHA
+# was lost in the Round-2 history rewrite (Tailscale key leak, 2026-05-28).
+CUTOFF_SHA = "36d45be"
 
 PATTERN = re.compile(
     r"^(feat|fix|refactor|perf|test|docs|chore)"

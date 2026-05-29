@@ -195,9 +195,26 @@ def _scan_migrations(migrations_dir: Path) -> list[_MigrationFile]:
 
 
 def _apply_sql_migration(conn: sqlite3.Connection, mig: _MigrationFile) -> None:
-    """Run a .sql migration. executescript() handles any BEGIN/COMMIT inside."""
+    """Run a .sql migration. executescript() handles any BEGIN/COMMIT inside.
+
+    Idempotency: ALTER TABLE … ADD COLUMN statements that fail with
+    "duplicate column name" are silently skipped — the column already
+    exists, which is the desired post-migration state.
+    """
     sql = mig.content.decode("utf-8")
-    conn.executescript(sql)
+    try:
+        conn.executescript(sql)
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" in str(exc).lower():
+            # Column already present — migration is effectively a no-op.
+            # This happens when schema.sql is applied directly (v3 installs)
+            # and the migration only adds a column that schema.sql already has.
+            log.info(
+                "Migration %s: column already exists (idempotent skip): %s",
+                mig.filename, exc,
+            )
+        else:
+            raise
 
 
 def _apply_python_migration(conn: sqlite3.Connection, mig: _MigrationFile) -> None:

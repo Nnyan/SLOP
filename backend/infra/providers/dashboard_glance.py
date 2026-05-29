@@ -67,7 +67,7 @@ class GlanceDashboardProvider(InfraProvider):
         host_port = cfg.get("port", INTERNAL_PORT)
 
         # Write starter config if not already present
-        cfg_dir = Path(platform.config_root or config.data_dir) / "glance"
+        cfg_dir = Path(cfg.get("config_root") or platform.config_root or config.data_dir) / "glance"
         cfg_dir.mkdir(parents=True, exist_ok=True)
         glance_yml = cfg_dir / "glance.yml"
         if not glance_yml.exists():
