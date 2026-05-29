@@ -1310,6 +1310,33 @@ def check_access_requests_stale() -> tuple[bool, str]:
     return True, f"{pending_count} pending entries, none older than {stale_threshold_days} days"
 
 
+def check_merge_log_completeness() -> tuple[bool, str]:
+    """Tier 1 (S-69-D): merge-log completeness — warn-only.
+
+    Runs tools/audit_merge_log_completeness.py which walks git log for
+    merge commits and warns when no corresponding docs/MERGE-LOG.md entry
+    exists within 3 commits (before or after) or in the merge message itself.
+
+    Pre-MERGE-LOG-era merges are excluded (FP1). Always returns True (warn-only).
+    """
+    script = REPO / "tools" / "audit_merge_log_completeness.py"
+    if not script.exists():
+        return True, "audit_merge_log_completeness.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=60)
+    warnings = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if warnings:
+        summary = f"{len(warnings)} merge commit(s) with no MERGE-LOG audit trail:\n"
+        summary += "\n".join(f"    {ln[:100]}" for ln in warnings[:5])
+        if len(warnings) > 5:
+            summary += f"\n    ... and {len(warnings) - 5} more"
+        return True, "WARNING — " + summary  # always True — warn-only
+    return True, "all merge commits have a MERGE-LOG audit trail"
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1356,6 +1383,8 @@ TIER_1: list[tuple[str, object]] = [
     ("LLM outbound scrub — cloud path through scrub() (ADR-0018)", check_llm_outbound_scrubbed),
     # ── Access-requests queue health (S-59-C) ─────────────────────────────
     ("Access-requests queue — stale entries (warn only)", check_access_requests_stale),
+    # ── Merge-log completeness (S-69-D) ───────────────────────────────────
+    ("Merge-log completeness — every merge has audit trail (warn only)", check_merge_log_completeness),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
