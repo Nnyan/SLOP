@@ -1376,6 +1376,18 @@ def check_wave_subagent_preamble() -> tuple[bool, str]:
     script = REPO / "tools" / "audit_wave_subagent_preamble.py"
     if not script.exists():
         return True, "audit_wave_subagent_preamble.py not present (skip)"
+def check_merge_log_completeness() -> tuple[bool, str]:
+    """Tier 1 (S-69-D): merge-log completeness — warn-only.
+
+    Runs tools/audit_merge_log_completeness.py which walks git log for
+    merge commits and warns when no corresponding docs/MERGE-LOG.md entry
+    exists within 3 commits (before or after) or in the merge message itself.
+
+    Pre-MERGE-LOG-era merges are excluded (FP1). Always returns True (warn-only).
+    """
+    script = REPO / "tools" / "audit_merge_log_completeness.py"
+    if not script.exists():
+        return True, "audit_merge_log_completeness.py not present (skip)"
 
     venv_py = REPO / ".venv" / "bin" / "python3"
     py = str(venv_py) if venv_py.exists() else "python3"
@@ -1405,6 +1417,15 @@ def check_wave_subagent_preamble() -> tuple[bool, str]:
     if ok_lines:
         return True, ok_lines[0]
     return True, "wave subagent preamble audit complete (no output)"
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=60)
+    warnings = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if warnings:
+        summary = f"{len(warnings)} merge commit(s) with no MERGE-LOG audit trail:\n"
+        summary += "\n".join(f"    {ln[:100]}" for ln in warnings[:5])
+        if len(warnings) > 5:
+            summary += f"\n    ... and {len(warnings) - 5} more"
+        return True, "WARNING — " + summary  # always True — warn-only
+    return True, "all merge commits have a MERGE-LOG audit trail"
 
 
 # ── Runner ────────────────────────────────────────────────────────────────
@@ -1459,6 +1480,8 @@ TIER_1: list[tuple[str, object]] = [
     ("Wave subagent preamble — orchestrator dispatch rules (warn only)", check_wave_subagent_preamble),
     # ── Orchestrator prompt format audit (S-69-C) ──────────────────────────
     ("Orchestrator prompt format — git-base/models/preamble (warn only)", check_orchestrator_prompt_format),
+    # ── Merge-log completeness (S-69-D) ───────────────────────────────────
+    ("Merge-log completeness — every merge has audit trail (warn only)", check_merge_log_completeness),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
