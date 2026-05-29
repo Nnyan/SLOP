@@ -96,10 +96,16 @@ ms-enforce check + the existing `docs/BACKLOG.md` as the canonical sink.
 3. `tools/audit_wave_out_of_scope.py` — walk `.claude/waves/*.md`, extract
    each "Out of scope" section's bullets, surface any bullet that references
    "future" / "candidate" / "S-NN wave" and isn't in `docs/BACKLOG.md`.
-4. ms-enforce TIER_1 warn-only check `check_backlog_coverage` that runs all
-   three scanners and reports counts. Exits 0 always (warn-only); the goal
+4. `tools/audit_orchestrator_dispatch.py` — scans the most recent
+   `.claude/run-archive/<date>/status/*.md` files. Anti-pattern: multiple
+   orchestrator status files written within the same hour but referencing
+   different waves (suggests one-orchestrator-per-wave instead of the
+   doctrine ONE-orchestrator-per-batch). Warn-only. Per CLAUDE.md "Robot
+   mode dispatch" rule.
+5. ms-enforce TIER_1 warn-only check `check_backlog_coverage` that runs all
+   four scanners and reports counts. Exits 0 always (warn-only); the goal
    is visibility, not blocking.
-5. Tests in `tests/test_backlog_audit.py` using fixture files.
+6. Tests in `tests/test_backlog_audit.py` using fixture files.
 
 Verification: run the three scanners against the current tree; the output
 should be empty (or all current floating items are already in BACKLOG.md

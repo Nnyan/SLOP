@@ -69,6 +69,8 @@ this file in sync mechanically. Until then, this is a manually maintained list.
 
 - `[ ]` **[hygiene] Periodic cleanup of `.claude/settings.local.json.bak.*` files.** Lift-pattern accumulates backups; manual delete works. Could automate via post-cleanup hook. Source: this session's lift/restore cycles. Low priority.
 - `[ ]` **[doctrine] Document the post-wave handoff pattern (operator does checkout + push) in CONTRIBUTING.md or installer/DEPENDENCIES.md.** Currently only in `feedback-robot-design-decisions` memory and inline in ROBOT.md "Post-wave operator handoff" section. New contributors won't find it without doctrine reading. Source: this session's lessons. Date added: 2026-05-28.
+- `[ ]` **[doctrine] Add `python3 -c "<multi-statement>"` to S-56 Stream D's permanent battery.** Empirically prompts in older `acceptEdits` sessions (this session, 2026-05-29 ~00:40Z, one unidentified prompt auto-approved before capture). Likely silenced by fresh `bypassPermissions` like other syntax-analyzer categories, but unverified. If the battery confirms it's silent in fresh sessions, the doctrine note holds. If it leaks even in fresh sessions, add "use a temp script file instead of `python3 -c`" to command-style discipline. Source: this session 2026-05-29.
+- `[→ S-56-E]` **[doctrine] Mechanical gate for ONE-orchestrator-per-batch rule.** `tools/audit_orchestrator_dispatch.py` added to S-56 Stream E scope. Scans `.claude/run-archive/*/status/` for the anti-pattern (multiple orchestrator status files within the same hour for different waves). Warn-only. Cross-references CLAUDE.md "Robot mode dispatch" rule. Source: this session 2026-05-29.
 
 ### Parked (re-eval triggers documented)
 

@@ -7,6 +7,25 @@ Backend: FastAPI + Python (`backend/`). Frontend: Vue 3 + TypeScript (`frontend/
 Catalog: YAML manifests for 56 installable apps (`catalog/apps/`).
 Backend tests run against a local venv; no external server required for unit tests.
 
+## Robot mode dispatch — ONE orchestrator per batch (not one per wave)
+
+When firing the next Robot batch, the default is **ONE Opus orchestrator session
+that handles all waves in the batch** — not one orchestrator session per wave.
+The single orchestrator reads all wave files, dispatches all parallel streams
+together (subagents in worktrees), waits for any sequential dependencies, then
+merges each stream into its appropriate wave branch.
+
+Reference: `.claude/ROBOT.md` § "Launching a Robot run" — architecture; and
+`.claude/AUTONOMOUS-DEFAULTS.md` § "Category: orchestrator dispatch pattern".
+
+**The only time multiple orchestrator sessions are warranted:** when a later
+wave has a hard dependency on an earlier wave being merged to main first (rare;
+state this dependency explicitly in the wave file when present).
+
+This rule was lost briefly between Round 2 and the planned next batch (one
+orchestrator-per-wave prompts were drafted by mistake). The pattern is
+documented here so future sessions generating prompts do not deviate.
+
 ## Frontend architecture rule — NO business logic in view files
 
 **View files (`frontend/src/views/*.vue`) must contain only:**

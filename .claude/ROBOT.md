@@ -197,20 +197,45 @@ timestamp: 2026-05-27T22:33:14Z
 
 ## Launching a Robot run
 
-### Architecture (revised 2026-05-28)
+### Architecture (revised 2026-05-29: ONE orchestrator per batch)
 
-**The orchestrator session IS the coordinator.** Instead of the user launching
-a separate Claude Code session per wave coordinator, the user asks the
-orchestrator session (e.g., this Claude session) to fire the wave. The
-orchestrator reads the wave file and dispatches each stream directly as a
-subagent (Agent tool, isolation:worktree, model per the wave file's
-Parallelization section). No nested coordinator layer.
+**Core rule:** **ONE orchestrator session handles ALL waves in a batch**, not
+one orchestrator per wave. The orchestrator session IS the coordinator. Instead
+of the user launching a separate Claude Code session per wave, the user fires
+ONE Opus orchestrator session that reads all wave files in the batch,
+dispatches all streams together (Agent tool, isolation:worktree, model per
+each wave's Parallelization section), and merges each stream into the
+appropriate wave branch.
+
+**Why one-per-batch instead of one-per-wave:**
+- Cross-wave conflict resolution is easier when one orchestrator sees all
+  streams' commits (e.g., if S-55-B and S-56-E both touch the same
+  ms-enforce file, one orchestrator can merge both correctly).
+- User manages one session/terminal instead of N.
+- Matches Round 2's empirically-validated pattern (one orchestrator handled
+  S-48 + S-49 with 5 concurrent streams; zero issues attributable to the
+  unified coordinator).
+- Stream-level parallelism is unchanged — 11 streams across 3 waves run as
+  concurrently from one orchestrator as they would from three orchestrators.
+
+**The only time multiple orchestrators are warranted:** when a later wave has a
+hard dependency on an earlier wave being on `main` first (rare). In that case,
+state the dependency explicitly in the wave file's Context section, and the
+operator runs the merge handoff between the two orchestrator sessions.
 
 Invocation pattern (from the user, in the orchestrator session):
 
 ```
-in Robot mode: execute the wave defined in .claude/waves/S-NN-TOPIC.md as orchestrator (you ARE the coordinator; dispatch streams directly).
+in Robot mode: you are the orchestrator for the SLOP next batch — [N] independent waves to fire concurrently. main is at origin/main commit <SHA>. Waves to handle: .claude/waves/S-NN-A.md, .claude/waves/S-NN-B.md, ... [follow the standard orchestrator startup sequence below]
 ```
+
+For a single-wave batch, the same form works with one wave file listed.
+
+**Future-session compliance:** any agent generating Robot-mode prompts (this
+project's Claude sessions included) MUST follow the batch architecture above
+and SHOULD NOT produce one-orchestrator-per-wave prompts unless the
+"multiple orchestrators warranted" exception applies. CLAUDE.md mirrors this
+rule at project level so it loads into every session by default.
 
 ### Orchestrator startup sequence
 

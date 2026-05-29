@@ -252,6 +252,31 @@ alternative exists, write a decision file naming the command + why it's needed.
 
 ---
 
+## Category: orchestrator dispatch pattern
+
+### How to structure a Robot batch of multiple waves
+**Default:** **ONE Opus orchestrator session handles ALL waves in the batch.**
+The orchestrator reads all wave files, dispatches all parallel streams in one
+big message (or as few messages as the sequential dependencies allow), and
+merges each stream to its appropriate wave branch. The user manages ONE
+session/terminal.
+**Escalate when:** a wave in the batch has a hard dependency on another wave
+being on `main` first (the dependency must be stated explicitly in the wave
+file's Context section). Then the operator runs an orchestrator for the
+prerequisite, does the merge handoff, and runs a second orchestrator for the
+dependent wave.
+**Lesson:** Round 2 (2026-05-28) validated one orchestrator handling
+S-48 + S-49 concurrently with 5 streams. The next-batch planning briefly
+drifted to one-prompt-per-wave (2026-05-29) and was corrected. Doctrine
+mirrored to CLAUDE.md so future sessions don't deviate.
+
+### A wave's verification step requires running another wave's verification first
+**Default:** Treat as cross-wave dependency. Don't try to chain inside the
+orchestrator — surface as an observation and run the second wave's
+verification post-merge in morning review.
+
+---
+
 ## Category: agent / subagent coordination
 
 ### A subagent returns with status "failed" but no blocker file
