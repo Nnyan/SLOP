@@ -32,6 +32,7 @@ they don't ship.
 - docs/MANAGER-HANDOFF.md — operator-assist session continuity guide (Robot batch handoff state, doctrine pointers)
 - docs/MERGE-LOG.md — audit trail of wave-branch merges to main (entry per batch)
 - docs/WALK-BACK-LOG.md — doctrine walk-back entries (each records the orphaned need + new mechanism)
+- docs/SANCTIONED-CHANNELS.md — deny-rule registry: every deny maps to a sanctioned tool (tools/sanctioned/) OR a no-exceptions-period rationale (S-68-E)
 
 ## Catalog
 - catalog/MANIFEST_SPEC.md — app manifest format
