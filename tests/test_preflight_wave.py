@@ -1,4 +1,4 @@
-"""tests/test_preflight_harness.py — Tests for tools/preflight_wave.py
+"""tests/test_preflight_wave.py — Tests for tools/preflight_wave.py
 
 Fixtures drive a Low/Medium/High wave through the harness, assert that:
 - A FALSE claim yields a BLOCKED verdict.

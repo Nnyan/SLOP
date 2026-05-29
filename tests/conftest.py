@@ -104,7 +104,7 @@ def _restore_cwd():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# config.data_dir isolation — autouse, function-scoped (S-66 Stream B, Cluster 1)
+# config.data_dir isolation — opt-in, function-scoped (S-66 Stream B, Cluster 1)
 # ──────────────────────────────────────────────────────────────────────────────
 # Infra providers (GlanceDashboardProvider, HomepageProvider) call
 # cfg_dir.mkdir() using platform.config_root or config.data_dir.
@@ -114,9 +114,21 @@ def _restore_cwd():
 # providers write to an isolated temp directory, fixing the PermissionError
 # without touching product code.  compose_dir is a property derived from
 # data_dir, so it is automatically redirected as well.
-@pytest.fixture(autouse=True)
-def _isolate_config_data_dir(tmp_path: Path):
-    """Redirect config.data_dir (and derived compose_dir) to tmp_path (S-66)."""
+#
+# S-71-D: narrowed from autouse=True to an explicit opt-in fixture.
+# S-66-MERGE-1 verified that all tests that actually need this isolation
+# already obtain it via other means (ready_db setting platform.config_root,
+# tmp_compose_dir setting config.data_dir, or passing config_root in cfg).
+# Tests that call GlanceDashboardProvider / HomepageProvider without any
+# isolation must request this fixture by name.
+@pytest.fixture
+def isolate_config_data_dir(tmp_path: Path):
+    """Redirect config.data_dir (and derived compose_dir) to tmp_path (S-66).
+
+    Opt-in fixture: request by name in tests that call infra providers
+    (GlanceDashboardProvider, HomepageProvider) without providing config_root
+    in the cfg dict and without platform.config_root set in the DB.
+    """
     from backend.core import config as _cfg_mod
     _cfg = _cfg_mod.config
     _orig = _cfg.data_dir

@@ -124,7 +124,7 @@ These were in S-58's failure inventory but explicitly out-of-scope (S-57's "do N
 
 - `[x]` **[doctrine] Pin subagent git operations to the worktree path.** LANDED — added to ROBOT.md § "Subagent preamble": subagents must use `git -C <worktree>` (or verify `git rev-parse --show-toplevel`) before any commit, because Bash cwd can silently reset to the main checkout between calls. Source: batch-7 S-73 Stream B committed to main mid-run (self-corrected). Date added: 2026-05-29.
 - `[x]` **[doctrine] Filename-as-shared-symbol: pin tool/harness paths, not just their contents.** LANDED — added to AUTONOMOUS-DEFAULTS § "Processor-pattern contract". Source: `S-73-MERGE-2` (C referenced `preflight_harness.py`; E shipped `preflight_wave.py` — filename never pinned). Date added: 2026-05-29.
-- `[→ batch-8]` **[hygiene] Rename `tests/test_preflight_harness.py` → `tests/test_preflight_wave.py`** to match the tool it tests (`tools/preflight_wave.py`). Cosmetic carry-over from batch-7. Folded into S-71-TEST-DATA-HYGIENE Stream D. Date added: 2026-05-29.
+- `[x]` **[hygiene] Rename `tests/test_preflight_harness.py` → `tests/test_preflight_wave.py`** to match the tool it tests (`tools/preflight_wave.py`). Done S-71-TEST-DATA-HYGIENE Stream D, 2026-05-29.
 
 ### Parked (re-eval triggers documented)
 

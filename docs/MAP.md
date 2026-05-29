@@ -12,7 +12,8 @@ they don't ship.
 - CLAUDE.md — agent/contributor conventions
 
 ## Architecture & decisions
-- docs/adr/ — Architecture Decision Records (one file each, numbered 0001–0017)
+- docs/adr/ — Architecture Decision Records (one file each, numbered 0001–0019)
+  - docs/adr/0019-test-data-isolation.md — test-data isolation policy: tmp_path rule, protected paths, audit-log redirect (S-71-A)
 - docs/GLOSSARY.md — domain vocabulary
 
 ## Operations
