@@ -37,6 +37,25 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-29 — batch-4 follow-ups: BACKLOG + S-63/S-64 drafts + origin/main doctrine
+
+- **Method:** operator-manual via operator-assist session lift-restore (tools/merge_wave_to_main.py pending S-59 Stream D)
+- **Operator/Caller:** Nnyan (LLM Review session drafted on `docs/backlog-batch4-followups`; operator-assist session executed merge via /tmp/batch4-followups-merge.py)
+- **Pre-merge main HEAD:** `084d9d8`
+- **Branches merged (in order):**
+  1. `docs/backlog-batch4-followups` (no-ff) → merge commit `93e7254`
+- **Post-merge main HEAD:** `93e7254` (this audit-log commit will sit on top after the next step)
+- **Pushed to origin:** YES (push step follows audit-log commit; origin HEAD will be the audit-log commit SHA)
+- **Pre-flight checks run:**
+  - Dry-merge via `git merge-tree` before execution: clean (no conflicts)
+  - ms-enforce post-merge: ✓ All Core Rules satisfied
+- **Notes:**
+  - LLM Review session folded original 3-wave scope into 2 (S-63 = router wiring + cost/success persistence; S-64 = safe-tier auto-fix). Fold rationale: log_decision() contract is shared and persistence is meaningless until wiring produces decisions. Confirmed sound by operator-assist review of both wave files.
+  - Both waves are file-disjoint and parallel-safe (S-63 touches router/*, checker.py, classifier.py, migration 009; S-64 touches autofix.py, scheduler.py, no migration). Either may merge to main first when batch-5 lands.
+  - Doctrine commit on the branch (`26f5278`) adds the AUTONOMOUS-DEFAULTS entry about computing batch base from `git rev-parse origin/main` rather than local HEAD — captures the SHA-mismatch lesson from batch-4's prompt that mis-stated the base.
+  - Branch cleanup follows in step 8.
+  - This merge sets up batch-5: S-59 (4 streams) + S-63 (3 sequential streams) + S-64 (2 sequential streams) under ONE orchestrator. 9 total streams, dispatched in 3 phased rounds.
+
 ## 2026-05-29 — Batch: S-58 + agent-review waves (S-60/S-61/S-62) + wave-spec commits
 
 - **Method:** operator-manual (this batch predates the sanctioned merge tool — S-59 Stream D will ship it)
