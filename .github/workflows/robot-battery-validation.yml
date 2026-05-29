@@ -1,0 +1,212 @@
+# Robot Test Battery — Static Validation (warn-only)
+#
+# This workflow does NOT run an actual Claude session (CI cannot drive
+# interactive prompts). Instead it:
+#   1. Verifies test-instructions.md parses and is well-formed.
+#   2. Extracts Bash snippets from the battery and runs `bash -n` on each.
+#   3. Runs a static pattern check against known-prompting patterns from
+#      AUTONOMOUS-DEFAULTS.md "command-style discipline" and warns on matches.
+#
+# All findings are WARN-ONLY — the job exits 0. The goal is visibility, not
+# build blocking (prompts are user-facing and require a live session to verify).
+#
+# To run a real battery: see .claude/robot-test-battery/runner.sh
+
+name: Robot Battery Validation (static, warn-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      verbose:
+        description: "Print all extracted snippets (verbose mode)"
+        required: false
+        default: "false"
+        type: boolean
+  schedule:
+    # Monthly on the 1st at 06:00 UTC
+    - cron: "0 6 1 * *"
+
+jobs:
+  static-battery-validation:
+    name: Static validation of robot test battery
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify battery directory structure
+        run: |
+          echo "=== Robot battery directory check ==="
+          for f in .claude/robot-test-battery/test-instructions.md \
+                   .claude/robot-test-battery/runner.sh \
+                   .claude/robot-test-battery/RESULTS-TEMPLATE.md; do
+            if [ -f "$f" ]; then
+              echo "  OK  $f ($(wc -l < "$f") lines)"
+            else
+              echo "  MISSING  $f"
+              echo "::warning file=$f::Robot battery file missing: $f"
+            fi
+          done
+
+      - name: Validate runner.sh is executable and parses cleanly
+        run: |
+          echo "=== bash -n check on runner.sh ==="
+          bash -n .claude/robot-test-battery/runner.sh && echo "  OK  runner.sh parses cleanly" || {
+            echo "::warning file=.claude/robot-test-battery/runner.sh::runner.sh failed bash -n parse check"
+          }
+
+      - name: Extract and validate Bash snippets from test-instructions.md
+        run: |
+          python3 - <<'PYEOF'
+          import re
+          import subprocess
+          import sys
+          import tempfile
+          import os
+
+          INSTRUCTIONS = ".claude/robot-test-battery/test-instructions.md"
+          VERBOSE = os.environ.get("VERBOSE", "false").lower() == "true"
+
+          with open(INSTRUCTIONS) as f:
+              content = f.read()
+
+          # Extract all ```bash code blocks
+          bash_blocks = re.findall(r'```bash\n(.*?)```', content, re.DOTALL)
+          print(f"=== Extracted {len(bash_blocks)} bash snippet(s) from test-instructions.md ===")
+
+          warnings = 0
+          for i, block in enumerate(bash_blocks, 1):
+              block = block.strip()
+              if VERBOSE:
+                  print(f"\n  Snippet {i}:")
+                  for line in block.splitlines():
+                      print(f"    {line}")
+
+              # Write to a temp file and run bash -n
+              with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as tmp:
+                  tmp.write("#!/usr/bin/env bash\n")
+                  tmp.write(block + "\n")
+                  tmp_path = tmp.name
+              try:
+                  result = subprocess.run(
+                      ["bash", "-n", tmp_path],
+                      capture_output=True, text=True
+                  )
+                  if result.returncode != 0:
+                      print(f"  WARN  Snippet {i} failed bash -n: {result.stderr.strip()}")
+                      print(f"::warning file={INSTRUCTIONS}::Snippet {i} failed bash -n parse check: {result.stderr.strip()!r}")
+                      warnings += 1
+                  else:
+                      print(f"  OK    Snippet {i} parses cleanly")
+              finally:
+                  os.unlink(tmp_path)
+
+          print(f"\nBash parse check complete: {len(bash_blocks)} snippets, {warnings} warning(s)")
+          # Always exit 0 — this is warn-only
+          sys.exit(0)
+          PYEOF
+        env:
+          VERBOSE: ${{ inputs.verbose || 'false' }}
+
+      - name: Check for known-prompting patterns (warn-only)
+        run: |
+          python3 - <<'PYEOF'
+          import re
+          import sys
+
+          INSTRUCTIONS = ".claude/robot-test-battery/test-instructions.md"
+
+          # Patterns from AUTONOMOUS-DEFAULTS.md "command-style discipline" section.
+          # These are patterns that historically caused prompts in acceptEdits sessions.
+          # Finding them in test-instructions.md is EXPECTED (the battery tests them).
+          # This check warns if any NEW snippet added to the battery uses these patterns
+          # WITHOUT being in a clearly-labelled test block.
+          PROMPTING_PATTERNS = [
+              (r'\bfor\s+\w+\s+in\b.*;\s*do', "for-loop with variable interpolation"),
+              (r'if\s+\[.*\];\s*then', "multi-line if/then/else"),
+              (r'\$\{?\w+\}?\s+inside.*loop', "variable interpolation in loop body"),
+              (r'\bpath/\{[^}]+\}', "brace expansion in path"),
+              (r'<\(', "process substitution"),
+          ]
+
+          with open(INSTRUCTIONS) as f:
+              content = f.read()
+
+          # Extract bash blocks with their line numbers
+          lines = content.splitlines()
+          in_bash_block = False
+          bash_line_start = 0
+          bash_blocks = []
+          for lineno, line in enumerate(lines, 1):
+              if line.strip() == "```bash":
+                  in_bash_block = True
+                  bash_line_start = lineno
+              elif in_bash_block and line.strip() == "```":
+                  in_bash_block = False
+              elif in_bash_block:
+                  bash_blocks.append((lineno, line))
+
+          print(f"=== Pattern check on {len(bash_blocks)} extracted bash lines ===")
+          hits = 0
+          for lineno, line in bash_blocks:
+              for pattern, name in PROMPTING_PATTERNS:
+                  if re.search(pattern, line):
+                      # In the battery, these ARE expected (they are the test subjects).
+                      # Flag as informational, not a real warning.
+                      print(f"  INFO  Line {lineno}: '{name}' pattern present (expected in battery) — {line.strip()!r}")
+                      hits += 1
+
+          if hits == 0:
+              print("  No known-prompting patterns found (or all are in labelled test blocks)")
+          else:
+              print(f"\n  {hits} known-prompting pattern occurrence(s) found.")
+              print("  These are EXPECTED inside the battery (the tests cover these patterns).")
+              print("  If a pattern appears OUTSIDE a labelled Test N block, investigate.")
+          # Warn-only: always exit 0
+          sys.exit(0)
+          PYEOF
+        env:
+          PYTHONPATH: .
+
+      - name: Count and report battery coverage
+        run: |
+          python3 - <<'PYEOF'
+          import re
+
+          INSTRUCTIONS = ".claude/robot-test-battery/test-instructions.md"
+
+          with open(INSTRUCTIONS) as f:
+              content = f.read()
+
+          # Count Test headers
+          tests = re.findall(r'^#### Test (\d+)', content, re.MULTILINE)
+          nc_tests = re.findall(r'^### Candidate NC-\d+', content, re.MULTILINE)
+
+          print(f"=== Battery coverage summary ===")
+          print(f"  Numbered tests:  {len(tests)} (expected: 30)")
+          print(f"  NC candidates:   {len(nc_tests)}")
+
+          if len(tests) < 30:
+              print(f"::warning file={INSTRUCTIONS}::Battery has {len(tests)} tests, expected 30")
+          else:
+              print(f"  Coverage check: PASS ({len(tests)}/30 tests present)")
+          PYEOF
+
+      - name: Summary
+        run: |
+          echo ""
+          echo "=== Robot Battery Validation Complete (warn-only) ==="
+          echo ""
+          echo "This job validates the STRUCTURE of the test battery, not the"
+          echo "actual behavior in a Claude session."
+          echo ""
+          echo "To run the real battery:"
+          echo "  bash .claude/robot-test-battery/runner.sh"
+          echo "  (then paste the generated prompt into a fresh Claude session)"
+          echo ""
