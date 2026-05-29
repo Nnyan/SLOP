@@ -16,6 +16,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -302,25 +303,31 @@ class TestIdempotency:
             "requirements": tmp_path / "requirements.txt",
             "requirements_dev": tmp_path / "requirements-dev.txt",
         }
-        # First run — should apply
-        proc.cmd_process(
-            queue_file=qf,
-            category_filter=None,
-            dry_run=False,
-            allow_deny=False,
-            target_paths=target_paths,
-        )
-        after_first = qf.read_text(encoding="utf-8")
-        assert "[x]" in after_first  # status was flipped
+        # Mock uv so apply_install does not shell out to a real
+        # `uv pip install pkg-once` (no such package → would HALT the processor
+        # and leave [x] unset). This is a unit test of idempotency, not of the
+        # installer; the install side-effect is mocked to succeed.
+        uv_ok = MagicMock(returncode=0, stderr="", stdout="")
+        with patch("subprocess.run", return_value=uv_ok):
+            # First run — should apply
+            proc.cmd_process(
+                queue_file=qf,
+                category_filter=None,
+                dry_run=False,
+                allow_deny=False,
+                target_paths=target_paths,
+            )
+            after_first = qf.read_text(encoding="utf-8")
+            assert "[x]" in after_first  # status was flipped
 
-        # Second run — should be a no-op
-        proc.cmd_process(
-            queue_file=qf,
-            category_filter=None,
-            dry_run=False,
-            allow_deny=False,
-            target_paths=target_paths,
-        )
+            # Second run — should be a no-op
+            proc.cmd_process(
+                queue_file=qf,
+                category_filter=None,
+                dry_run=False,
+                allow_deny=False,
+                target_paths=target_paths,
+            )
         after_second = qf.read_text(encoding="utf-8")
         assert after_second == after_first, "second run must not change the file"
 
