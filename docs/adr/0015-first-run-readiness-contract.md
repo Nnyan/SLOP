@@ -263,8 +263,8 @@ INV-7 through INV-11 are verified by the v5.0.0 audit gate against the three tar
 - `installer/tests/test_smoke.py` (Step 3.2.d) covers each predicate with mocked HTTP responses (for the success shape and for each documented failure shape per §4) and mocked systemctl invocations. Each predicate's timing budget is exercised at least once. Tests also cover `post_install.py` rendering (including INV-8's no-unfilled-placeholders check) and the S2a/S2b detection refinement.
 - `tools/install-smoke` (the install-smoke harness from the Class-A audit) is extended to verify INV-7 through INV-11 after a real install on the dev VM. The harness's role per LESSONS_LEARNED is "real end-to-end testing at step closure"; the readiness contract benefits directly from this harness.
 - ADR 0013 §2 is amended (companion commit) to specify the two-field write lifecycle and update the `smoke_test_passed` field row.
-- `docs/cleanup/V5_INSTALLER_PLAN.md` Step 3.2 sub-tasks are refined to four (a smoke.py, b wire-up + post_install.py, c detection refinement, d tests). This is housekeeping, not a contract change.
-- `docs/cleanup/COMPLETION_AUDIT_v5_0_0.md` (Step 4.5.a) verifies INV-7 through INV-11 on the three target distros.
+- V5_INSTALLER_PLAN.md (cleanup doc, moved to slop-process private repo) Step 3.2 sub-tasks are refined to four (a smoke.py, b wire-up + post_install.py, c detection refinement, d tests). This is housekeeping, not a contract change.
+- The v5.0.0 completion audit (Step 4.5.a; moved to slop-process private repo) verifies INV-7 through INV-11 on the three target distros.
 
 ## What this does NOT govern
 

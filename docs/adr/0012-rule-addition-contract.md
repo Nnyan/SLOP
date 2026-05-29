@@ -8,7 +8,7 @@
 
 ## Context
 
-During the v4.1.0 cleanup arc, 5 drift incidents involved Core Rules added to `docs/CORE_RULES.md` without corresponding updates to one or more dependent locations (`ms-coverage` RULES list, version history table in Section 8, `data/coverage_map.json`, CLI snapshot). These were caught only at release-time audit (Findings 1–5 in `docs/cleanup/COMPLETION_AUDIT.md`).
+During the v4.1.0 cleanup arc, 5 drift incidents involved Core Rules added to CORE_RULES.md (moved to slop-process private repo) without corresponding updates to one or more dependent locations (`ms-coverage` RULES list, version history table in Section 8, coverage_map.json, CLI snapshot). These were caught only at release-time audit (Findings 1–5 in the COMPLETION_AUDIT.md; cleanup docs moved to slop-process private repo).
 
 A Core Rule addition is a multi-document state change. The dependent locations must all land in the same commit, or the system is in a partially-described state that `ms-enforce --list` will misreport.
 
@@ -31,7 +31,7 @@ This scoping is deliberate: addition is the highest-frequency operation and the 
 
 A Core Rule addition is detected when the **staged diff** contains either of:
 
-1. A new heading line in `docs/CORE_RULES.md` matching `^### \d+\.\d+ ` at the start of an added line, **or**
+1. A new heading line in CORE_RULES.md (enforced via ms-enforce; source moved to slop-process private repo) matching `^### \d+\.\d+ ` at the start of an added line, **or**
 2. A new RULES entry in `ms-coverage` (an added object containing an `"id":` field matching `\d+\.\d+`)
 
 Either signal independently triggers the full contract check. Both directions are validated — neither alone is sufficient as the only trigger source — so doc-only additions (heading without registry entry) and registry-only additions (entry without heading) are both caught.
@@ -48,15 +48,15 @@ All of the following must hold in the staged tree for the contract to pass. Each
 
 | # | Companion | Check semantics | Enforcement | Rationale |
 |---|---|---|---|---|
-| C1 | `CORE_RULES.md` heading and `ms-coverage` RULES entry agree | For each newly-added rule id, the id appears as both a `### N.NN` heading in `CORE_RULES.md` and an `"id": "N.NN"` entry in the RULES list. The short title on the heading line and the `title` field of the RULES entry must agree byte-for-byte after trimming. | Hard block | Registry and doc are the same statement in two forms; one without the other is a partial rule. Title agreement prevents the silent-drift case where heading and registry refer to different prose. |
-| C2 | Version history row added to Section 8 of `CORE_RULES.md` | The staged Section 8 table contains a new row whose rule-id cell matches the added id and whose date is today. | Hard block | Rule 5.8 requires version history on every change. Required for traceability across the v4.x arc. |
-| C3 | `data/coverage_map.json` is consistent with the staged RULES list | Regenerate `coverage_map.json` in memory from the staged RULES list and byte-compare to the staged `coverage_map.json`. They must be identical. | Hard block | `coverage_map.json` is the input to `ms-enforce --list`. A stale or hand-edited map silently misreports the rule count. Pure presence-in-diff is too weak: an unrelated edit to the file would satisfy it. |
-| C4 | `tests/__snapshots__/test_cli_snapshots.ambr` reflects the new state | The snapshot's rule-count value and rule-label list match what `ms-enforce --list` would emit given the staged `coverage_map.json`. | Hard block | Rule 4.11 (Snapshot Discipline). CI will fail on the next test run if this diverges; better to catch at commit. Same presence-vs-consistency reasoning as C3. |
+| C1 | CORE_RULES.md heading and `ms-coverage` RULES entry agree | For each newly-added rule id, the id appears as both a `### N.NN` heading in CORE_RULES.md and an `"id": "N.NN"` entry in the RULES list. The short title on the heading line and the `title` field of the RULES entry must agree byte-for-byte after trimming. | Hard block | Registry and doc are the same statement in two forms; one without the other is a partial rule. Title agreement prevents the silent-drift case where heading and registry refer to different prose. |
+| C2 | Version history row added to Section 8 of CORE_RULES.md | The staged Section 8 table contains a new row whose rule-id cell matches the added id and whose date is today. | Hard block | Rule 5.8 requires version history on every change. Required for traceability across the v4.x arc. |
+| C3 | coverage_map.json is consistent with the staged RULES list | Regenerate coverage_map.json in memory from the staged RULES list and byte-compare to the staged coverage_map.json. They must be identical. | Hard block | coverage_map.json is the input to `ms-enforce --list`. A stale or hand-edited map silently misreports the rule count. Pure presence-in-diff is too weak: an unrelated edit to the file would satisfy it. |
+| C4 | `tests/__snapshots__/test_cli_snapshots.ambr` reflects the new state | The snapshot's rule-count value and rule-label list match what `ms-enforce --list` would emit given the staged coverage_map.json. | Hard block | Rule 4.11 (Snapshot Discipline). CI will fail on the next test run if this diverges; better to catch at commit. Same presence-vs-consistency reasoning as C3. |
 | C5 | `test_fn` named in the RULES entry exists in `test_file` | The function name in the entry's `test_fn` field is defined (any signature) in the file named by `test_file`, resolved relative to repo root. | Warn only | Stubs are acceptable at addition time; the test is often generated by `ms-testgen` in a follow-up step. Hard-blocking on test existence would break the plan-then-implement pattern this project uses. The warning surfaces the gap so it isn't forgotten. |
 
 ### Collision detection (side effect)
 
-The contract additionally detects rule-id collisions as a side effect of C1: if the staged `CORE_RULES.md` contains two `### N.NN` headings with the same id, or the staged RULES list has two entries with the same `"id"`, the check hard-blocks with a collision diagnostic. This is not a separately-configured check; it falls out of the uniqueness requirement implicit in C1. Observed during v4.2 plan authoring when proposed 5.19/5.20/5.21 collided with existing rules.
+The contract additionally detects rule-id collisions as a side effect of C1: if the staged CORE_RULES.md contains two `### N.NN` headings with the same id, or the staged RULES list has two entries with the same `"id"`, the check hard-blocks with a collision diagnostic. This is not a separately-configured check; it falls out of the uniqueness requirement implicit in C1. Observed during v4.2 plan authoring when proposed 5.19/5.20/5.21 collided with existing rules.
 
 ### Audit mode
 

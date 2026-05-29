@@ -12,7 +12,7 @@ v5.0's one-command installer is the first time mediastack writes itself onto a h
 
 The contract has five independent but composing parts: (1) which filesystem paths mediastack owns and how they separate code from data; (2) the on-disk state record the installer uses for idempotency, status, and uninstall; (3) the interactivity rules for the two distribution channels (curl|bash and git-clone-then-`sudo`); (4) the refusal logic when a host shows signs of a prior install; (5) the unprivileged-system-user model that owns the runtime. Each is documented below as a separate decision; their interactions are called out where they matter.
 
-Decisions D1–D11 in `docs/SESSION_CONTEXT.md` are inputs to this ADR, not subjects of it. Where this ADR makes a choice not pre-determined by D1–D11, the rationale is explicit. Where it merely formalizes a decision already made there, the citation is explicit.
+Decisions D1–D11 in the SESSION_CONTEXT.md (moved to slop-process private repo) are inputs to this ADR, not subjects of it. Where this ADR makes a choice not pre-determined by D1–D11, the rationale is explicit. Where it merely formalizes a decision already made there, the citation is explicit.
 
 ## Scope
 
@@ -351,7 +351,7 @@ This section names what an auditor verifies on a working v5 install. It is the s
 | INV-5 | After a successful install, re-running `install.sh` with the same arguments exits 0 without removing or replacing anything. | Audit-mode check: snapshot file mtimes before re-run; verify no changes after. | Step 4.5.a finding 4 (idempotent re-run produces no errors). |
 | INV-6 | Running `install.sh --force` after a successful install replaces `/opt/mediastack` but leaves `/var/lib/mediastack` untouched. | Audit-mode check: write a marker file under `/var/lib/mediastack` after the initial install; run `--force` re-install; verify the marker still exists. | Step 4.5.a finding 5 (`--force` re-run preserves data). |
 
-INV-1 is enforced continuously by Core Rule 5.26 via ms-enforce (the `tools/check_structural_antipatterns.py` tool was moved to the slop-process private repo; the check now runs through ms-enforce). INV-2 through INV-6 are verified by the v5.0.0 audit gate against the three target VMs (Debian 12, Ubuntu 22.04, Ubuntu 24.04). They are also what later audits (v5.0.x patch releases, v5.1 multi-distro expansion) should re-verify.
+INV-1 is enforced continuously by Core Rule 5.26 via ms-enforce (check_structural_antipatterns.py was moved to the slop-process private repo; the check now runs through ms-enforce). INV-2 through INV-6 are verified by the v5.0.0 audit gate against the three target VMs (Debian 12, Ubuntu 22.04, Ubuntu 24.04). They are also what later audits (v5.0.x patch releases, v5.1 multi-distro expansion) should re-verify.
 
 ## Consequences
 
@@ -361,9 +361,9 @@ INV-1 is enforced continuously by Core Rule 5.26 via ms-enforce (the `tools/chec
 - `installer/user.py` (Step 2.6.b) implements the useradd shape and idempotency contract from §5.
 - `installer/templates/mediastack.service.j2` (Step 2.7.a) renders `User=mediastack`, `Group=mediastack`, substitutes the install dir from the template's existing variable interface, and conveys the data-dir path to the backend per §1 boundary 4.
 - `installer/uninstall.py` (Step 4.1.b) reads `install_dir`, `data_dir`, `install_user` from the state file and operates on those paths exclusively.
-- INV-1 is implemented via the ms-enforce installer-hardcoded-paths check (Core Rule 5.26). (`tools/check_structural_antipatterns.py` was moved to the slop-process private repo; ms-enforce carries the equivalent check.)
+- INV-1 is implemented via the ms-enforce installer-hardcoded-paths check (Core Rule 5.26). (check_structural_antipatterns.py was moved to the slop-process private repo; ms-enforce carries the equivalent check.)
 - Core Rule 5.26 (Installer Layout Discipline) is enforced by ms-enforce.
-- `docs/cleanup/COMPLETION_AUDIT_v5_0_0.md` (Step 4.5.a) verifies INV-2 through INV-6.
+- The v5.0.0 completion audit (Step 4.5.a; moved to slop-process private repo) verifies INV-2 through INV-6.
 - **ADR 0012's forward reference to "planned ADR 0013 — Rule-Deletion Contract" is released by this ADR.** A separate housekeeping commit (before or concurrent with this ADR's commit) edits ADR 0012's Scope section to remove the 0013 reservation; the Rule-Deletion Contract will be assigned a later ADR number when it is actually scheduled. This housekeeping is mechanical and small; it should not be bundled with the substantive content of ADR 0013.
 
 ## What this does NOT govern

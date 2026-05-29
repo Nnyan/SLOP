@@ -71,7 +71,7 @@ The non-API surface (`/`, `/assets/...`, `/{full_path:path}` SPA fallback, `/api
 
 - **/api/v1/** is supported indefinitely until /api/v2 lands.
 - **/api/** (unversioned alias) is deprecated as of 3.2 (2026-05-08) — it carries a `Deprecation: true` response header today.
-- **/api/** removal target: **Mediastack v5.0** (no firm date — driven by the frontend-migration work of step 3.2.e and the CLI-migration work tracked in `docs/cleanup/PROJECT_CLEANUP.md`).
+- **/api/** removal target: **Mediastack v5.0** (no firm date — driven by the frontend-migration work of step 3.2.e and the CLI-migration work tracked in the project cleanup plan; cleanup docs moved to slop-process private repo).
 - When **/api/v2/** lands (next breaking change), **/api/v1/** enters a 1-major-version deprecation window with the same `Deprecation` + `Sunset` headers.
 - **No version is ever silently changed.** A breaking change to a v1 route's response shape, request shape, status codes, or error format means a new `v2/` route. Additive changes (new fields, new optional query params) stay in v1.
 
@@ -111,7 +111,7 @@ The non-API surface (`/`, `/assets/...`, `/{full_path:path}` SPA fallback, `/api
 
 When the next breaking change to the API surface arrives, the **`/api/v2/` cutover** follows a documented runbook:
 
-[`docs/cleanup/STEP_3_2_V2_PLAYBOOK.md`](../cleanup/STEP_3_2_V2_PLAYBOOK.md)
+STEP_3_2_V2_PLAYBOOK.md (v2 cutover runbook; moved to slop-process private repo)
 
 Highlights:
 - The dual-mount becomes a triple-mount during the v1 → v2 transition.

@@ -74,7 +74,7 @@ paths; neither was verified against current upstream state at the start of v5.0.
 
 ### 2.4 Audit scope context
 
-The Class-A audit (`docs/cleanup/CLASS_A_AUDIT_2026_05_15.md`) was scoped to
+The Class-A audit (CLASS_A_AUDIT_2026_05_15.md; moved to slop-process private repo) was scoped to
 subprocess/runtime constraint failure modes (F1–F11) — the pattern class that
 produced the Step 2.8 five-finding cluster. Distro version selection was not in
 that audit's scope and could not have been surfaced by it. The LESSONS_LEARNED
@@ -297,7 +297,7 @@ Specific edits to `docs/cleanup/V5_INSTALLER_PLAN.md`:
 ### 5.3 STEP_3_3_DESIGN.md changes
 
 Per the design refresh specification accompanying this ADR (see
-`docs/cleanup/STEP_3_3_DESIGN.md` refresh spec): the design's distro matrix
+STEP_3_3_DESIGN.md refresh spec; moved to slop-process private repo): the design's distro matrix
 decision section is replaced wholesale, Section 1 failure-class predictions
 gain forward-looking entries for Debian 13 and a deferred-to-v5.0.1 entry for
 Ubuntu 26.04 (with the five Class D sub-predictions named), and Section 7
@@ -463,13 +463,13 @@ The trigger for considering a policy amendment is a real operational signal:
 - `docs/adr/0014-frontend-build-release-policy.md` — Frontend build policy (Proposed).
   ADR 0016 does not depend on ADR 0014's resolution; both can land
   independently.
-- `docs/cleanup/V5_INSTALLER_PLAN.md` — Direction Decision D4 superseded;
+- V5_INSTALLER_PLAN.md (moved to slop-process private repo) — Direction Decision D4 superseded;
   Step 3.3, Step 4.5, NON-GOALS, DEFERRED TO v5.1 updated per §5.2 above.
-- `docs/cleanup/CLASS_A_AUDIT_2026_05_15.md` — the audit whose Step 2.8
+- CLASS_A_AUDIT_2026_05_15.md (moved to slop-process private repo) — the audit whose Step 2.8
   findings preceded this work. Note: ADR 0016 cites the audit only for the
   category-scope context (§2.4), not as the source of the family-scope
   decision (which is V5_INSTALLER_PLAN.md NON-GOALS).
-- `docs/cleanup/LESSONS_LEARNED.md` — entries from the 2026-05-16 Step 3.3
+- LESSONS_LEARNED.md (moved to slop-process private repo) — entries from the 2026-05-16 Step 3.3
   pivot, drafted at `/mnt/user-data/outputs/lessons_learned_step_3_3_pivot.md`,
   forthcoming. Includes the inherited-assumption-survival pattern,
   deferred-reading-blind-spot pattern, and principle-citation-drift meta-entry
@@ -481,7 +481,7 @@ The trigger for considering a policy amendment is a real operational signal:
 - `installer/DEPENDENCIES.md` — per-distro section updated per §5.6.
 - `install.sh` — distro guard, deadsnakes branch, error messages updated per
   §5.1.
-- `tools/capture-step33-evidence.py` — `DISTRO_MAP` updated for the new
+- capture-step33-evidence.py (moved to slop-process private repo) — `DISTRO_MAP` updated for the new
   matrix per §5.5 (remove `ubuntu_22_04`; add `debian_13`).
 
 ### 7.3 Upstream artifacts
