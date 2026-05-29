@@ -29,7 +29,6 @@ import json
 import os
 import subprocess
 import sys
-import textwrap
 from pathlib import Path
 
 # ── shared lift-restore primitives (S-68 Stream A) ───────────────────────────
@@ -268,42 +267,75 @@ def _find_ms_enforce(repo_root: Path) -> str | None:
     return None
 
 
+# Gitignored runtime artifacts that several ms-enforce checks read from the
+# working tree (present in the main checkout, ABSENT in a fresh worktree). They
+# must be symlinked into the isolation worktree or the checks false-fail:
+#   - .venv               → pytest/ms-enforce import the project venv
+#   - backend/static      → favicon/static route + cli-snapshot tests (built assets)
+#   - .claude/run-archive  → track-status gate reads wave-file run-archive refs
+_MS_ENFORCE_WORKTREE_ARTIFACTS = (".venv", "backend/static", ".claude/run-archive")
+
+
 def _run_ms_enforce(branch: str, repo_root: Path) -> tuple[bool, str]:
-    """Run ms-enforce on the wave branch. Returns (passed, output).
+    """Run ms-enforce against *branch* in an isolated worktree. Returns (passed, output).
 
-    TIER_1 failures are fatal; warn-only checks are tolerated.
-    We check out the branch in a detached HEAD state via git show-ref
-    then run ms-enforce from the repo root.
-    ms-enforce reads the working tree, so we cannot run it truly
-    branch-isolated here without a worktree. We document this limitation:
-    we run ms-enforce on the CURRENT working tree state (which is the
-    worktree / wave branch that the tool is invoked from).
-
-    Best-effort: if we're already on the wave branch, run ms-enforce.
-    If we're on a different branch, warn and skip with a note.
+    Runs branch-isolated regardless of the caller's current branch (the tool is
+    normally invoked from main): checks out *branch* in a throwaway detached
+    worktree, symlinks the gitignored runtime artifacts the checks depend on, and
+    runs ms-enforce there. TIER_1 failures are fatal; warn-only checks tolerated.
+    The worktree is always removed in a finally block.
     """
     enforcer = _find_ms_enforce(repo_root)
     if enforcer is None:
         return True, "ms-enforce not found — skipped"
-    current = _current_branch()
-    if current != branch:
-        return True, (
-            f"ms-enforce skipped: currently on {current!r}, not {branch!r}. "
-            "Run ms-enforce manually on the wave branch before merging."
-        )
-    result = _run([enforcer], capture=True, check=False, cwd=repo_root)
-    output = (result.stdout + result.stderr).strip()
-    # TIER_1 failures appear in the output; exit code 1 = failures
-    if result.returncode != 0:
-        # Check if only warnings (TIER_2 / warn-only) — those are OK
-        lines = output.splitlines()
-        tier1_fail = any(
-            ("TIER_1" in ln or "FAIL" in ln.upper()) and "WARN" not in ln.upper()
-            for ln in lines
-        )
-        if tier1_fail:
-            return False, output
-    return True, output
+
+    wt = repo_root / ".claude" / "worktrees" / f"_ms-enforce-{branch.replace('/', '-')}"
+    # Clear any stale worktree from a previous interrupted run.
+    _git("worktree", "remove", "--force", str(wt), check=False)
+    add = _git("worktree", "add", "--detach", str(wt), branch, check=False)
+    if add.returncode != 0:
+        return True, f"ms-enforce skipped: could not create isolation worktree ({add.stderr.strip()})"
+    try:
+        # The symlinked artifacts must ALSO be added to the worktree's local
+        # info/exclude — otherwise the track-status gate flags the symlink itself
+        # as an untracked file (the .gitignore dir-pattern doesn't match a symlink).
+        exclude_path = _run(
+            ["git", "-C", str(wt), "rev-parse", "--git-path", "info/exclude"],
+            capture=True, check=False,
+        ).stdout.strip()
+        if exclude_path:
+            ep = Path(exclude_path)
+            if not ep.is_absolute():
+                ep = wt / ep
+            ep.parent.mkdir(parents=True, exist_ok=True)
+            with open(ep, "a", encoding="utf-8") as fh:
+                for art in _MS_ENFORCE_WORKTREE_ARTIFACTS:
+                    fh.write(f"\n/{art}\n")
+        for art in _MS_ENFORCE_WORKTREE_ARTIFACTS:
+            src, dst = repo_root / art, wt / art
+            if src.exists() and not dst.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.symlink(src, dst)
+                except OSError:
+                    pass  # best-effort; a missing artifact only risks a false warn
+        # Run the worktree's own ms-enforce via its (symlinked) venv python.
+        venv_py = wt / ".venv" / "bin" / "python3"
+        cmd = [str(venv_py), "ms-enforce"] if venv_py.exists() else [str(wt / "ms-enforce")]
+        result = _run(cmd, capture=True, check=False, cwd=wt)
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            lines = output.splitlines()
+            tier1_fail = any(
+                ("TIER_1" in ln or "FAIL" in ln.upper()) and "WARN" not in ln.upper()
+                for ln in lines
+            )
+            if tier1_fail:
+                return False, output
+        return True, output
+    finally:
+        _git("worktree", "remove", "--force", str(wt), check=False)
+        _git("worktree", "prune", check=False)
 
 
 # ── merge logic ───────────────────────────────────────────────────────────────
@@ -370,21 +402,24 @@ def _append_audit_entry(
     preflight_str = "\n".join(
         f"  - {k}: {v}" for k, v in preflight_results.items()
     )
-    entry = textwrap.dedent(f"""\
-        ## {date_str} — {summary}
-
-        - **Method:** {method}
-        - **Operator/Caller:** {caller}
-        - **Pre-merge main HEAD:** `{pre_sha}`
-        - **Branches merged (in order):**
-        {branch_lines}
-        - **Post-merge main HEAD:** `{post_sha}`
-        - **Pushed to origin:** no (push is operator-only)
-        - **Pre-flight checks run:**
-        {preflight_str}
-        - **Notes:** {notes}
-
-    """)
+    # Build the entry with explicit flush-left lines. Do NOT use textwrap.dedent
+    # on an f-string here: the interpolated multi-line fields (branch_lines,
+    # preflight_str) have only 2-space indent, which breaks dedent's common-prefix
+    # computation and leaves the template lines with stray leading spaces (they
+    # then render as Markdown code blocks). See BACKLOG batch-6 finding.
+    entry = (
+        f"## {date_str} — {summary}\n\n"
+        f"- **Method:** {method}\n"
+        f"- **Operator/Caller:** {caller}\n"
+        f"- **Pre-merge main HEAD:** `{pre_sha}`\n"
+        f"- **Branches merged (in order):**\n"
+        f"{branch_lines}\n"
+        f"- **Post-merge main HEAD:** `{post_sha}`\n"
+        f"- **Pushed to origin:** no (push is operator-only)\n"
+        f"- **Pre-flight checks run:**\n"
+        f"{preflight_str}\n"
+        f"- **Notes:** {notes}\n\n"
+    )
     if not merge_log.exists():
         merge_log.parent.mkdir(parents=True, exist_ok=True)
         merge_log.write_text(entry, encoding="utf-8")

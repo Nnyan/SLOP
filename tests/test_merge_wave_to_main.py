@@ -609,6 +609,30 @@ class TestAuditLogAppend:
         )
         assert "tools/merge_wave_to_main.py" in merge_log.read_text()
 
+    def test_no_stray_indentation_renders_as_codeblock(self, tmp_path: Path) -> None:
+        """Regression (batch-6): the old textwrap.dedent left header/bullet lines
+        with 4-8 leading spaces (rendered as Markdown code blocks) when multi-line
+        fields were interpolated. No generated line may start with >=4 spaces."""
+        merge_log = tmp_path / "MERGE-LOG.md"
+        merge_log.write_text("# Log\n\n---\n\n")
+        merge_wave_to_main._append_audit_entry(
+            merge_log,
+            branches=["wave/S-66-a", "wave/S-67-b", "wave/S-68-c"],  # multi-line branch_lines
+            pre_sha="abc1234",
+            post_sha="def5678",
+            preflight_results={"working-tree": "CLEAN", "diff": "OK", "ms-enforce": "PASS"},
+            notes="multi-branch",
+            caller="tester",
+            timestamp="2026-05-29T12:00:00Z",
+        )
+        for line in merge_log.read_text().splitlines():
+            if line.strip():
+                assert not line.startswith("    "), f"stray code-block indent: {line!r}"
+        # the header and field bullets must be flush-left
+        text = merge_log.read_text()
+        assert "\n## 2026-05-29 — " in text
+        assert "\n- **Method:**" in text
+
 
 class TestWaveKeyExtraction:
     """Unit tests for _extract_wave_key."""
