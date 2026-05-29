@@ -1240,6 +1240,36 @@ def check_walkback_log() -> tuple[bool, str]:
     return True, summary  # warn-only: True means pass
 
 
+def check_orchestrator_prompt_format() -> tuple[bool, str]:
+    """Tier 1 (S-69-C): orchestrator prompt format audit — warn-only.
+
+    Runs tools/audit_orchestrator_prompt_format.py against wave files and
+    run-archive records, checking for:
+      1. Explicit git rev-parse origin/main base (not bare HEAD)
+      2. Per-stream model assignments in the Parallelization section
+      3. Subagent preamble reference in the Robot mode section (S-56+)
+
+    Always returns True (warn-only, never blocking).
+    """
+    script = REPO / "tools" / "audit_orchestrator_prompt_format.py"
+    if not script.exists():
+        return True, "orchestrator-prompt-format scanner not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING")]
+    if not warning_lines:
+        return True, "all checked orchestrator prompt files pass format checks"
+    summary = f"WARNING — {len(warning_lines)} orchestrator prompt format issue(s):"
+    for ln in warning_lines[:5]:
+        summary += f"\n    {ln[:100]}"
+    if len(warning_lines) > 5:
+        summary += f"\n    ... and {len(warning_lines) - 5} more"
+    return True, summary  # always True — warn-only
+
+
 def check_access_requests_stale() -> tuple[bool, str]:
     """Tier 1 (S-59-C): access-requests queue health — warn-only.
 
@@ -1427,6 +1457,8 @@ TIER_1: list[tuple[str, object]] = [
     ("BACKLOG stale — bare [ ] entries >14 days (warn only)", check_backlog_stale),
     # ── Wave subagent preamble audit (S-69-B) ─────────────────────────────
     ("Wave subagent preamble — orchestrator dispatch rules (warn only)", check_wave_subagent_preamble),
+    # ── Orchestrator prompt format audit (S-69-C) ──────────────────────────
+    ("Orchestrator prompt format — git-base/models/preamble (warn only)", check_orchestrator_prompt_format),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
