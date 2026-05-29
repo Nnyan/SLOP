@@ -689,6 +689,69 @@ Two operating patterns; pick whichever fits the moment:
   **Never** hand-edit `.claude/settings.local.json` to lift a deny — always use
   a sanctioned tool so the lift-restore discipline and audit trail are enforced.
 
+### Per-stream Model column (S-73)
+_not-mechanically-enforced (wave-file content; the `Model` cell is parsed by `tools/wave_complexity.py` and reviewed by the coordinator at wave-design time)_
+
+A wave's **Parallelization** stream table carries an optional per-stream `Model`
+column that lets an author assign a model to each stream independently of the
+per-wave `**Models:**` default line. This makes model choice an explicit,
+reviewable property of each stream rather than a single batch-wide default.
+
+**Column format (the contract `tools/wave_complexity.py` parses verbatim):**
+
+- The Parallelization stream table gains a `Model` column **immediately after the
+  `Stream` column**. The header cell text is exactly `Model`.
+- A `Model` cell value is one of:
+  - `**opus**`, `**sonnet**`, or `**haiku**` (bold, lowercase) — an explicit
+    per-stream override; OR
+  - a blank cell, or `_(blank → <model>)_` (e.g. `_(blank → sonnet)_`) — meaning
+    "inherit the wave's `**Models:**` default line". A blank/inherit cell NEVER
+    replaces the default; it defers to it.
+- The scorer treats a cell containing the case-insensitive token `opus` as an
+  Opus stream (its "any Opus stream" complexity signal). Blank/inherit cells
+  inherit the default-line model and are not counted as explicit Opus streams.
+- Every wave that carries per-stream overrides MUST include a **"Per-stream Model
+  justification"** block immediately after the table — one line per overridden
+  stream, naming the rubric criterion that earns the override.
+
+Existing wave files with no `Model` column are valid and unchanged: the absence
+of the column is equivalent to every stream inheriting the `**Models:**` default
+(grandfathered).
+
+Example:
+
+```markdown
+**Models (per-wave default):** coordinator = **opus**, subagents = **sonnet**.
+
+| Stream | Model | Order | Subagent type | Scope |
+|---|---|---|---|---|
+| A — contract design | **opus** | parallel | `general-purpose` in worktree | ... |
+| B — bounded impl | _(blank → sonnet)_ | parallel | `general-purpose` in worktree | ... |
+| C — find/replace | **haiku** | parallel | `general-purpose` in worktree | ... |
+
+**Per-stream Model justification (one line each):**
+- **A = opus** — cross-stream contract design; a plausible-but-wrong contract
+  passes review yet mis-guides every consumer. (Rubric: cross-stream contract design.)
+- **C = haiku** — mechanical find/replace; the coordinator (opus) reviews the
+  merge, so any miss is catchable. (Rubric: mechanical / boilerplate.)
+```
+
+**The rubric — pick a stream's model by its dominant cognitive demand:**
+
+- **Opus** = irreducible judgment: ambiguous root-cause, cross-stream contract
+  design, load-bearing refactor, security-sensitive work, or any case where a
+  plausible-but-wrong solution passes the tests.
+- **Sonnet** = bounded implementation to a clear spec. **This is the default** —
+  most streams are Sonnet.
+- **Haiku** = mechanical / zero-judgment work: applying a fixed classification,
+  find/replace, rename, or boilerplate assembly.
+
+**Guardrail:** the coordinator is already Opus and reviews every merge, so a
+stream earns Opus only if **it** makes calls the coordinator cannot catch after
+the fact. When in doubt, default to Sonnet. Every Opus or Haiku override carries
+a one-line justification in the "Per-stream Model justification" block naming the
+rubric criterion it satisfies.
+
 ## How Robot mode improves over time
 
 After each Robot run, the morning reviewer (user + Opus session) does a short retrospective:
