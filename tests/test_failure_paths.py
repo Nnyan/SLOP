@@ -250,7 +250,7 @@ class TestInfraProviderComposeFailure:
 
     @patch("backend.core.compose.compose_up", return_value=(1, "port conflict error"))
     def test_glance_compose_failure_no_nameerror(
-        self, mock_compose, test_db, tmp_compose_dir,
+        self, mock_compose, ready_db, tmp_compose_dir,
     ):
         """Glance deploy must not raise NameError on compose failure."""
         from backend.infra.providers.dashboard_glance import GlanceDashboardProvider as GlanceProvider
