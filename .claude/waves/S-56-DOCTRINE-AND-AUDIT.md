@@ -35,7 +35,7 @@ battery + CI integration.
 
 ## Parallelization
 
-**Models:** coordinator = **opus**, subagents = **sonnet**. Four parallel streams.
+**Models:** coordinator = **opus**, subagents = **sonnet**. Five parallel streams.
 
 | Stream | Subagent type | Scope |
 |---|---|---|
@@ -43,6 +43,7 @@ battery + CI integration.
 | B — Settings hygiene | `general-purpose` in worktree | `.claude/settings.local.json` (NOT committed), `.claude/SETTINGS-AUDIT.md` (new, tracked) |
 | C — Doc audit expansion | `general-purpose` in worktree | `tools/check_referenced_files.py` (extend to docs/), `tests/test_referenced_files.py` (extend), ms-enforce (already registered) |
 | D — Permanent Robot test battery + CI | `general-purpose` in worktree | `.claude/robot-test-battery/` (new dir with test-instructions.md, runner script), `.github/workflows/robot-battery-validation.yml` (warn-only), ROBOT.md (link to it) |
+| E — Floating-work audit tooling + BACKLOG enforcement | `general-purpose` in worktree | `tools/audit_todos.py`, `tools/audit_archived_observations.py`, `tools/audit_wave_out_of_scope.py` (all new), ms-enforce TIER_1 (new warn-only check), `docs/BACKLOG.md` (already exists — extend with any new findings), tests |
 
 ## Deliverables
 
@@ -76,6 +77,34 @@ battery + CI integration.
    - Tracked docs missing from `docs/MAP.md`.
 3. Update `tests/test_referenced_files.py` with doc-tree cases.
 4. Wire warning output into ms-enforce TIER_1 (warn-only).
+
+### Stream E — Floating-work audit tooling + BACKLOG enforcement
+
+Goal: catch known-but-untracked work the way TIER_2 was caught (only when the
+operator explicitly asked "is this in any wave?"). Three small scanners + a
+ms-enforce check + the existing `docs/BACKLOG.md` as the canonical sink.
+
+1. `tools/audit_todos.py` — scan all source/config files for `# TODO`, `# FIXME`,
+   `# HACK`, `# XXX` markers. Compare to `docs/BACKLOG.md`. Warn on any code
+   marker without a matching `[ ]` line referencing the marker's file:line.
+   Excluded extensions: `.venv/`, `node_modules/`, test fixtures.
+2. `tools/audit_archived_observations.py` — walk `.claude/run-archive/*/observations/`
+   + `decisions/` + `proposed-deletions/`. For any file containing trigger
+   words (`should`, `worth`, `consider`, `future`, `TODO`, `morning review`,
+   `not in scope`), check if the source-file basename is referenced in
+   `docs/BACKLOG.md`. If not, emit a candidate backlog line for review.
+3. `tools/audit_wave_out_of_scope.py` — walk `.claude/waves/*.md`, extract
+   each "Out of scope" section's bullets, surface any bullet that references
+   "future" / "candidate" / "S-NN wave" and isn't in `docs/BACKLOG.md`.
+4. ms-enforce TIER_1 warn-only check `check_backlog_coverage` that runs all
+   three scanners and reports counts. Exits 0 always (warn-only); the goal
+   is visibility, not blocking.
+5. Tests in `tests/test_backlog_audit.py` using fixture files.
+
+Verification: run the three scanners against the current tree; the output
+should be empty (or all current floating items are already in BACKLOG.md
+from the 2026-05-28 manual sweep). Throwaway: add a fake `# TODO: not in
+backlog` to a source file, run, see the warning, revert.
 
 ### Stream D — Permanent Robot test battery + CI
 1. Create `.claude/robot-test-battery/` containing:
