@@ -30,6 +30,7 @@ Dry-run (no push, no lift, audit entry written with result=DRY-RUN):
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -216,7 +217,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    log_path = Path(args.log_path) if args.log_path else SANCTIONED_OPS_LOG
+    # Explicit --log-path wins; env-var redirect (S-71-B) applies when neither
+    # --log-path nor SLOP_AUDIT_LOG_PATH is set (falling back to SANCTIONED_OPS_LOG).
+    if args.log_path:
+        log_path: Path = Path(args.log_path)
+    elif "SLOP_AUDIT_LOG_PATH" in os.environ:
+        log_path = Path(os.environ["SLOP_AUDIT_LOG_PATH"])
+    else:
+        log_path = SANCTIONED_OPS_LOG
 
     return run(
         ref=args.ref,

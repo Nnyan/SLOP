@@ -23,6 +23,15 @@ Public contract (PINNED — downstream C/D/E import exactly these symbols):
         caller defaults to $USER (or $USERNAME on Windows).
         timestamp defaults to UTC now (ISO-8601 with Z suffix).
 
+        Environment variable override (S-71-B):
+            When SLOP_AUDIT_LOG_PATH is set in the environment AND the caller
+            did NOT pass an explicit log_path (i.e. log_path still equals the
+            SANCTIONED_OPS_LOG default), the effective log path is
+            Path(os.environ["SLOP_AUDIT_LOG_PATH"]).  This allows test and
+            tool-verification runs to redirect audit writes to a tmp file
+            without touching the committed log.  Production CLI runs leave the
+            env var unset and are unchanged.
+
 All stdlib — no external dependencies.
 """
 from __future__ import annotations
@@ -157,6 +166,13 @@ def write_entry(
     log_path:
         Path to the Markdown log file.  Defaults to ``SANCTIONED_OPS_LOG``.
     """
+    # Env-var redirect (S-71-B): when SLOP_AUDIT_LOG_PATH is set AND the caller
+    # did not pass an explicit log_path (log_path is still the module-level
+    # default), redirect to the env-var path.  An explicit caller-supplied
+    # log_path always wins over the env var.
+    if log_path is SANCTIONED_OPS_LOG and "SLOP_AUDIT_LOG_PATH" in os.environ:
+        log_path = Path(os.environ["SLOP_AUDIT_LOG_PATH"])
+
     resolved_caller = caller if caller is not None else _default_caller()
     resolved_ts = timestamp if timestamp is not None else _utc_now()
 
