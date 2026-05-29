@@ -182,7 +182,7 @@ Pure-stdlib module. **Public symbols (PINNED — C/D/E import exactly these):**
 - Generalizing the toolkit to non-deny operations.
 
 ## Cross-wave dependencies (EXPLICIT)
-- Depends ONLY on current main (`cdbf1dd` as of 2026-05-29; the orchestrator
+- Depends ONLY on current main (`069d798` as of 2026-05-29; the orchestrator
   re-confirms `git rev-parse origin/main` at startup). Builds on
   `tools/merge_wave_to_main.py` (already on main) as the prototype it refactors.
 - File-disjoint with S-69 (this wave: `tools/sanctioned/**`, `merge_wave_to_main.py`

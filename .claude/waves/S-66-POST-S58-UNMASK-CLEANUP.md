@@ -22,6 +22,15 @@ failures rule still applies to OTHER waves.
   This wave MUST be drafted against post-batch-5 main, not pre. Stream A
   re-inventories first to confirm which failures are still present after
   batch-5's code changes (some may incidentally resolve; others may shift).
+- **COUNT CAVEAT (pre-flight 2026-05-29):** the "43 / 30 / 12 / 1" numbers above
+  are the *post-S-58, pre-batch-5* baseline. A fresh run on current main
+  (`069d798`) shows **~59 (50 failed + 9 errors)** — batch-5 and other drift
+  moved it. Stream A's re-inventory is the AUTHORITATIVE baseline; do not treat
+  43/≤2 as facts. Also: a subset of the current failures are **environment-
+  dependent** (Docker socket missing → `test_agent_apply`, `test_e2e_flows`
+  provider tests; outbound network → `test_llm_models` openai/groq/anthropic).
+  Stream A classifies these as `misc/env` and does NOT chase them as product
+  bugs — they are not greenable in a sandbox without Docker/network.
 
 ## Rules to follow
 - This wave IS the authorized fix-all-failures scope for these specific 42
@@ -81,7 +90,8 @@ subagents = **sonnet**. Four streams: A sequential first, then B/C/D parallel.
   applying. Verify with `check_py_migration_api` ms-enforce.
 - Missing `tools/check_cleanup_ledger.py`: investigate whether the work was
   ever done (git log, grep for the function name). Either implement OR remove
-  the references from tests/ms-enforce. Commit per decision.
+  the references (in `tests/test_cleanup_ledger.py`, `docs/GLOSSARY.md`,
+  `docs/BACKLOG.md` — NOT ms-enforce; it is not referenced there). Commit per decision.
 - `ollama_url` default mismatch: identify the source-of-truth default
   (`backend/core/config.py`?) and align tests to it.
 
@@ -98,8 +108,11 @@ subagents = **sonnet**. Four streams: A sequential first, then B/C/D parallel.
    blocker-deferred residuals).
 2. `python3 ms-enforce` exits 0.
 3. `tests/test_validate_wave_file.py` not changed by this wave (owned by S-67).
-4. Failure count: from S-58's residual 43 → ≤2 (the 1 validate-wave-file
-   false-positive owned by S-67 plus any blocker-deferred).
+4. Failure count: from **Stream A's recomputed baseline** (the authoritative
+   post-batch-5 inventory, ~59 as of pre-flight) down to that baseline minus the
+   in-scope 12-unmasked + A-bucket items, excluding `misc/env` (Docker/network)
+   failures and the 1 validate-wave-file false-positive owned by S-67. Do NOT
+   use the stale "43 → ≤2" target — Stream A sets the real numbers.
 
 ## Out of scope
 - The 1 validate-wave-file false-positive — owned by S-67.

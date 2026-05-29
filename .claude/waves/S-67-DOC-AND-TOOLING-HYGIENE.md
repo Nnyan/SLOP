@@ -8,7 +8,7 @@
 > dependencies.
 
 ## Goal
-Drain accumulated doc-hygiene debt (88 broken links, 3 phantom TODO refs in
+Drain accumulated doc-hygiene debt (~90 broken links — run `python3 tools/check_referenced_files.py` for the live count; 93 at pre-flight 2026-05-29 — 3 phantom TODO refs in
 RELEASE_NOTES, 4 CHANGELOG v4.2.0 fix-later items) AND complete the tooling
 items that slipped from S-56 — the `audit_orchestrator_dispatch.py` mechanical
 gate (the `robot-settings.py` helper is now owned by S-68; see descope note above).
@@ -25,7 +25,8 @@ failure).
   three times now (OPTIONAL-FILE-SIZE-REMEDIATION.md, S-46-PIN-RELAX.md,
   S-59-ACCESS-REQUESTS-PROCESSOR.md). Same root cause each time: heuristic
   doesn't skip illustrative path fragments / authorized-deletion paths.
-- Doc audit (S-56-C) detected 88 broken-link warnings in docs/. Most are
+- Doc audit (S-56-C) detected ~90 broken-link warnings in docs/ (93 at
+  pre-flight 2026-05-29; count drifts as docs change — `python3 tools/check_referenced_files.py` is the live source). Most are
   refs to `docs/cleanup/*` (deleted post-v5.0.0); some are missing files
   referenced from GLOSSARY/ADRs; some are template placeholders. Triage
   needed.
@@ -76,7 +77,7 @@ Streams D, E are parallel from start (file-disjoint). Stream C is deferred (see 
 ## Deliverables
 
 ### Stream A — doc-ref triage
-For each of 88 broken-link warnings + 3 RELEASE_NOTES TODO refs + 4 CHANGELOG TODOs:
+For each broken-link warning (live count via `python3 tools/check_referenced_files.py`; ~93 at pre-flight) + 3 RELEASE_NOTES TODO refs + 4 CHANGELOG TODOs:
 1. Classify: `stale-ref-target-deleted` / `recoverable-work-needs-backlog-entry` /
    `template-placeholder-mark-as-such` / `ref-target-renamed-update-link`.
 2. For `recoverable-work` items: write the recovered context (what the work

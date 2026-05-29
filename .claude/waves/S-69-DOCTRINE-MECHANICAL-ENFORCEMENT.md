@@ -87,8 +87,11 @@ Parse `docs/BACKLOG.md`; find entries whose status token is bare `[ ]` (NOT
 `[→ S-NN]`, `[park]`, `[parked]`, `[x]`, `[—]`); parse the `Date added: YYYY-MM-DD`
 provenance; warn on any bare `[ ]` older than 14 days. This is the mechanical backing
 for the BACKLOG-triage doctrine (ROBOT.md § "BACKLOG triage discipline", which already
-names this tool as "planned"). Update that ROBOT.md note from "planned" to "shipped"
-in Stream H.
+names this tool as "planned"). **Note (pre-flight 2026-05-29):** that ROBOT.md note
+(line ~36) currently mis-attributes the tool to **S-67** ("planned in S-67 alongside
+the orchestrator-dispatch gate"); it is actually owned by **S-69 Stream A**. Stream H
+must fix BOTH the status word ("planned" → "shipped") AND the attribution
+("S-67" → "S-69") when it updates that note.
 
 ### Stream B — `audit_wave_subagent_preamble.py` → `check_wave_subagent_preamble`
 Parse `.claude/waves/*.md`; for each, confirm the "Robot mode" / orchestrator section
@@ -144,7 +147,7 @@ on the shared HEAD. **This is the mechanical half of the batch-5 retro
 2. Each scanner runs standalone: `python3 tools/audit_<name>.py --repo .` exits 0 and prints warnings (or clean) without traceback.
 3. `python3 ms-enforce` exits 0; the seven new checks appear in the TIER_1 section as warn-only.
 4. ROBOT.md / AUTONOMOUS-DEFAULTS: every human-enforced rule either cross-references a `check_<name>` gate or carries a `not-mechanically-enforced` marker (Stream H).
-5. ROBOT.md § "BACKLOG triage discipline" updated: `audit_backlog_stale.py` note changed from "planned" to "shipped".
+5. ROBOT.md § "BACKLOG triage discipline" updated: `audit_backlog_stale.py` note changed from "planned" to "shipped" AND re-attributed from S-67 to S-69 (pre-flight finding).
 6. The merge-worktree doctrine text is present in ROBOT.md + AUTONOMOUS-DEFAULTS and cross-references `check_merge_worktree_pattern`.
 
 ## Out of scope
@@ -157,7 +160,8 @@ on the shared HEAD. **This is the mechanical half of the batch-5 retro
 - Auto-pruning memory or auto-editing BACKLOG — gates surface, humans act.
 
 ## Cross-wave dependencies (EXPLICIT)
-- Depends ONLY on current main (`578c452`). Builds on the `check_walkback_log` /
+- Depends ONLY on current main (`069d798` as of 2026-05-29; orchestrator re-confirms
+  `git rev-parse origin/main` at startup). Builds on the `check_walkback_log` /
   `check_access_requests_stale` warn-only TIER_1 pattern and the
   `check_backlog_coverage` scanner-plus-wrapper split.
 - File-disjoint with S-68 (this wave: `tools/audit_*.py` + doctrine cross-refs; S-68:
