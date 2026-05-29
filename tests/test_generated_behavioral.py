@@ -1783,17 +1783,17 @@ Each test verifies: no 500 error, response is JSON, failure paths return 4xx."""
         )
 
     def test_route_PUT__api_phase_id_responds(self, app_client):
-        """PUT /api/{phase_id} must respond without 500.
+        """PUT /api/v1/quickstart/{phase_id} must respond without 500.
         Risk=medium. handler=update_phase
         Tests: status code, response is JSON, no server error."""
         client, _ = app_client
-        r = client.put("/api/{phase_id}")
+        r = client.put("/api/v1/quickstart/network")
         # Empty/minimal body should return 4xx (validated) not 500
         assert r.status_code != 500, (
-            f"PUT /api/{{phase_id}} returned 500 on minimal body: {r.text[:200]}"
+            f"PUT /api/v1/quickstart/network returned 500 on minimal body: {r.text[:200]}"
         )
         # No body → must reject with 422, not crash with 500
-        r_empty = client.put("/api/{phase_id}")
+        r_empty = client.put("/api/v1/quickstart/network")
         assert r_empty.status_code in (200, 204, 400, 405, 409, 422), (
             f"Missing body should get 4xx or 405 not 500, got {r_empty.status_code}"
         )

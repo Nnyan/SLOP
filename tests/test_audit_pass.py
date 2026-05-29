@@ -27,7 +27,7 @@ class TestDockerSocketReadOnly:
 
     def test_traefik_fragment_socket_is_readonly(self):
         from backend.core.compose import build_traefik_fragment
-        frag = build_traefik_fragment("example.com")
+        frag = build_traefik_fragment("example.com", "/tmp/test-config")
         socket_vols = [v for v in frag.get("volumes", []) if "docker.sock" in v]
         assert socket_vols, "Traefik fragment must mount Docker socket"
         assert socket_vols[0].endswith(":ro"), \
@@ -182,34 +182,34 @@ class TestCommunityManifests:
 class TestTraefikFragment:
     def test_cloudflare_env_vars_passed(self):
         from backend.core.compose import build_traefik_fragment
-        frag = build_traefik_fragment("example.com", dns_provider="cloudflare")
+        frag = build_traefik_fragment("example.com", "/tmp/test-config", dns_provider="cloudflare")
         env = frag.get("environment", {})
         assert "CF_DNS_API_TOKEN" in env, \
             "Cloudflare provider must receive CF_DNS_API_TOKEN"
 
     def test_route53_env_vars_passed(self):
         from backend.core.compose import build_traefik_fragment
-        frag = build_traefik_fragment("example.com", dns_provider="route53")
+        frag = build_traefik_fragment("example.com", "/tmp/test-config", dns_provider="route53")
         env = frag.get("environment", {})
         assert "AWS_ACCESS_KEY_ID" in env
         assert "AWS_SECRET_ACCESS_KEY" in env
 
     def test_zerossl_volume_mounted(self):
         from backend.core.compose import build_traefik_fragment
-        frag = build_traefik_fragment("example.com")
+        frag = build_traefik_fragment("example.com", "/tmp/test-config")
         vols = frag.get("volumes", [])
         zerossl_vols = [v for v in vols if "acme-zerossl" in v]
         assert zerossl_vols, "Traefik fragment must mount /acme-zerossl.json"
 
     def test_dns_provider_default_is_cloudflare(self):
         from backend.core.compose import build_traefik_fragment
-        frag = build_traefik_fragment("example.com")
+        frag = build_traefik_fragment("example.com", "/tmp/test-config")
         assert "CF_DNS_API_TOKEN" in frag.get("environment", {})
 
     def test_unknown_provider_no_env_vars(self):
         """Unknown providers should produce no env vars rather than crashing."""
         from backend.core.compose import build_traefik_fragment
-        frag = build_traefik_fragment("example.com", dns_provider="unknown_provider_xyz")
+        frag = build_traefik_fragment("example.com", "/tmp/test-config", dns_provider="unknown_provider_xyz")
         env = frag.get("environment", {})
         assert isinstance(env, dict)  # Should not crash
 

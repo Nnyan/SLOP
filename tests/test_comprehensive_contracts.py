@@ -127,6 +127,8 @@ class TestStaticAnalysis:
                 continue
             if 'scripts' in f.parts:  # CLI tools — user output is the API
                 continue
+            if f.name == 'cli.py':  # CLI entry points — print() is the output API
+                continue
             src = f.read_text()
             for i, line in enumerate(src.splitlines(), 1):
                 stripped = line.strip()
@@ -348,6 +350,8 @@ class TestFrontendBackendContracts:
                               '/api/v1/storage/sources',
                               '/api/storage/sources',
                               '/api/coverage',  # registered directly on app in main.py
+                              '/api/v1/agent',  # agent router lives in backend/agent/api.py
+                              '/api/agent',     # not backend/api/ — scanned separately
                               '/$',  # regex artifact
                           ])]
         assert not real_unmatched, (

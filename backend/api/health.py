@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from backend.api.rate_limit import limiter
 from backend.core.logging import get_logger
 from backend.core.state import StateDB
-from backend.health.checker import _llm_state
+from backend.health.checker import _llm_state, run_health_cycle
 
 log = get_logger(__name__)
 router = APIRouter()
@@ -254,15 +254,11 @@ def get_llm_agent_status() -> LLMAgentStatus:
 @router.post("/run")
 @limiter.limit("10/minute")  # type: ignore[untyped-decorator]  # slowapi decorator is untyped (Step 2.4 — heavy read tier)
 async def trigger_health_run(request: Request) -> dict[str, Any]:
-    """Trigger an immediate health check cycle."""
+    """Trigger a health cycle immediately."""
+    import json
     try:
-        from backend.core.state import StateDB
-        from backend.health.checker import run_health_cycle
-        import json
-
         with StateDB() as db:
             cfg = db.get_setting("llm_agent_config")
-
         agent_cfg = json.loads(cfg) if cfg else {}
         _provider = agent_cfg.get("provider", "ollama")
         if _provider == "llamacpp":
@@ -270,11 +266,8 @@ async def trigger_health_run(request: Request) -> dict[str, Any]:
         else:
             ollama_url = agent_cfg.get("ollama_url", "http://ollama:11434")
         ntfy_topic = agent_cfg.get("ntfy_topic", "mediastack")
-
         run = await run_health_cycle(
-            ollama_url=ollama_url,
-            ntfy_url="http://ntfy:80",
-            ntfy_topic=ntfy_topic,
+            ollama_url=ollama_url, ntfy_url="http://ntfy:80", ntfy_topic=ntfy_topic,
         )
     except Exception as _e:
         raise HTTPException(status_code=500,
