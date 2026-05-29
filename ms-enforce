@@ -1171,6 +1171,76 @@ def check_llm_outbound_scrubbed() -> tuple[bool, str]:
     return True, "_dispatch_llm_call routes cloud text through scrub() (ADR-0018 satisfied)"
 
 
+def check_access_requests_stale() -> tuple[bool, str]:
+    """Tier 1 (S-59-C): access-requests queue health — warn-only.
+
+    Warns when:
+    - Any pending [ ] entry in docs/ACCESS-REQUESTS.md is older than 30 days
+      (date parsed from the 'Requested by: ... (YYYY-MM-DD)' provenance line).
+    - The total pending count across all categories exceeds a threshold
+      (default 20).
+
+    Always returns True (warning only, never blocking) — the goal is visibility
+    and a nudge to process the queue, not a hard CI gate.
+    """
+    import datetime as _dt
+
+    queue_file = REPO / "docs" / "ACCESS-REQUESTS.md"
+    if not queue_file.exists():
+        return True, "docs/ACCESS-REQUESTS.md not found (skip)"
+
+    try:
+        content = queue_file.read_text(encoding="utf-8")
+    except Exception as exc:
+        return True, f"could not read ACCESS-REQUESTS.md: {exc}"
+
+    today = _dt.date.today()
+    stale_threshold_days = 30
+    pending_threshold = 20
+
+    # Collect all pending lines (start with `- [ ]`)
+    pending_lines = [ln for ln in content.splitlines() if ln.strip().startswith("- `[ ]`")]
+    pending_count = len(pending_lines)
+
+    # Parse dates from provenance: "Requested by: ... (YYYY-MM-DD)"
+    date_re = re.compile(r"\((\d{4}-\d{2}-\d{2})\)")
+    stale_entries: list[str] = []
+    for line in pending_lines:
+        m = date_re.search(line)
+        if not m:
+            continue
+        try:
+            entry_date = _dt.date.fromisoformat(m.group(1))
+        except ValueError:
+            continue
+        age = (today - entry_date).days
+        if age > stale_threshold_days:
+            # Extract a short label for the warning message
+            label_m = re.search(r"\*\*\[(\w+)\]\s+([^*]+)\*\*", line)
+            label = label_m.group(0)[:60] if label_m else line.strip()[:60]
+            stale_entries.append(f"{label} (age {age}d)")
+
+    warnings: list[str] = []
+    if stale_entries:
+        warnings.append(
+            f"WARNING — {len(stale_entries)} pending entry/entries older than "
+            f"{stale_threshold_days} days:"
+        )
+        for entry in stale_entries[:5]:
+            warnings.append(f"  {entry}")
+        if len(stale_entries) > 5:
+            warnings.append(f"  ... and {len(stale_entries) - 5} more")
+    if pending_count > pending_threshold:
+        warnings.append(
+            f"WARNING — {pending_count} pending entries exceeds threshold {pending_threshold}: "
+            "consider processing the queue"
+        )
+
+    if warnings:
+        return True, "\n".join(warnings)
+    return True, f"{pending_count} pending entries, none older than {stale_threshold_days} days"
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1213,6 +1283,8 @@ TIER_1: list[tuple[str, object]] = [
     ("BACKLOG coverage — floating-work audit (warn only)", check_backlog_coverage),
     # ── LLM outbound scrub gate (ADR-0018 / S-61 Stream B) ────────────────
     ("LLM outbound scrub — cloud path through scrub() (ADR-0018)", check_llm_outbound_scrubbed),
+    # ── Access-requests queue health (S-59-C) ─────────────────────────────
+    ("Access-requests queue — stale entries (warn only)", check_access_requests_stale),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),

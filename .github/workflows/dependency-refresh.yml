@@ -110,6 +110,74 @@ jobs:
           exit 1
 
       # -----------------------------------------------------------------------
+      # 5b. Apply [upgrade] entries from docs/ACCESS-REQUESTS.md (S-59-C)
+      #
+      # Reads pending [ ] entries in the ## [upgrade] section and runs
+      # `uv lock --upgrade-package <name>` for each one so they are folded
+      # into the same refresh PR that this workflow already produces.
+      # Skips gracefully if the file is absent or the section has no pending
+      # entries — this step must never fail the workflow.
+      # -----------------------------------------------------------------------
+      - name: Apply [upgrade] entries from ACCESS-REQUESTS.md
+        id: access-upgrades
+        run: |
+          python3 - <<'PYEOF'
+          import re, subprocess, sys
+          from pathlib import Path
+
+          queue_file = Path("docs/ACCESS-REQUESTS.md")
+          if not queue_file.exists():
+              print("docs/ACCESS-REQUESTS.md not found — skipping upgrade entries")
+              sys.exit(0)
+
+          content = queue_file.read_text(encoding="utf-8")
+
+          # Extract the [upgrade] section
+          upgrade_section_match = re.search(
+              r"^## `\[upgrade\]`.*?$(.*?)(?=^## |\Z)",
+              content,
+              re.MULTILINE | re.DOTALL,
+          )
+          if not upgrade_section_match:
+              print("No [upgrade] section found in ACCESS-REQUESTS.md — skipping")
+              sys.exit(0)
+
+          section = upgrade_section_match.group(1)
+
+          # Find pending entries: lines starting with `- [ ]`
+          # Extract the package name from patterns like:
+          #   - `[ ]` **[upgrade] `<pkg>` ...
+          #   - `[ ]` **[upgrade] `<pkg>` <version> ...
+          pending_pkgs = []
+          for line in section.splitlines():
+              if not line.strip().startswith("- `[ ]`"):
+                  continue
+              # Extract first backtick-quoted token after [upgrade]
+              m = re.search(r"\[upgrade\]\s+`([A-Za-z0-9_\-]+)", line)
+              if m:
+                  pending_pkgs.append(m.group(1))
+
+          if not pending_pkgs:
+              print("No pending [upgrade] entries found — nothing to do")
+              sys.exit(0)
+
+          print(f"Found {len(pending_pkgs)} pending upgrade(s): {', '.join(pending_pkgs)}")
+          for pkg in pending_pkgs:
+              print(f"  Running: uv lock --upgrade-package {pkg}")
+              result = subprocess.run(
+                  ["uv", "lock", "--upgrade-package", pkg],
+                  capture_output=True, text=True,
+              )
+              if result.returncode != 0:
+                  print(f"  WARNING: uv lock --upgrade-package {pkg} exited {result.returncode}")
+                  print(result.stderr[:500])
+                  # Non-fatal — continue with remaining packages
+              else:
+                  print(f"  OK: {pkg} upgrade applied to uv.lock")
+          PYEOF
+        continue-on-error: true
+
+      # -----------------------------------------------------------------------
       # 6. Detect whether uv.lock actually changed
       # -----------------------------------------------------------------------
       - name: Detect lockfile change
