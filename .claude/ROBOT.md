@@ -807,6 +807,10 @@ verdict, and an overall `DISPATCH-OK` or `BLOCKED` verdict.  Stream E
 BLOCK only on clearly FALSE claims.  Missing-but-to-be-created paths, approximate
 claims, and stylistic issues are WARN-only and never block dispatch.
 
+### Canonical wave template
+
+New waves start from `.claude/waves/_TEMPLATE.md`.
+
 ## How Robot mode improves over time
 
 After each Robot run, the morning reviewer (user + Opus session) does a short retrospective:
