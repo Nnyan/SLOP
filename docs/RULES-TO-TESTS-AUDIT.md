@@ -26,7 +26,7 @@ list only. Future waves consume it.
 | Grandfathered violators (SetupView ~1711, SettingsView ~1369, etc.) should shrink over time, not grow. | YES | Covered by ratchet baseline check (grow = CI failure); shrink trend can be tracked via baseline diffs | S |
 | **Catalog apps** | | | |
 | YAML manifests: `catalog/apps/<key>.yaml` (naming + location convention). | YES | `ms-enforce` or CI check: all manifests in `catalog/apps/` must be `.yaml`; no manifests elsewhere | S |
-| Docker Compose vars use `${VAR}` syntax (not Python `{var}`). | YES | `grep -rn` or ruff-equivalent check for `{[A-Z_]+}` (non-`$`-prefixed) in catalog YAML env blocks; fast static check | S |
+| Docker Compose vars use `${VAR}` syntax (not Python `{var}`). | YES ✓ | **DONE (S-55-B):** ms-enforce::check_catalog_env_var_syntax — scans all catalog/apps/*.yaml env: blocks for bare `{VAR}` patterns | S |
 | Known env vars written to `.env` by wizard: `PUID`, `PGID`, `TZ`, `CONFIG_ROOT`, `MEDIA_ROOT`, `DOMAIN`. | NO | Documentation-of-fact about the wizard; the list lives in `_SLOP_MANAGED_VARS` frozenset which is the canonical source | — |
 | If a catalog app uses a var not in the known list, it resolves to empty string at runtime. | PARTIAL | Could lint manifests for unknown `${VAR}` references vs `_SLOP_MANAGED_VARS`; partial because auto_secrets and `:-` defaults are legitimate escapes | M |
 | **Install flow** | | | |
@@ -40,12 +40,12 @@ list only. Future waves consume it.
 | No multi-line bash in SSH double-quoted args — Write script → scp → ssh execute. | PARTIAL | `grep` heuristic for multi-line strings inside `ssh … "…"` constructs; false positives from legitimate single-line args likely | M |
 | No multi-line `python3 -c` — write to /tmp file and run. | PARTIAL | `grep` heuristic for `python3 -c` with embedded newlines; false positives possible; AST parse harder without executing | M |
 | **Project facts — SLOP AI Agent distinction** | | | |
-| SLOP AI Agent DB record: `key="slop_agent"`, `tier=0`, `category="agent"`, `status="running"`. | YES | Unit test asserting `ensure_agent_registered()` produces a record with those exact fields | S |
+| SLOP AI Agent DB record: `key="slop_agent"`, `tier=0`, `category="agent"`, `status="running"`. | YES ✓ | **DONE (S-55-B):** tests/test_rules_migration_batch1.py::TestAgentRoleConstant — asserts AGENT_KEY, AGENT_TIER, AGENT_CATEGORY constants | S |
 | `ensure_agent_registered()` runs at every startup. | YES | Unit/integration test: call startup sequence, assert function was invoked (mock or call-count check) | S |
-| Agent health uses `subject_type="agent"` (never `subject_type="app"`). | YES | Unit test: assert all agent health records have `subject_type="agent"` and no app health records do | S |
+| Agent health uses `subject_type="agent"` (never `subject_type="app"`). | YES ✓ | **DONE (S-55-B):** tests/test_rules_migration_batch1.py::TestAgentRoleConstant::test_agent_subject_type_value | S |
 | `GET /api/v1/health/agent` endpoint exists + `agent_status` field in `/api/v1/health/summary`. | YES | API schema test / response-shape test; assert both fields are present in responses | S |
-| `get_all_apps(include_system=False)` excludes tier=0 entries from user-facing lists. | YES | Unit test: seed DB with a tier=0 app, call function, assert it is excluded from result | S |
-| `AGENT_ROLE = "executive_manager"` constant in `backend/core/agent.py`. | YES | `grep` check or import test asserting constant value; very cheap | S |
+| `get_all_apps(include_system=False)` excludes tier=0 entries from user-facing lists. | YES ✓ | **DONE (S-55-B):** tests/test_rules_migration_batch1.py::TestGetAllAppsExcludesSystem — seeds tier=0 app, asserts excluded from default list | S |
+| `AGENT_ROLE = "executive_manager"` constant in `backend/core/agent.py`. | YES ✓ | **DONE (S-55-B):** tests/test_rules_migration_batch1.py::TestAgentRoleConstant::test_agent_role_value | S |
 | User LLM catalog apps (Ollama, llama.cpp, Open WebUI) are distinct from the SLOP AI Agent. | NO | Documentation-of-distinction; the tier=0 exclusion test above is the mechanical proxy | — |
 | **Project facts — Three data directories** | | | |
 | `/opt/mediastack/` (install_dir), `/var/lib/mediastack/` (MS_DATA_DIR via systemd), `/srv/mediastack/config` (user app config) are distinct paths. | NO | Documentation-of-fact about deployment topology; not verifiable in unit tests | — |
@@ -54,7 +54,7 @@ list only. Future waves consume it.
 | **Project facts — No git on target server** | | | |
 | No git on target server — deploy = scp + sudo cp + systemctl restart. | NO | Documentation-of-fact about deployment method; enforced by code review not automation | — |
 | **Project facts — Catalog has two CatalogEntry definitions** | | | |
-| Any field added to `to_catalog_entry()` must also be added to the Pydantic model in `catalog.py` or FastAPI silently drops it. | YES | Round-trip test: call `to_catalog_entry()` on a real manifest, serialize through Pydantic model, assert all original fields are present | S |
+| Any field added to `to_catalog_entry()` must also be added to the Pydantic model in `catalog.py` or FastAPI silently drops it. | YES ✓ | **DONE (S-55-B):** tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync — asserts all to_catalog_entry() keys exist in CatalogEntry model fields, plus round-trip validation | S |
 | **Project facts — Custom install flow (two steps)** | | | |
 | `POST /api/v1/apps/install-custom` registers manifest in `catalog/community/`, returns `{key}`. Then `POST /api/v1/apps/{key}/install` with `extra_env` starts the install. | PARTIAL | Integration test for the two-step flow exists or can be added; the exact sequence is testable but requires DB + file system setup | M |
 | **Project facts — Port conflict linter** | | | |
@@ -64,9 +64,9 @@ list only. Future waves consume it.
 | **Project facts — Catalog template variables** | | | |
 | `{config_root}` / `{media_root}` in volume `host:` paths are intentional — handled by `_expand_path()` in executor.py. | PARTIAL | Unit test for `_expand_path()` with a config_root substitution; already may exist; "intentional" framing means misuse detection is the harder direction | S |
 | `${VAR}` refs in env blocks handled via `_SLOP_MANAGED_VARS`, `auto_secrets`, wizard, or `:-` defaults. | PARTIAL | Lint check: for each `${VAR}` in env blocks not in `_SLOP_MANAGED_VARS`, verify it has a `:-` default or is in auto_secrets; false positives for wizard-provisioned vars | M |
-| `POSTGRES_PASSWORD` + `POSTGRES_USER` added to `_SLOP_MANAGED_VARS`. | YES | Unit test asserting both vars are members of the `_SLOP_MANAGED_VARS` frozenset in `backend/api/apps.py` | S |
+| `POSTGRES_PASSWORD` + `POSTGRES_USER` added to `_SLOP_MANAGED_VARS`. | YES ✓ | **DONE (S-55-B):** tests/test_rules_migration_batch1.py::TestSlopManagedVars::test_contains_postgres_vars | S |
 | **Project facts — _SLOP_MANAGED_VARS** | | | |
-| `_SLOP_MANAGED_VARS` is a module-level frozenset in `backend/api/apps.py` containing PUID, PGID, TZ, DOMAIN, CONFIG_ROOT, MEDIA_ROOT, POSTGRES_PASSWORD, POSTGRES_USER, VPN vars, etc. | YES | Unit test: import `_SLOP_MANAGED_VARS` from `backend/api/apps`, assert it is a frozenset and contains the listed canonical vars | S |
+| `_SLOP_MANAGED_VARS` is a module-level frozenset in `backend/api/apps.py` containing PUID, PGID, TZ, DOMAIN, CONFIG_ROOT, MEDIA_ROOT, POSTGRES_PASSWORD, POSTGRES_USER, VPN vars, etc. | YES ✓ | **DONE (S-55-B):** tests/test_rules_migration_batch1.py::TestSlopManagedVars — asserts frozenset type, module-level location, and canonical member set | S |
 | **Project facts — Quick Stacks** | | | |
 | `_DEFAULT_STACKS` in `backend/api/platform.py` is the single source of truth for Quick Stacks. | YES | Unit test: assert `_DEFAULT_STACKS` is defined at module level in `backend/api/platform.py` and is the only definition of default stacks | S |
 | Customizations stored in `settings` table keys `custom_stacks` and `hidden_stacks` as JSON. | YES | Unit test: assert the exact key strings are used when reading/writing stack customizations | S |
@@ -77,3 +77,15 @@ list only. Future waves consume it.
 ## Summary
 
 22 YES / 11 PARTIAL / 14 NO out of 47 total rules. Approximately 14 estimated sessions to migrate all YES rules (most are S-effort, a few M).
+
+**S-55 Stream B migration (2026-05-29):** 8 YES rules migrated in batch 1. Remaining: 14 YES rules unmigrated.
+
+| Rule | Enforced by | Wave |
+|------|-------------|------|
+| `_SLOP_MANAGED_VARS` is frozenset w/ canonical vars | tests/test_rules_migration_batch1.py::TestSlopManagedVars | S-55-B |
+| `POSTGRES_PASSWORD` + `POSTGRES_USER` in `_SLOP_MANAGED_VARS` | tests/test_rules_migration_batch1.py::TestSlopManagedVars::test_contains_postgres_vars | S-55-B |
+| `AGENT_ROLE = "executive_manager"` constant | tests/test_rules_migration_batch1.py::TestAgentRoleConstant | S-55-B |
+| Agent constants (AGENT_KEY, AGENT_TIER, AGENT_CATEGORY, AGENT_SUBJECT_TYPE) | tests/test_rules_migration_batch1.py::TestAgentRoleConstant | S-55-B |
+| `get_all_apps(include_system=False)` excludes tier=0 | tests/test_rules_migration_batch1.py::TestGetAllAppsExcludesSystem | S-55-B |
+| `to_catalog_entry()` fields match `CatalogEntry` Pydantic model | tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync | S-55-B |
+| Docker Compose vars use `${VAR}` syntax (not Python `{var}`) | ms-enforce::check_catalog_env_var_syntax | S-55-B |

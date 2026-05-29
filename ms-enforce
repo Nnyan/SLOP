@@ -555,6 +555,57 @@ def check_file_size_ratchet() -> tuple[bool, str]:
     return False, "ratchet violations:\n" + "\n".join(f"    {line}" for line in bad)
 
 
+def check_catalog_env_var_syntax() -> tuple[bool, str]:
+    """Tier 1 (S-55-B): catalog env: blocks must use ${VAR} syntax, not Python {VAR}.
+
+    Docker Compose interpolates ${VAR} at runtime. A bare {VAR} (Python f-string
+    style) is silently left as a literal string by Docker Compose — the variable
+    is never substituted. This is a high-blast-radius silent failure: the catalog
+    YAML parses without error and the install appears to succeed, but the var
+    resolves to the literal text '{VAR}' in the container environment.
+
+    Scope: env: blocks only. Volume host: paths intentionally use {config_root}
+    and {media_root} — handled by _expand_path() in executor.py.
+    """
+    try:
+        import yaml as _yaml
+    except ImportError:
+        return True, "PyYAML not installed (skip)"
+
+    bare_brace = re.compile(r"(?<!\$)\{[A-Z_][A-Z0-9_]*\}")
+    violations: list[str] = []
+    catalog_dir = REPO / "catalog" / "apps"
+    if not catalog_dir.exists():
+        return True, "catalog/apps/ not found (skip)"
+
+    for yaml_path in sorted(catalog_dir.glob("*.yaml")):
+        try:
+            data = _yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            violations.append(f"{yaml_path.name}: YAML parse error — {exc}")
+            continue
+        if not isinstance(data, dict):
+            continue
+        env_block = data.get("env") or {}
+        if not isinstance(env_block, dict):
+            continue
+        for var_name, value in env_block.items():
+            if value is None:
+                continue
+            str_value = str(value)
+            if bare_brace.search(str_value):
+                violations.append(
+                    f"{yaml_path.name}: env.{var_name}={str_value!r} "
+                    "uses bare {{VAR}} — must be ${{VAR}} for Docker Compose interpolation"
+                )
+
+    if violations:
+        detail = "\n".join(f"    {v}" for v in violations[:10])
+        return False, f"{len(violations)} catalog env-var syntax violation(s):\n{detail}"
+    checked = sum(1 for _ in catalog_dir.glob("*.yaml"))
+    return True, f"{checked} catalog YAML env blocks use correct ${{VAR}} syntax"
+
+
 def check_track_status() -> tuple[bool, str]:
     """Tier 1: track-status invariant gate (wave S-48-TRACK-GATE).
 
@@ -593,6 +644,44 @@ def check_referenced_files() -> tuple[bool, str]:
             summary += f"\n    ... and {len(warnings) - 5} more"
         return True, summary
     return True, "no orphan files detected (or all within grace window / allowlist)"
+
+
+def check_wave_file_preflight() -> tuple[bool, str]:
+    """Tier 1: wave-file preflight validator (wave S-55-DEPS-AND-TOOLING Stream C).
+
+    Runs ``tools/validate-wave-file.py`` against every wave file under
+    ``.claude/waves/``.  Warns on claimed-existing paths that are missing or
+    inbound-ref count mismatches.  Always returns True (warn-only) — the goal
+    is visibility before dispatch, not hard blocking of ms-enforce.
+    """
+    script = REPO / "tools" / "validate-wave-file.py"
+    if not script.exists():
+        return True, "wave-file validator not present (skip)"
+    waves_dir = REPO / ".claude" / "waves"
+    if not waves_dir.exists():
+        return True, "no .claude/waves/ directory (skip)"
+    wave_files = sorted(waves_dir.glob("*.md"))
+    if not wave_files:
+        return True, "no wave files found (skip)"
+    mismatches: list[str] = []
+    for wave in wave_files:
+        _rc, out = _run(
+            [str(REPO / ".venv" / "bin" / "python3")
+             if (REPO / ".venv" / "bin" / "python3").exists()
+             else "python3",
+             str(script), str(wave)],
+            timeout=60,
+        )
+        for line in out.splitlines():
+            if line.strip().startswith("FAIL:") or "MISSING" in line or "MISMATCH" in line:
+                mismatches.append(f"[{wave.name}] {line.strip()}")
+    if mismatches:
+        summary = f"{len(mismatches)} wave-file claim(s) not satisfied (warn only):\n"
+        summary += "\n".join(f"    {m}" for m in mismatches[:10])
+        if len(mismatches) > 10:
+            summary += f"\n    ... and {len(mismatches) - 10} more"
+        return True, summary  # warn-only: always True
+    return True, f"{len(wave_files)} wave file(s) passed preflight"
 
 
 def check_pytest_scratch_cleanup() -> tuple[bool, str]:
@@ -948,12 +1037,16 @@ TIER_1: list[tuple[str, object]] = [
     ("No ad-hoc CREATE TABLE (Core Rule 6.1)",      check_no_adhoc_create),
     # ── File-size ratchet (wave S-45-RATCHET) ─────────────────────────────
     ("File-size ratchet (wave S-45-RATCHET)",       check_file_size_ratchet),
+    # ── Catalog env-var syntax (S-55 Stream B) ────────────────────────────
+    ("Catalog env ${VAR} syntax (S-55-B)",          check_catalog_env_var_syntax),
     # ── Track-status invariant gate (wave S-48-TRACK-GATE) ─────────────────
     ("Track-status gate (wave S-48-TRACK-GATE)",    check_track_status),
     # ── ADR doc-decay (wave S-50-MENTAL-MODEL-FOUNDATIONS) ─────────────────
     ("ADR doc-decay — review-by dates (warn only)", check_doc_decay),
     # ── Orphan-file detector (wave S-48-TRACK-GATE Stream B) ──────────────
     ("Orphan files — zero inbound refs (warn only)", check_referenced_files),
+    # ── Wave-file preflight validator (wave S-55-DEPS-AND-TOOLING Stream C) ─
+    ("Wave-file preflight — path/ref claims (warn only)", check_wave_file_preflight),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
