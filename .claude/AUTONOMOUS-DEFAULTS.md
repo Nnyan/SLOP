@@ -385,6 +385,32 @@ do not cancel.
 **Default:** Retry once. If still failing, halt the wave and write a wave-level
 blocker.
 
+### Processor-pattern contract (parallel streams sharing a symbol)
+**Default:** Any wave whose parallel streams share a symbol — one stream
+*produces* it (a dict, a class, a module-level constant, a function signature)
+and another *consumes* it — MUST pin the exact symbol name AND shape in the wave
+file's Deliverables section before dispatch. "Pin" means: the producing stream's
+deliverable lists the public symbol(s) it ships verbatim (name, type, and for
+callables the signature), and the consuming stream's deliverable imports exactly
+those. Neither stream is then free to drift the interface. When you draft or
+review such a wave, treat an unpinned shared symbol as a wave-design defect:
+surface it as a blocker (wave instructions are wrong/impossible) rather than
+guessing a shape at runtime.
+**Escalate when:** a shared symbol is discovered at merge time that the wave file
+never pinned — write a decision file, commit a minimal adapter to bridge the two
+shapes (do NOT rewrite either stream's work), and flag the wave file for a
+pinning amendment.
+**Lesson:** S-59 (2026-05-29) dispatched Streams A and B in parallel against an
+under-specified interface — Stream A imported an `APPLIERS` dict; Stream B shipped
+standalone `apply_*` functions. The wave file's "Helper modules for the four
+category appliers" never pinned the symbol/shape, so neither stream was "wrong."
+An adapter (`tools/access_request_appliers.py` `APPLIERS` mapping +
+`_*_adapter` shims, consumed by `tools/process_access_requests.py`) was committed
+at merge time (`1b192d5`). S-68 and S-69 (the sanctioned-channel toolkit and
+audit-tool family) apply this rule prospectively — S-68 pins the
+`tools/sanctioned/_lift_restore.py` and `_audit.py` public symbols in its
+Deliverables section.
+
 ---
 
 ## Category: scope / discovery
