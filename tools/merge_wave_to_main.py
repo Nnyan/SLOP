@@ -32,6 +32,28 @@ import sys
 import textwrap
 from pathlib import Path
 
+# ── shared lift-restore primitives (S-68 Stream A) ───────────────────────────
+# Import the sanctioned lift-restore context manager.  The merge tool keeps
+# its own DENY_RULES constant (the specific rules it needs to lift) and its
+# own audit format (docs/MERGE-LOG.md), but delegates the actual lift/restore
+# mechanics to the shared module so the two stay in sync.
+try:
+    import sys as _sys
+    import importlib.util as _ilu
+    _pkg = Path(__file__).parent / "sanctioned" / "_lift_restore.py"
+    _spec = _ilu.spec_from_file_location("tools.sanctioned._lift_restore", _pkg)
+    _lr_mod = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_lr_mod)
+    _lifted_cm = _lr_mod.lifted
+    _lift_fn = _lr_mod.lift
+    _restore_fn = _lr_mod.restore
+    _HAVE_SHARED_LIFT_RESTORE = True
+except Exception:
+    _HAVE_SHARED_LIFT_RESTORE = False
+    _lifted_cm = None  # type: ignore[assignment]
+    _lift_fn = None    # type: ignore[assignment]
+    _restore_fn = None # type: ignore[assignment]
+
 # ── constants ────────────────────────────────────────────────────────────────
 
 DENY_RULES = [
@@ -136,12 +158,21 @@ def _save_settings(path: Path, data: dict) -> None:
 
 
 def lift_denies(settings_path: Path) -> None:
-    """Remove DENY_RULES from the deny list in settings_path."""
+    """Remove DENY_RULES from the deny list in settings_path.
+
+    Delegates to tools.sanctioned._lift_restore.lift() when available;
+    falls back to the self-contained implementation for environments where
+    the shared package is not importable (e.g. isolated test fixtures that
+    do not carry the full tools/ tree).
+    """
+    if _HAVE_SHARED_LIFT_RESTORE and _lift_fn is not None:
+        _lift_fn(DENY_RULES, settings_path=settings_path)
+        return
+    # Fallback: inline implementation (kept for test-fixture compatibility)
     data = _load_settings(settings_path)
     deny_list = data.get("permissions", {}).get("deny", [])
     new_deny = [rule for rule in deny_list if rule not in DENY_RULES]
     data.setdefault("permissions", {})["deny"] = new_deny
-    # Also add temporary allow entries
     allow_list = data["permissions"].setdefault("allow", [])
     for rule in DENY_RULES:
         if rule not in allow_list:
@@ -150,7 +181,16 @@ def lift_denies(settings_path: Path) -> None:
 
 
 def restore_denies(settings_path: Path) -> None:
-    """Re-add DENY_RULES to deny list and remove from allow list."""
+    """Re-add DENY_RULES to deny list and remove from allow list.
+
+    NOTE: this function uses a diff-based restore (explicitly adds DENY_RULES
+    back) rather than the profile-based restore from _lift_restore.restore().
+    This is intentional: the merge tool's lift is scoped to exactly DENY_RULES,
+    and its restore must be deterministic even without a wave-mode profile
+    present (e.g. in test fixtures).  The main() function uses the shared
+    lifted() context manager which calls the profile-based restore internally
+    when a profile is available.
+    """
     data = _load_settings(settings_path)
     deny_list = data.get("permissions", {}).get("deny", [])
     # Add back any missing deny rules
@@ -477,14 +517,42 @@ def main(argv: list[str] | None = None) -> int:
     merge_succeeded = False
     conflict_files: list[str] = []
 
-    try:
-        # Lift checkout-main denies
+    # Select lift/restore strategy:
+    # - Preferred: use the shared lifted() context manager from _lift_restore
+    #   (profile-based restore; canonical wave-mode source of truth).
+    # - Fallback: use the self-contained lift_denies/restore_denies (diff-based;
+    #   used when the wave-mode profile is absent, e.g. in isolated test fixtures).
+    _profile_path = settings_path.parent / "settings-wave-mode-profile.json"
+    _use_shared_cm = (
+        _HAVE_SHARED_LIFT_RESTORE
+        and _lifted_cm is not None
+        and _profile_path.exists()
+    )
+
+    import contextlib as _contextlib
+
+    @_contextlib.contextmanager
+    def _legacy_lift_restore():
+        """Fallback context manager using diff-based lift_denies/restore_denies."""
         if settings_path.exists():
             _info(f"Lifting denies in {settings_path}")
             lift_denies(settings_path)
         else:
             _info(f"Settings file not found at {settings_path} — skipping lift")
+        try:
+            yield
+        finally:
+            if settings_path.exists():
+                restore_denies(settings_path)
+                _info("Denies restored.")
 
+    if _use_shared_cm:
+        _info(f"Lifting denies via shared lifted() context manager in {settings_path}")
+        _ctx: _contextlib.AbstractContextManager = _lifted_cm(DENY_RULES, settings_path=settings_path)
+    else:
+        _ctx = _legacy_lift_restore()
+
+    with _ctx:
         # Switch to main
         _info("Switching to main...")
         _git("checkout", "main")
@@ -514,11 +582,8 @@ def main(argv: list[str] | None = None) -> int:
             merge_succeeded = True
             post_sha = _head_sha()
 
-    finally:
-        # Always restore denies
-        if settings_path.exists():
-            restore_denies(settings_path)
-            _info("Denies restored.")
+    if _use_shared_cm and settings_path.exists():
+        _info("Denies restored.")
 
     # ── Phase 3: Audit log ────────────────────────────────────────────────────
     print()
