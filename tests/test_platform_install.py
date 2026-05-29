@@ -80,7 +80,7 @@ def app_client(tmp_path: Path):
          patch("backend.health.scheduler.start_scheduler"), \
          patch("backend.health.source_checker.run_source_scan", return_value=None):
         from backend.api.main import app
-        with TestClient(app, raise_server_exceptions=False) as client:
+        with TestClient(app, base_url="http://localhost", raise_server_exceptions=False) as client:
             yield client, tmp_path
     state_mod.configure(None)
 

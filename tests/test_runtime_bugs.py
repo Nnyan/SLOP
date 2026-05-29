@@ -98,7 +98,7 @@ def api_client(ready_db: Path):
     with patch("backend.api.main.init_db", side_effect=_no_op_init), \
          patch("backend.health.scheduler.start_scheduler"), \
          patch("backend.health.source_checker.run_source_scan", return_value=None):
-        with TestClient(app, raise_server_exceptions=False) as client:
+        with TestClient(app, base_url="http://localhost", raise_server_exceptions=False) as client:
             yield client
 
 
