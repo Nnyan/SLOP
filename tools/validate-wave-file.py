@@ -66,12 +66,40 @@ Exit codes
   0 — all claimed-existing paths exist and all inbound-ref counts match.
   1 — one or more failures (missing claimed-existing path OR wrong count).
 
+Machine-readable output (--json flag)
+--------------------------------------
+  When invoked with ``--json``, the validator writes a single JSON object to
+  stdout (after all human-readable output) with keys:
+
+    {
+      "wave": "<absolute path>",
+      "ok": true | false,
+      "failures": ["MISSING ...", "INBOUND-REF MISMATCH ...", ...],
+      "warnings": ["Could not run grep ...", ...],
+      "tier": null
+    }
+
+  The ``tier`` field is always ``null`` when emitted by this validator — it is
+  a placeholder populated by the pre-flight harness (Stream E) after it calls
+  ``tools/wave_complexity.py`` to score the wave.
+
+  Exit codes are UNCHANGED — ``--json`` only adds the JSON object, it does NOT
+  alter exit semantics.  The pre-flight harness (Stream E) reads this object to
+  decide DISPATCH-OK vs BLOCKED.
+
+  Tier-string contract note (PINNED by Stream B / ``tools/wave_complexity.py``):
+    Tier values are exactly ``"Low"``, ``"Medium"``, ``"High"`` (capitalized).
+    The harness may ``from wave_complexity import VALID_TIERS`` to branch on them.
+    This validator does NOT define those strings; the contract is B's to own.
+
 Usage
 -----
   python3 tools/validate-wave-file.py .claude/waves/S-55-DEPS-AND-TOOLING.md
+  python3 tools/validate-wave-file.py .claude/waves/S-73-WAVE-AUTHORING-RIGOR.md --json
 """
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -455,11 +483,15 @@ def validate(wave_path: Path) -> tuple[list[str], list[str]]:
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
-        print("Usage: validate-wave-file.py <wave-file.md>", file=sys.stderr)
+    args = sys.argv[1:]
+    emit_json = "--json" in args
+    positional = [a for a in args if not a.startswith("--")]
+
+    if not positional:
+        print("Usage: validate-wave-file.py <wave-file.md> [--json]", file=sys.stderr)
         sys.exit(1)
 
-    wave_path = Path(sys.argv[1])
+    wave_path = Path(positional[0])
     if not wave_path.is_absolute():
         wave_path = Path.cwd() / wave_path
     if not wave_path.exists():
@@ -478,6 +510,16 @@ def main() -> None:
         print("  OK: all claims check out")
     elif not failures:
         print(f"  OK (with {len(warnings)} warning(s))")
+
+    if emit_json:
+        result = {
+            "wave": str(wave_path),
+            "ok": len(failures) == 0,
+            "failures": list(failures),
+            "warnings": list(warnings),
+            "tier": None,
+        }
+        print(json.dumps(result))
 
     sys.exit(1 if failures else 0)
 
