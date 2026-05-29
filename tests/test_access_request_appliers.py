@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tools.access_request_appliers import (
+    APPLIERS,
     UPGRADE_PACKAGE_FLAG,
     apply_allow,
     apply_deny,
@@ -349,3 +350,57 @@ class TestApplyUpgrade:
         with patch("subprocess.run") as mock_run:
             apply_upgrade("starlette", upgrade_requests_path=req_file)
         mock_run.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Regression: adapters must pass the subject STRING, not the parsed entry dict
+# (/doctor 2026-05-29 found a dict in permissions.deny — S-59 A<->B gap residual)
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterPassesString:
+    def _entry(self, category: str, subject: str) -> dict:
+        return {
+            "category": category,
+            "status": "pending",
+            "subject": subject,
+            "raw_line": f"- `[ ]` **[{category}] {subject}** — x",
+            "date": "2026-05-29",
+            "source": "TEST",
+            "line_index": 0,
+        }
+
+    def test_deny_adapter_passes_subject_string_not_dict(self) -> None:
+        # The adapter must pass the subject STRING to apply_deny, never the dict.
+        entry = self._entry("deny", "Bash(rm -rf *)")
+        with patch("tools.access_request_appliers.apply_deny") as m:
+            m.return_value = {"action": "added"}
+            result = APPLIERS["deny"](entry, dry_run=False, target_paths=None)
+        assert result["ok"] is True, result
+        args, kwargs = m.call_args
+        passed = args[0] if args else kwargs.get("entry")
+        assert isinstance(passed, str), f"adapter passed {type(passed).__name__}: {passed!r}"
+        assert passed == "Bash(rm -rf *)"
+
+    def test_allow_adapter_passes_subject_string_not_dict(self) -> None:
+        # Backtick-wrapped subject (the common allow form) must be unwrapped to the pattern.
+        entry = self._entry("allow", "`WebFetch(domain:example.com)`")
+        with patch("tools.access_request_appliers.apply_allow") as m:
+            m.return_value = {"action": "added"}
+            result = APPLIERS["allow"](entry, dry_run=False, target_paths=None)
+        assert result["ok"] is True, result
+        args, kwargs = m.call_args
+        passed = args[0] if args else kwargs.get("entry")
+        assert isinstance(passed, str), f"adapter passed {type(passed).__name__}: {passed!r}"
+        assert passed == "WebFetch(domain:example.com)"
+
+    def test_apply_deny_rejects_dict(self, tmp_path: Path) -> None:
+        settings_path = _make_settings(tmp_path)
+        with pytest.raises(TypeError):
+            apply_deny({"subject": "Bash(rm -rf *)"}, settings_path=settings_path,
+                       allow_deny_additions=True)
+
+    def test_apply_allow_rejects_dict(self, tmp_path: Path) -> None:
+        settings_path = _make_settings(tmp_path)
+        with pytest.raises(TypeError):
+            apply_allow({"subject": "Bash(ls *)"}, settings_path=settings_path)

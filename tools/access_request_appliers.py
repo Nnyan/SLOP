@@ -298,6 +298,12 @@ def apply_allow(
         ``added`` (bool),
         ``dry_run`` (bool).
     """
+    if not isinstance(entry, str):
+        raise TypeError(
+            "apply_allow expects a permission string, got "
+            f"{type(entry).__name__}: {entry!r}. "
+            "Callers must pass the pattern (e.g. entry['subject']), not the parsed entry dict."
+        )
     if settings_path is None:
         settings_path = Path(".claude/settings.local.json")
     settings_path = Path(settings_path)
@@ -382,6 +388,12 @@ def apply_deny(
             "Deny additions tighten restrictions and must be explicitly authorised."
         )
 
+    if not isinstance(entry, str):
+        raise TypeError(
+            "apply_deny expects a permission string, got "
+            f"{type(entry).__name__}: {entry!r}. "
+            "Callers must pass the pattern (e.g. entry['subject']), not the parsed entry dict."
+        )
     if settings_path is None:
         settings_path = Path(".claude/settings.local.json")
     settings_path = Path(settings_path)
@@ -446,16 +458,22 @@ def _upgrade_adapter(entry, *, dry_run, target_paths):
 
 
 def _allow_adapter(entry, *, dry_run, target_paths):
+    # Extract the permission pattern from the entry's subject (handles both
+    # backtick-wrapped `WebFetch(...)` and bare Bash(...) subjects). Passing the
+    # whole entry dict here corrupts permissions.allow — see the deny/allow guard.
     try:
-        r = apply_allow(entry, dry_run=dry_run)
+        pattern = _pkg_from_subject(entry.get("subject", "")) if isinstance(entry, dict) else entry
+        r = apply_allow(pattern, dry_run=dry_run)
         return {"ok": True, "action": r.get("action", ""), "error": ""}
     except Exception as exc:
         return {"ok": False, "action": "", "error": str(exc)[:200]}
 
 
 def _deny_adapter(entry, *, dry_run, target_paths):
+    # Same subject-extraction as _allow_adapter (mirrors install/upgrade adapters).
     try:
-        r = apply_deny(entry, dry_run=dry_run, allow_deny_additions=True)
+        pattern = _pkg_from_subject(entry.get("subject", "")) if isinstance(entry, dict) else entry
+        r = apply_deny(pattern, dry_run=dry_run, allow_deny_additions=True)
         return {"ok": True, "action": r.get("action", ""), "error": ""}
     except Exception as exc:
         return {"ok": False, "action": "", "error": str(exc)[:200]}
