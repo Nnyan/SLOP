@@ -1,0 +1,20 @@
+# Orphan allowlist — files that are intentionally unreferenced by name.
+# Each entry MUST end with `# reason: ...` — entries missing this comment
+# cause the check to error (forces intent documentation).
+#
+# Add a file here only if:
+#   (a) it genuinely has zero inbound references by basename or path, AND
+#   (b) it is intentionally standalone (entry-point, metadata, convention-file).
+#
+# Tool-convention configs (picked up by name by their respective tools,
+# not cited explicitly in other source files):
+.bandit                    # reason: bandit picks up this config by convention — not cited in source
+.gitleaks.toml             # reason: gitleaks default config — not cited in source
+hypothesis.toml            # reason: hypothesis picks up this config by convention — not cited in source
+setup.cfg                  # reason: legacy Python packaging metadata consumed by tools by convention
+ownership-fix.patch        # reason: one-off patch artifact, applied manually — no inbound refs by design
+
+# Git and repo metadata:
+.gitignore                 # reason: git metadata — consumed by git, not cited in source
+.gitattributes             # reason: git metadata — consumed by git, not cited in source (if present)
+.orphan-allowlist          # reason: this file itself — consumed by check_referenced_files.py by convention

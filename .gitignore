@@ -47,7 +47,6 @@ ms-test.py.bak.*
 # The installer skip-on-current check (frontend.py:136) is existence-based, not
 # currency-based: committed artifacts triggered the skip on fresh installs and caused
 # the blank-page bug (rocinante, 2026-05). Gitignored in S-23-B.
-# Run `git rm -r --cached backend/static/` before next release to remove from history.
 backend/static/
 
 # Runtime audit/test data — server-local, never commit
@@ -65,6 +64,10 @@ data/eslint_findings.json
 data/*/
 !data/headscale/
 !data/tailscale/
+# Tailscale runtime state — not for a public repo.
+# *.txt covers tailscaled.log1.txt, tailscaled.log2.txt; tailscaled.log.conf stays tracked.
+data/tailscale/*.txt
+data/tailscale/tailscaled.state
 config/
 # Community apps (user-installed, not tracked)
 catalog/community/

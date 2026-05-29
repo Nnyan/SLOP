@@ -555,6 +555,46 @@ def check_file_size_ratchet() -> tuple[bool, str]:
     return False, "ratchet violations:\n" + "\n".join(f"    {line}" for line in bad)
 
 
+def check_track_status() -> tuple[bool, str]:
+    """Tier 1: track-status invariant gate (wave S-48-TRACK-GATE).
+
+    Runs `tools/check_track_status.py` to ensure every on-disk file is either
+    tracked, gitignored, or listed in `.track-allowlist` with a reason comment.
+    Entries in `.track-allowlist` without '# reason:' are themselves an error.
+    """
+    script = REPO / "tools" / "check_track_status.py"
+    if not script.exists():
+        return True, "track-status script not present (skip)"
+    rc, out = _run(["python3", str(script)], timeout=30)
+    if rc == 0:
+        return True, "all untracked paths are covered by .gitignore or .track-allowlist"
+    bad = [line for line in out.splitlines() if line.strip()][:10]
+    return False, "untracked file(s) not covered:\n" + "\n".join(f"    {line}" for line in bad)
+
+
+def check_referenced_files() -> tuple[bool, str]:
+    """Tier 1: orphan-file detector (wave S-48-TRACK-GATE Stream B).
+
+    Runs ``tools/check_referenced_files.py`` to find tracked files with zero
+    inbound references.  Always returns True (warning-only, never blocking) —
+    orphan detection is a nudge for humans, not a hard gate.  Files under 30
+    days old and files in ``.orphan-allowlist`` are excluded.
+    """
+    script = REPO / "tools" / "check_referenced_files.py"
+    if not script.exists():
+        return True, "orphan-file script not present (skip)"
+    _rc, out = _run(["python3", str(script)], timeout=120)
+    # Always True — this check is warning-only.
+    warnings = [line for line in out.splitlines() if line.startswith("WARNING")]
+    if warnings:
+        summary = f"{len(warnings)} orphan file(s) detected (warning only):\n"
+        summary += "\n".join(f"    {w}" for w in warnings[:5])
+        if len(warnings) > 5:
+            summary += f"\n    ... and {len(warnings) - 5} more"
+        return True, summary
+    return True, "no orphan files detected (or all within grace window / allowlist)"
+
+
 def check_pytest_scratch_cleanup() -> tuple[bool, str]:
     """Tier 2: pyproject.toml basetemp is set and ms-update has the cleanup line."""
     pyproject = REPO / "pyproject.toml"
@@ -908,8 +948,12 @@ TIER_1: list[tuple[str, object]] = [
     ("No ad-hoc CREATE TABLE (Core Rule 6.1)",      check_no_adhoc_create),
     # ── File-size ratchet (wave S-45-RATCHET) ─────────────────────────────
     ("File-size ratchet (wave S-45-RATCHET)",       check_file_size_ratchet),
+    # ── Track-status invariant gate (wave S-48-TRACK-GATE) ─────────────────
+    ("Track-status gate (wave S-48-TRACK-GATE)",    check_track_status),
     # ── ADR doc-decay (wave S-50-MENTAL-MODEL-FOUNDATIONS) ─────────────────
     ("ADR doc-decay — review-by dates (warn only)", check_doc_decay),
+    # ── Orphan-file detector (wave S-48-TRACK-GATE Stream B) ──────────────
+    ("Orphan files — zero inbound refs (warn only)", check_referenced_files),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
