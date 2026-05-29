@@ -683,6 +683,29 @@ def check_referenced_files() -> tuple[bool, str]:
     return True, summary
 
 
+def check_test_isolation() -> tuple[bool, str]:
+    """Tier 1 (S-71 Stream C): test-data-isolation gate — warn-only.
+
+    Runs ``tools/check_test_isolation.py``, a conservative AST heuristic that
+    flags test files appearing to write outside ``tmp_path`` or mutate real,
+    committed repo files (``docs/``, ``.claude/settings.local.json``,
+    ``requirements*.txt``). Mirrors ``check_referenced_files``: collects
+    ``WARNING``-prefixed lines and ALWAYS returns True (never blocks CI).
+    The canonical policy is ``docs/adr/0019-test-data-isolation.md``;
+    graduating this gate to blocking is the later Enforcement-Lifecycle wave.
+    """
+    script = REPO / "tools" / "check_test_isolation.py"
+    if not script.exists():
+        return True, "test-isolation script not present (skip)"
+    _rc, out = _run(["python3", str(script)], timeout=120)
+    warnings = [line for line in out.splitlines() if line.startswith("WARNING")]
+    if not warnings:
+        return True, "no test-isolation issues (all writes tmp_path-rooted)"
+    detail = "\n".join(f"    {w}" for w in warnings[:10])
+    suffix = f"\n    ... and {len(warnings) - 10} more" if len(warnings) > 10 else ""
+    return True, f"{len(warnings)} test-isolation warning(s) (warn-only):\n{detail}{suffix}"
+
+
 def check_backlog_coverage() -> tuple[bool, str]:
     """Tier 1: BACKLOG coverage audit (wave S-56-E) — warn-only.
 
@@ -1677,6 +1700,8 @@ TIER_1: list[tuple[str, object]] = [
     ("ADR doc-decay — review-by dates (warn only)", check_doc_decay),
     # ── Orphan-file detector (wave S-48-TRACK-GATE Stream B) ──────────────
     ("Orphan files — zero inbound refs (warn only)", check_referenced_files),
+    # ── Test-data-isolation gate (wave S-71 Stream C) ─────────────────────
+    ("Test isolation — writes outside tmp_path (warn only)", check_test_isolation),
     # ── Wave-file preflight validator (wave S-55-DEPS-AND-TOOLING Stream C) ─
     ("Wave-file preflight — path/ref claims (warn only)", check_wave_file_preflight),
     # ── BACKLOG coverage audit (wave S-56-E) ──────────────────────────────
