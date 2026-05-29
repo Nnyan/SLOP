@@ -41,20 +41,22 @@ checks, unverified merges).
 
 - **Method:** operator-manual (this batch predates the sanctioned merge tool — S-59 Stream D will ship it)
 - **Operator/Caller:** Nnyan (running merges from terminal; assisted by this Claude session)
-- **Pre-merge main HEAD:** `ed7e130` (access-requests: log + apply .claude/waves and .claude/run write allows)
+- **Pre-batch main HEAD:** `ed7e130` (access-requests: log + apply .claude/waves and .claude/run write allows)
+- **Audit log introduction commit:** `b5f986d` (audit: introduce docs/MERGE-LOG.md) — pre-merge HEAD for the wave merges below
 - **Branches merged (in order):**
-  1. `chore/waves-s60-62` (fast-forward) — wave spec commits from agent-review session
-  2. `wave/S-60-agent-fix-safety` → merge commit `<TBD — fill in after merge>`
-  3. `wave/S-61-agent-anonymization` → merge commit `<TBD>`
-  4. `wave/S-62-ms-router` → merge commit `<TBD>`
-  5. `wave/S-58-testclient-sweep` → merge commit `<TBD>` (417 TestClient failures fixed)
-- **Post-merge main HEAD:** `<TBD>`
-- **Pushed to origin:** `<TBD>`
+  1. `chore/waves-s60-62` (no-ff) → merge commit `3b9232e` — wave spec commits from agent-review session
+  2. `wave/S-60-agent-fix-safety` (no-ff) → merge commit `47631cf`
+  3. `wave/S-61-agent-anonymization` (no-ff) → merge commit `c6546e3`
+  4. `wave/S-62-ms-router` (no-ff) → merge commit `7bf7fbc`
+  5. `wave/S-58-testclient-sweep` (no-ff) → merge commit `d13daf5` (417 TestClient failures fixed)
+- **Post-merge main HEAD:** `d13daf5`
+- **Pushed to origin:** YES — `origin/main` at `d13daf5` confirmed via `git push origin main` (188 objects, 74.60 KiB)
 - **Pre-flight checks run:**
   - Wave verification per orchestrators (S-58: full suite 450→43; S-60/61/62: orchestrator review verdict ✅)
-  - ms-enforce status: pre-existing 12 TIER_2 failures fixed by S-58; expect TIER_2 GREEN post-merge
-  - Track-status warnings on 3 wave files (OPTIONAL-FILE-SIZE-REMEDIATION, S-46-PIN-RELAX, S-59-ACCESS-REQUESTS-PROCESSOR — pre-existing/known, not blocking)
+  - ms-enforce post-merge: ✓ All Core Rules satisfied (39s wall clock) — TIER_2 is green; S-57's 12 fixes plus S-58's 417 TestClient fixes brought the suite into compliance
+  - Full pytest re-run skipped (orchestrators already verified; operator chose to trust the audit trail rather than re-run a 2400-test suite)
 - **Notes:**
   - First entry under the new merge-log convention (created same day, 2026-05-29).
-  - Operator-manual method used because `tools/merge-wave-to-main.py` doesn't exist yet (S-59 Stream D scope).
-  - Stream C snapshot-regression lesson from S-58 captured for AUTONOMOUS-DEFAULTS doctrine update (same batch).
+  - Operator-manual method used because `tools/merge-wave-to-main.py` doesn't exist yet (S-59 Stream D scope, in-flight).
+  - `--ff-only` failed on first attempt (main had the docs/MERGE-LOG.md commit ahead of the wave branches' base); switched all merges to `--no-ff`. Wave-branch merges proceeded clean — no conflicts, the orchestrators' "additive ms-enforce + disjoint files" claim held.
+  - Stream C snapshot-regression lesson from S-58 will be captured for AUTONOMOUS-DEFAULTS doctrine update in the next commit (same batch).

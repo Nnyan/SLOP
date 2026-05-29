@@ -32,13 +32,14 @@ manually; this wave makes it a first-class CI-integrated mechanism.
 
 ## Parallelization
 
-**Models:** coordinator = **opus**, subagents = **sonnet**. Three parallel streams.
+**Models:** coordinator = **opus**, subagents = **sonnet**. Four parallel streams.
 
 | Stream | Subagent type | Scope |
 |---|---|---|
 | A — processor tool | `general-purpose` in worktree | `tools/process_access_requests.py` (new), `tests/test_access_requests_processor.py` (new) |
 | B — settings/install integration | `general-purpose` in worktree | Helper modules for the four category appliers, integration with `uv pip install`, `requirements*.txt` edits, settings.local.json edits via the helper-script pattern |
 | C — CI workflow + S-49 train integration | `general-purpose` in worktree | `.github/workflows/access-requests-processor.yml` (new — cron + manual trigger), integration hook into `.github/workflows/dependency-refresh.yml` so `[upgrade]` entries feed the same PR train |
+| D — sanctioned wave-merge tool | `general-purpose` in worktree | `tools/merge_wave_to_main.py` (new), `tests/test_merge_wave_to_main.py` (new), `.claude/ROBOT.md` two-phase doctrine clarification, `docs/MERGE-LOG.md` append-convention documentation |
 
 ## Deliverables
 
@@ -64,6 +65,49 @@ For each category:
 - `[allow]`: edit `.claude/settings.local.json` via helper-script pattern
   (lift the self-edit deny → edit → restore). Add entry, no duplicates.
 - `[deny]`: same as allow but inverted; requires explicit flag per Rules.
+
+### Stream D — Sanctioned wave-merge tool (added 2026-05-29 post-batch-4)
+
+Goal: replace the operator-manual merge handoff with an audited, safety-checked
+CLI. The `Bash(git checkout main*)` and `Bash(git switch main*)` deny rules in
+settings stay — this tool becomes the ONLY way for an agent or assist-session
+to merge wave branches to main.
+
+Build `tools/merge_wave_to_main.py` (pure stdlib). CLI:
+```
+python3 tools/merge_wave_to_main.py wave/S-NN-topic [wave/S-MM-topic ...]
+```
+
+Behavior (refuse on any failure; abort cleanly with non-zero exit):
+1. **Pre-flight checks** per branch:
+   - Branch exists and is reachable.
+   - If a corresponding `.claude/run/status/S-NN.md` or archived status file exists, it marks COMPLETE with no open blockers.
+   - `git diff main..wave/S-NN` shows actual content (refuses empty merges).
+   - ms-enforce passes on the wave branch (warn-only checks allowed; TIER_1 failures abort).
+   - Main working tree is clean (no uncommitted changes).
+2. **Internal lift-restore** of `Bash(git checkout main*)` + `Bash(git switch main*)` denies via the helper-script pattern (wrapped, not exposed to caller).
+3. **Merge with `--no-ff`** using a standard message template incorporating the wave branch's commit messages.
+4. **Conflict handling:** ABORT cleanly on any merge conflict. Restore denies. Surface conflicting files and halt with non-zero exit. Never auto-resolve.
+5. **Append audit entry** to `docs/MERGE-LOG.md` per the established format (timestamp, method=`tools/merge_wave_to_main.py`, caller from `$USER` or env, pre/post-merge HEAD SHAs, branches merged, pre-flight check results, notes).
+6. **Restore denies** at exit (success or failure path — use try/finally).
+7. **Does NOT push to origin.** That stays operator-only (separate guardrail).
+8. **Does NOT delete merged branches** (separate cleanup step, optionally a sibling tool).
+
+Tests in `tests/test_merge_wave_to_main.py`:
+- Empty branch merge → abort.
+- Wave status not COMPLETE → abort.
+- Conflict during merge → abort cleanly + denies restored + audit log entry "ABORTED (conflict)".
+- Happy path → merge commit landed, audit log entry written, denies restored.
+- Verify denies are restored even when something raises mid-merge.
+
+ROBOT.md doctrine update (two-phase architecture):
+- New "Wave execution phase vs post-wave merge phase" subsection in "Launching a Robot run" → "Architecture".
+- Wave execution: main is LOCKED. Streams merge to wave/ branches.
+- Post-wave merge: main is UNLOCKABLE via the sanctioned tool — never via raw `git checkout main`.
+- Caller responsibilities (orchestrator post-completion, operator-assist sessions, S-59 processor `[allow]` entries that involve checkout-main) flow through this single channel.
+
+Allow entry to add (NOT via ad-hoc edit — through the access-requests queue):
+- `Bash(python3 tools/merge_wave_to_main.py *)` — sanctioned merge invocation.
 
 ### Stream C — CI workflow + S-49 integration
 - `.github/workflows/access-requests-processor.yml`:

@@ -202,6 +202,39 @@ timestamp: 2026-05-27T22:33:14Z
 
 ## Launching a Robot run
 
+### Two phases: wave execution vs post-wave merge (added 2026-05-29 post-batch-4)
+
+Robot mode has TWO operationally distinct phases that look similar but have
+opposite `main` access requirements:
+
+**Phase 1 — Wave execution:** Orchestrator + subagents in worktrees actively
+producing wave-branch commits. `main` MUST stay untouched — runaway agents
+or unverified merges to main are exactly what the deny rules
+(`Bash(git checkout main*)`, `Bash(git switch main*)`) protect against.
+
+**Phase 2 — Post-wave merge:** Waves are COMPLETE with verification recorded;
+their branches need to land on main. The deny rules from Phase 1 catch
+legitimate post-wave merges. Today this is bridged via operator-manual handoff
+(operator runs `git checkout main` + `git merge` in their own terminal).
+Once `tools/merge_wave_to_main.py` ships (S-59 Stream D), agents and
+assist-sessions invoke that sanctioned tool — it does internal lift-restore
+of the denies, runs pre-flight checks, and writes an audit-log entry to
+`docs/MERGE-LOG.md`. The raw deny rules stay in place; the tool is the only
+sanctioned exception.
+
+**Operator handoff** (current state until S-59 Stream D lands): orchestrator
+finishes wave run → reports branches ready → operator runs the merges from
+their own terminal (Claude sessions can use `!` prefix). Operator updates
+`docs/MERGE-LOG.md` with the merge SHAs. Operator pushes to origin.
+
+**Future sanctioned path:** any agent or session needing to merge to main
+invokes `tools/merge_wave_to_main.py <branch> [<branch>...]`. Refuses if
+pre-flight checks fail. Writes audit log. Restores denies on exit.
+
+**Never:** raw `git checkout main` or `git switch main` from inside any agent
+session, even an operator-assist session — those denies are absolute. The
+ONE exception is the sanctioned tool described above.
+
 ### Architecture (revised 2026-05-29: ONE orchestrator per batch)
 
 **Core rule:** **ONE orchestrator session handles ALL waves in a batch**, not
