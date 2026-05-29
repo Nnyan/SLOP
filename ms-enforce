@@ -555,6 +555,57 @@ def check_file_size_ratchet() -> tuple[bool, str]:
     return False, "ratchet violations:\n" + "\n".join(f"    {line}" for line in bad)
 
 
+def check_catalog_env_var_syntax() -> tuple[bool, str]:
+    """Tier 1 (S-55-B): catalog env: blocks must use ${VAR} syntax, not Python {VAR}.
+
+    Docker Compose interpolates ${VAR} at runtime. A bare {VAR} (Python f-string
+    style) is silently left as a literal string by Docker Compose — the variable
+    is never substituted. This is a high-blast-radius silent failure: the catalog
+    YAML parses without error and the install appears to succeed, but the var
+    resolves to the literal text '{VAR}' in the container environment.
+
+    Scope: env: blocks only. Volume host: paths intentionally use {config_root}
+    and {media_root} — handled by _expand_path() in executor.py.
+    """
+    try:
+        import yaml as _yaml
+    except ImportError:
+        return True, "PyYAML not installed (skip)"
+
+    bare_brace = re.compile(r"(?<!\$)\{[A-Z_][A-Z0-9_]*\}")
+    violations: list[str] = []
+    catalog_dir = REPO / "catalog" / "apps"
+    if not catalog_dir.exists():
+        return True, "catalog/apps/ not found (skip)"
+
+    for yaml_path in sorted(catalog_dir.glob("*.yaml")):
+        try:
+            data = _yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            violations.append(f"{yaml_path.name}: YAML parse error — {exc}")
+            continue
+        if not isinstance(data, dict):
+            continue
+        env_block = data.get("env") or {}
+        if not isinstance(env_block, dict):
+            continue
+        for var_name, value in env_block.items():
+            if value is None:
+                continue
+            str_value = str(value)
+            if bare_brace.search(str_value):
+                violations.append(
+                    f"{yaml_path.name}: env.{var_name}={str_value!r} "
+                    "uses bare {{VAR}} — must be ${{VAR}} for Docker Compose interpolation"
+                )
+
+    if violations:
+        detail = "\n".join(f"    {v}" for v in violations[:10])
+        return False, f"{len(violations)} catalog env-var syntax violation(s):\n{detail}"
+    checked = sum(1 for _ in catalog_dir.glob("*.yaml"))
+    return True, f"{checked} catalog YAML env blocks use correct ${{VAR}} syntax"
+
+
 def check_track_status() -> tuple[bool, str]:
     """Tier 1: track-status invariant gate (wave S-48-TRACK-GATE).
 
@@ -986,6 +1037,8 @@ TIER_1: list[tuple[str, object]] = [
     ("No ad-hoc CREATE TABLE (Core Rule 6.1)",      check_no_adhoc_create),
     # ── File-size ratchet (wave S-45-RATCHET) ─────────────────────────────
     ("File-size ratchet (wave S-45-RATCHET)",       check_file_size_ratchet),
+    # ── Catalog env-var syntax (S-55 Stream B) ────────────────────────────
+    ("Catalog env ${VAR} syntax (S-55-B)",          check_catalog_env_var_syntax),
     # ── Track-status invariant gate (wave S-48-TRACK-GATE) ─────────────────
     ("Track-status gate (wave S-48-TRACK-GATE)",    check_track_status),
     # ── ADR doc-decay (wave S-50-MENTAL-MODEL-FOUNDATIONS) ─────────────────
