@@ -145,8 +145,33 @@ their own small streams.
 **Processor-contract pins:** the core aging/relevance streams may edit ROBOT.md /
 AUTONOMOUS-DEFAULTS — pin doctrine-doc ownership per stream (the S-59 A↔B lesson).
 The adjacents are file-disjoint (a hooks/config file + a new `check_provenance`).
-**Timing:** fire after the warn-only gates have accumulated run history (signal).
-The adjacents have no timing dependency — they ride along whenever this fires.
+**Readiness — who/what/when decides (pinned 2026-05-30, replacing the vague "fire
+when signal accrues"):**
+- **Owner (interim):** the Manager session, at every batch-landing retro, re-evaluates
+  this entry against the trigger below. **Owner (permanent):** S-75's gap-discovery
+  ritual once batch-10 lands — monitoring deferred-wave triggers is folded into its
+  scope (a new finding; see BACKLOG "batch-11 readiness review").
+- **Trigger (measurable, quantity + quality):** ALL of —
+  1. **Stabilized set:** ≥30 days since the most recent warn-only gate was added (the
+     gate set has stopped growing, so the youngest gate has aged). *As of 2026-05-30
+     the set is still growing — S-71 added `check_test_isolation`; S-75 adds several
+     more — so the clock has NOT started.*
+  2. **Exercised:** the gates have run across ≥2 subsequent batches' CI (real exercise,
+     not idle).
+  3. **Stable classification:** a one-shot count (fired-≥once / never-fired / flapping)
+     is **stable across 2 consecutive Manager reviews** — so a gate isn't aged out the
+     moment it looks idle (the quality bar: distinguish "genuinely redundant" from
+     "not-yet-triggered"; that judgment is S-72's relevance lens and stays human-ratified).
+- **Non-circular:** this readiness decision uses simple manual signals (gate-add dates,
+  a one-shot count) — it must NOT depend on `audit_gate_age.py`, which is a *deliverable
+  of this very wave*. The tool automates the ongoing aging once built; the decision to
+  build it is made without it.
+- **Hard re-eval checkpoint:** **2026-07-15** — the Manager MUST re-evaluate by this
+  date regardless, so the deferral cannot silently rot past it even if no tool surfaces it.
+- **Decision:** the operator ratifies draft+fire on the surfaced recommendation — it is
+  *surfaced* to the operator (by the ritual / the dated checkpoint), never left to be
+  *remembered*.
+- The adjacents have no timing dependency — they ride along whenever this fires.
 
 ---
 
