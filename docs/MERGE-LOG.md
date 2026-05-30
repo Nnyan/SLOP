@@ -49,6 +49,24 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-30 — Coverage+Handoff audit report + LR-1 fix + batch-11 drafts (docs/audit-coverage-handoff)
+
+- **Method:** tools/merge_wave_to_main.py
+- **Operator/Caller:** stack
+- **Pre-merge main HEAD:** `95dc0e04a74d83e06fbfb8c0b3f52bd7592d228c`
+- **Branches merged (in order):**
+  1. `docs/audit-coverage-handoff` → merge commit `3119270d0a2f00080060021c3a3e6592cb0b4328`
+- **Post-merge main HEAD:** `3119270d0a2f00080060021c3a3e6592cb0b4328`
+- **Pushed to origin:** yes (via `tools/sanctioned/lift_push_restore.py`, Manager routine push)
+- **Pre-flight checks run:**
+  - working-tree: CLEAN
+  - branch-exists:docs/audit-coverage-handoff: OK
+  - status:docs/audit-coverage-handoff: no status file (skipped)
+  - diff:docs/audit-coverage-handoff: OK (9 diff-stat lines)
+  - ms-enforce:docs/audit-coverage-handoff: ────────────────────────────────────────────────────────────
+- **Notes:** Lands the Coverage+Handoff audit deliverable (`docs/COVERAGE-HANDOFF-AUDIT-REPORT.md`, was branch-only) on main; the **LR-1 grounded fix** (`check_handoff_freshness` now reads committed `.handoff-sha`, absence→DRIFT — closes the GROUND-gate brownout from `95dc0e0`'s prose rewrite; REVIEW-LOG entry); the **batch-11 drafts** (`.claude/waves/BATCH-11-ENFORCEMENT-LIFECYCLE.md` + launch prompt, 10 streams, P0/S1 hard-first); and **F10** (two-session / Manager-handoff-artifact gap, missed by the audit's Track B, caught at Manager review) folded into batch-11 S5 + BACKLOG. ms-enforce: PASS (warn-only: 48 historical no-MERGE-LOG merges, 42 un-promoted run-archive findings [batch-11 S10], UNPROBED 25>24 — all pre-existing/tracked). **LR-2 owed to operator** (install `slop-reality-probe` on host). Batch-11 OWED a pre-fire independent design review before firing.
+
+
 ## 2026-05-30 — wave/S-75-knowledge-lifecycle
 
 - **Method:** tools/merge_wave_to_main.py
