@@ -75,7 +75,7 @@ one-line warning is printed when the fallback fires).
 
 ### Operator environment (`MS_TRUSTED_HOSTS`, `DOMAIN`)
 
-<!-- OPERATOR-ENV: reconcile with Stream C final decision @ merge -->
+<!-- OPERATOR-ENV: reconciled with Stream C contract @ S-74 merge -->
 Operator env `MS_TRUSTED_HOSTS` / `DOMAIN` is authoritative in the install-dir `.env`
 (`/opt/mediastack/.env`); the canonical edit point is: edit `.env` then
 `systemctl restart mediastack`.

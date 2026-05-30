@@ -288,7 +288,7 @@ fi
 # ── Step 6: Systemd service ────────────────────────────────────────────────
 step "6 / 8 — Installing systemd service"
 
-# OPERATOR-ENV (reconcile w/ Stream C @ merge)
+# OPERATOR-ENV (reconciled with Stream C contract @ S-74 merge)
 # Provisional model: .env is authoritative via EnvironmentFile=.
 # Operator settings MS_TRUSTED_HOSTS and DOMAIN are read by the Python process
 # via os.environ; they reach the process through the systemd EnvironmentFile=
