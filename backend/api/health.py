@@ -124,6 +124,13 @@ def get_agent_health() -> list[AgentHealthOut]:
     ]
 
 
+@router.get("/agent/reality")
+def get_agent_reality() -> dict[str, Any]:
+    """RealityView — GROUND-truth facts the running instance observes about itself."""
+    from backend.core.agent import get_reality_view
+    return get_reality_view()
+
+
 @router.get("/summary")
 def get_health_summary() -> dict[str, Any]:
     """Return lightweight ok/warning/error counts — for sidebar display.
