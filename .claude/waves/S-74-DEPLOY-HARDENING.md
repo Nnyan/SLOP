@@ -172,6 +172,11 @@ DISPATCH-OK.
    - Ensure the `fetch` + `reset --hard origin/main` recovery path is actually
      reachable on a diverged (history-rewritten) clone — it must not be gated behind
      a fetch that already died.
+   - **Post-update SHA-verify (fail loud) — rider from the S-75 K-L audit:** after the
+     fetch + pull/reset, assert local `HEAD` == `git rev-parse origin/main`; on
+     mismatch, exit non-zero with a loud message (NOT a soft warn). A green "updated"
+     must be able to go red against physics — this is the GROUND-class check that
+     feeds S-75's `check_handoff_freshness`.
 3. **Build with a writable HOME:** any `npm ci` / `npm run build` ms-update triggers
    runs as `sudo -u "$SVC_USER" env HOME="$(build_home)" npm …`. Because
    `backend/static/` is gitignored, the frontend build runs on every update where
