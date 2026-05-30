@@ -195,6 +195,12 @@ if [[ -d "$REPO/frontend" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Pytest scratch cleanup (step 1.2.c) — prune scratch dirs older than 7 days.
+# Genuinely optional: guarded so a missing dir / non-root never aborts the run.
+# ---------------------------------------------------------------------------
+find /tmp/pytest-of-stack /srv/tmp/pytest-base -maxdepth 1 -mindepth 1 -mtime +7 -exec rm -rf {} + 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
 # Restart service (the ONLY root operation besides the chown)
 # ---------------------------------------------------------------------------
 log "restarting $SERVICE …"

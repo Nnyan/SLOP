@@ -28,7 +28,7 @@ _SLOP_DEPLOY_LIB_SOURCED=1
 #   3. literal "mediastack"
 # Each step is guarded so a failure (or empty result) falls through to the next.
 detect_service_user() {
-  install_dir="$1"
+  install_dir="${1:-}"
   user=""
 
   # 1) Owner of the install dir.
@@ -68,8 +68,8 @@ build_home() {
 # secrets; a world-readable .env is a leak, and an unreadable one crash-loops
 # the service). Idempotent; safe to run repeatedly.
 normalize_ownership() {
-  install_dir="$1"
-  svc_user="$2"
+  install_dir="${1:-}"
+  svc_user="${2:-}"
 
   if [ -z "$install_dir" ] || [ -z "$svc_user" ]; then
     printf 'normalize_ownership: usage: normalize_ownership <install_dir> <svc_user>\n' >&2
