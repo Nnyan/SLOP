@@ -17,9 +17,11 @@ You are NOT a Robot mode orchestrator. Orchestrators are fired in SEPARATE fresh
 
 You are NOT a wave-drafting or audit session either; those are also separate fresh sessions.
 
-## Current state (as of 2026-05-30 — S-74/S-75 LANDED; combined audit CLOSED+landed; batch-11 DRAFTED + pre-fire REVIEWED + fire-ready (operator holding to fire); LR-1 fixed; LR-2 probe installed; agent-expansion surveyed)
+## Current state (as of 2026-05-30 — S-74/S-75 LANDED; combined audit CLOSED+landed; **batch-11 ENFORCEMENT-LIFECYCLE MERGED + SWEPT** (main `bf16d16`+sweep, pushed); LR-1 fixed; agent-expansion surveyed)
 
-> **CLEAN-SLATE HANDOFF (2026-05-30):** this is a quiescent handoff — **no active orchestrator run, no in-flight subagent.** The operator is deliberately HOLDING the batch-11 fire until a clean slate, so the incoming Manager can re-confirm the batch-11 launch prompt before they fire. Your first jobs are below.
+> **HANDOFF (2026-05-30, post-batch-11 landing):** this is a quiescent handoff — **no active orchestrator run, no in-flight subagent.** batch-11 is fully LANDED (merged, swept, pushed). The next product work is **drafting the agent self-audit / spine wave** from the survey + locked decisions. Your first jobs are below.
+>
+> **VERIFY FIRST (do not trust these SHAs):** `git rev-parse origin/main` (expect the batch-11 sweep commit, child of merge `bf16d16`); `git status` (clean); `git branch --list 'wave/*'` (expect NONE — all batch-11 branches swept); `ls .claude/run/status/` (empty); read `docs/MERGE-LOG.md` (newest = the 2026-05-30 wave/batch-11 entry).
 
 **Handoff-freshness now grounded on `.handoff-sha` (LR-1 fix):** the origin/main SHA
 this handoff was refreshed against lives in the committed `.handoff-sha` file, NOT in
@@ -58,15 +60,21 @@ refresh bumps `.handoff-sha` — that is the designed nudge, not a defect. Alway
   not `:8080`) → logged to batch-11 S1 (Open follow-ups). **F10** (the two-session / Manager-handoff-
   artifact gap — a Manager handoff must emit a distinct Manager-handoff prompt, not just the working
   launch prompt) was MISSED by the audit's Track B, caught at Manager review → batch-11 S11.
-- **🟢 Batch-11 = ENFORCEMENT-LIFECYCLE — DRAFTED + pre-fire REVIEWED + FIRE-READY (operator holding).** Wave
-  file `.claude/waves/BATCH-11-ENFORCEMENT-LIFECYCLE.md` (**11 streams**, P0/S1 aging-engine hard-first) +
-  single-orchestrator launch prompt `.claude/waves/BATCH-11-LAUNCH-PROMPT.md`. The pre-fire independent
-  review is **DONE** (`docs/REVIEW-LOG.md`, 2026-05-30 — NEEDS-CHANGES, 3 blockers, all 11 findings folded
-  in: F10 split to its own stream S11, CLAUDE.md/ROBOT.md region-pins, F10 artifact precondition,
-  merge-worktree detach-from-batch-branch). Absorbs the audit's P0–P9 + all `[→ batch-11]` BACKLOG items.
-  **The operator is HOLDING the fire for a clean slate — your job: re-verify state, re-confirm the launch
-  prompt, present it; they fire it in a fresh session; you review + sanctioned-merge `wave/batch-11` when
-  it closes.** Re-eval checkpoint 2026-07-15.
+- **✅ Batch-11 = ENFORCEMENT-LIFECYCLE — MERGED + SWEPT** (merge commit `bf16d16` + sweep commit; pushed).
+  11 streams (S1–S11) integrated by the orchestrator onto `wave/batch-11`, landed via the sanctioned tool as a
+  single-branch merge (Manager did NOT merge individual `wave/B11-S*`). Shipped: **4 new gates** (`check_provenance`,
+  `check_manager_handoff_artifacts`, `check_independent_review`, `check_sanctioned_ground`), **4 new tools**
+  (`audit_single_entity_hardcode.py`, `audit_probe_aging.py`, `independent_review.py`, `check_session_winddown.py`),
+  the cross-repo `RING_REGISTRY` in `audit_backlog_stale.py`, the `.handoff-sha` Phase-5 auto-stamp in
+  `merge_wave_to_main.py`, and the `slop-reality-probe` port-hardening. All gates **TIER_1 warn-only** (none
+  auto-promoted). Post-merge `ms-enforce` = **EXIT 0** with the EXPECTED warn-only signals (provenance 5 DRIFT;
+  manager-handoff-artifacts INCONSISTENT on the pre-contract `BATCH-11-LAUNCH-PROMPT.md`; probe-aging 1 brownout;
+  fact-store UNPROBED 27 vs baseline 24) — triage work the gates surface against physics, NOT regressions. The 6
+  `[→ batch-11]` BACKLOG items are flipped `[x]`. **Orchestration incident** (recovered, main never contaminated):
+  the Phase-2 dispatch omitted `isolation:"worktree"` → 9 streams collided in the shared checkout → forensic
+  recovery; the write-time fix (mandatory worktree isolation) is filed `[→ next agent/process wave]`, and the
+  prior-claimed red-signal hook `.claude/hooks/probe_main_checkout_session.py` was VERIFIED ABSENT (phantom
+  corrected; the probe is still owed). See the 2026-05-30 MERGE-LOG entry + `.claude/run-archive/2026-05-30-batch11/`.
 - **🔵 Agent self-audit / spine wave + agent-expansion roadmap — SURVEYED + decisions LOCKED (next product work).**
   Independent divergence pass (2026-05-30) + Manager synthesis → durable survey `docs/AGENT-EXPANSION-SURVEY.md`.
   The SLOP AI Agent has a solid liveness layer but ~0% of the **"recoverable"** half of its mandate + the
@@ -146,11 +154,12 @@ status filename isn't pinned — glob both the short AND full wave name when loo
 0. **VERIFY state first — do not trust the SHAs above.** `git rev-parse origin/main`; `git status`;
    `git worktree list` (expect only the main checkout); `ls .claude/run/status/` (empty = no active
    wave); read `docs/MERGE-LOG.md` + `docs/REVIEW-LOG.md` for what landed.
-1. **Re-confirm + present the batch-11 launch prompt** (the pre-fire review is DONE — `docs/REVIEW-LOG.md`).
-   Read `.claude/waves/BATCH-11-LAUNCH-PROMPT.md` + `BATCH-11-ENFORCEMENT-LIFECYCLE.md` (11 streams, P0/S1
-   hard-first), sanity-check them against current main, then present the launch prompt for the operator's
-   fresh session. **The operator is holding the fire for a clean slate** — they fire when you present it.
-   When `wave/batch-11` closes: read its closing output, then sanctioned-merge via `merge_wave_to_main.py`.
+1. **Batch-11 is LANDED — nothing to fire.** Do NOT re-fire or re-merge it (main already contains all 11
+   streams at `bf16d16`+sweep). The owed follow-ups it generated are in BACKLOG: the checkout-borrow write-time
+   fix + its still-unbuilt red-signal probe (`[→ next agent/process wave]`), `lift_push_restore.py` try/finally
+   + registry row (`[→ next agent/process wave]`), and the optional S11→S7 helper refactor (`[park: re-eval
+   2026-07-15]`). Triage the warn-only gate signals (provenance/handoff-artifact/probe-aging/fact-store) at
+   leisure — they are the gates working, not regressions.
 2. **Draft the agent self-audit / spine wave** from `docs/AGENT-EXPANSION-SURVEY.md` + the LOCKED decisions
    (BACKLOG `[→ next agent wave — self-audit/spine]`). Then its **owed independent review** charged at the
    egress/sanitization + advisory-only-remediation boundary → present. The agent-expansion roadmap (host-
@@ -287,10 +296,22 @@ landed the Ring-0 working-tree check in the slop-process session-start hook; and
 structural items (check_backlog_stale blast-radius, the combined coverage+handoff audit, the
 no-volatile-state handoff doctrine) — all captured in the 4 new memories.
 
-You pick up at: **S-74 has EXECUTED and its orchestrator has CLOSED — your first job is to verify
-state, read `.claude/run/status/S-74.md`, then review + merge + sweep S-74** (incl. the two owed
-sweep commits in Immediate next actions step 2). Then fire S-75, then the combined audit, then draft
-batch-11. Nothing needs drafting before S-74 merges. See Immediate next actions.
+You pick up at: **batch-11 is fully LANDED (merged `bf16d16` + sweep, pushed, branches swept, run-state
+archived to `.claude/run-archive/2026-05-30-batch11/`). Your first job is to VERIFY state, then draft the
+agent self-audit / spine wave** from `docs/AGENT-EXPANSION-SURVEY.md` + the LOCKED decisions (BACKLOG
+`[→ next agent wave — self-audit/spine]`), followed by its owed independent review charged at the
+egress/sanitization + advisory-only-remediation boundary. Nothing else needs firing. See Immediate next actions.
+
+**What the batch-11-landing Manager session did (2026-05-30):** verified ground truth (main `0129b40`,
+wave/batch-11 `d5253a8`, 13 branches); sanctioned-merged `wave/batch-11` → `bf16d16` (ms-enforce EXIT 0
+pre-flight); re-verified all landed artifacts against main; enriched + committed the MERGE-LOG entry;
+flipped the 6 `[→ batch-11]` BACKLOG items to `[x]` and filed 3 new owed entries (checkout-borrow fix,
+lift_push_restore try/finally+registry, S11→S7 refactor); corrected the wave-file LR-1 citation
+(`241be73`→`b3a95ea`); stamped `.handoff-sha`; **corrected a phantom** (the claimed checkout-borrow
+red-signal hook does not exist on disk/in history); deleted all `wave/B11-*` + `wave/batch-11` + the stray
+`worktree-agent-*` branch; archived run-state; refreshed this handoff; pushed via
+`tools/sanctioned/lift_push_restore.py`. Note: the `.handoff-sha` gate legitimately reads DRIFT by the
+sweep delta right after landing (the documented push/refresh nudge) — the next handoff refresh re-syncs it.
 
 ## Final notes
 - VERIFY no orchestrator/drafting/audit session owns the checkout before any main-side git op
@@ -299,4 +320,4 @@ batch-11. Nothing needs drafting before S-74 merges. See Immediate next actions.
 - Trust the audit trails — `docs/MERGE-LOG.md`, `docs/BACKLOG.md`, `.claude/run-archive/`, the memory dir — these are the institutional memory. But remember the lesson of this whole session: a stored claim can be stale; reconcile load-bearing facts against reality before relying on them.
 - When in doubt, ask the user — they prefer one clarification question over silent wrong action.
 
-Good luck. The infrastructure is solid; you're picking up at a clean state with two fire-ready batches and a clear queue.
+Good luck. The infrastructure is solid; you're picking up at a clean post-batch-11 state — the next product work is the agent self-audit / spine wave (draft + owed review), with the agent-expansion roadmap behind it.

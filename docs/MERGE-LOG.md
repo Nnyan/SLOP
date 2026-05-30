@@ -49,6 +49,48 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-30 — wave/batch-11
+
+- **Method:** tools/merge_wave_to_main.py
+- **Operator/Caller:** stack
+- **Pre-merge main HEAD:** `0129b40e7b7efab7151daec87a485fb1c4d950b1`
+- **Branches merged (in order):**
+  1. `wave/batch-11` → merge commit `bf16d164044471d57942372bc532534657a21b43`
+- **Post-merge main HEAD:** `bf16d164044471d57942372bc532534657a21b43`
+- **Pushed to origin:** no (push is operator-only)
+- **Pre-flight checks run:**
+  - working-tree: CLEAN
+  - branch-exists:wave/batch-11: OK
+  - status:wave/batch-11: no status file (skipped)
+  - diff:wave/batch-11: OK (38 diff-stat lines)
+  - ms-enforce:wave/batch-11: ────────────────────────────────────────────────────────────
+- **Notes:** Manager review/merge of **batch-11 (ENFORCEMENT-LIFECYCLE, 11 streams S1–S11)** —
+  the doctrine gate-aging / enforcement-lifecycle batch. Single-branch sanctioned merge (the
+  orchestrator pre-integrated all 11 streams onto `wave/batch-11`; the Manager did NOT merge
+  individual `wave/B11-S*` branches). Pre-flight ms-enforce EXIT 0 on the wave branch. Manager
+  independently re-verified the landed artifacts against main HEAD `bf16d16`: 4 new gates present
+  (`check_provenance`, `check_manager_handoff_artifacts`, `check_independent_review`,
+  `check_sanctioned_ground`); 4 new tools present (`audit_single_entity_hardcode.py`,
+  `audit_probe_aging.py`, `independent_review.py`, `check_session_winddown.py`); `audit_backlog_stale.py`
+  cross-repo `RING_REGISTRY` present; `merge_wave_to_main.py` Phase-5 `.handoff-sha` auto-stamp present
+  (did NOT fire on THIS merge — Python ran the pre-merge `0129b40` copy of the tool, which predates S5;
+  it self-activates next merge; `.handoff-sha` stamped manually this landing). **EXPECTED warn-only
+  signals** the new gates surface against physics (triage work, NOT regressions): check_provenance ~5
+  DRIFT (baselines/lockfiles lack headers); check_manager_handoff_artifacts INCONSISTENT (pre-contract
+  `*-LAUNCH-PROMPT.md` lacks back-ref token); probe-aging 1 brownout (mediastack ring INDETERMINATE);
+  audit_backlog_stale park-triad ~8 DRIFT/8 INCONSISTENT (pre-existing dateless parks). All batch-11
+  gates land TIER_1 **warn-only** (none auto-promoted). **Orchestration incident (recovered, main never
+  contaminated):** the Phase-2 dispatch omitted `isolation:"worktree"` → 9 streams collided in the
+  shared checkout; the orchestrator forensically recovered every commit (file-by-file + patch-id
+  verification), reconstructed a clean S10 (`wave/B11-S10-clean`; the contaminated `wave/B11-S10-drain`
+  was NOT merged and is deleted in this sweep). **Phantom corrected this landing:** the handoff prompt
+  claimed a checkout-borrow red-signal hook `.claude/hooks/probe_main_checkout_session.py` "already
+  shipped" — VERIFIED ABSENT (no `.claude/hooks/` dir, not in any git history); the owed BACKLOG entry
+  records it as NOT-yet-built. The 44 promotion-reconciliation warnings are pre-existing historical
+  run-archive findings (warn-only; matter only before pruning, which was NOT done). Post-merge main HEAD
+  `bf16d164044471d57942372bc532534657a21b43`.
+
+
 ## 2026-05-30 — Coverage+Handoff audit report + LR-1 fix + batch-11 drafts (docs/audit-coverage-handoff)
 
 - **Method:** tools/merge_wave_to_main.py

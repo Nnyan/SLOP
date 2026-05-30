@@ -19,9 +19,10 @@ GROUND gates share one silent failure mode — the **"GROUND-gate brownout":**
 *a probe that degrades to INDETERMINATE / unparseable / missing-input keeps
 returning the same color as a match.* Two instances were LIVE-RED on main:
 - **LR-1** (`check_handoff_freshness` defeated by a prose rewrite) — **FIXED on
-  main ahead of this batch** (`241be73`; the gate now reads a committed
-  `.handoff-sha`, absence→DRIFT). Batch-11 only needs the *auto-stamp* half
-  (merge tool writes `.handoff-sha`) → S5.
+  main ahead of this batch** (fix commit `b3a95ea`; `241be73` is its MERGE-LOG
+  record commit, not the fix itself — citation corrected at batch-11 landing). The
+  gate now reads a committed `.handoff-sha`, absence→DRIFT. Batch-11 only needs the
+  *auto-stamp* half (merge tool writes `.handoff-sha`) → S5.
 - **LR-2** (`slop-reality-probe` never installed on host) — probe installed
   out-of-band 2026-05-30; the install-dir facts now ground. A SECOND probe
   defect surfaced during that fix: called bare, the probe's port auto-detect
