@@ -54,3 +54,15 @@
 
 ## Robot mode (autonomous execution)
 <!-- Orchestrator setup: how many worktrees, how are the streams ordered, which files are shared, how are conflicts resolved, what tool runs the merge to main, etc. Refer to ROBOT.md doctrine. -->
+
+<!--
+STATUS PROTOCOL (ROBOT.md §3.5 — emitter side, REQUIRED):
+- Status file is at the CANONICAL SHORT path `.claude/run/status/<S-NN>.md` (short wave key, e.g. S-75.md / BATCH-11.md — NOT the long name). The merge tool grounds this; a misnamed file only warns via glob-fallback.
+- First non-blank line MUST be `**State:** RUNNING` (State ∈ RUNNING | BLOCKED | NEEDS-INPUT | COMPLETE | CLOSED). Set `**State:** CLOSED` as the final edit before exit. The merge-time gate refuses a missing status file or a non-terminal State (DRIFT), and BLOCKED/NEEDS-INPUT blocks the merge.
+- On ambiguity: never block / never AskUserQuestion — append the question + default taken + authorizing rule to `.claude/run/questions/<S-NN>.md`.
+
+KNOWN MULTI-STREAM ADDITIVE-REGISTRATION FILES (keep-both-whole-block protocol — pin these in Cross-wave dependencies whenever ≥2 streams touch them; see AUTONOMOUS-DEFAULTS.md § "Known additive-registration files"):
+- `ms-enforce` TIER_1 registration block — each stream APPENDS its own `check_*` + TIER_1 tuple; never reformat a neighbour's block.
+- The lint baselines `.linecount-baseline.json` / `.factprobe-baseline.json` / `.probe-health-baseline.json` — additive rows; keep-both on conflict.
+-->
+

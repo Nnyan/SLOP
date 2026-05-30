@@ -285,6 +285,26 @@ block-wise) and verify the rebuilt file parses + runs. **Lesson:** S-69 (batch-6
 Reconstructed via difflib (`S-69-MERGE-1` decision). Batch-6's merge-to-main hit
 the same file again across S-67/S-68/S-69 and used the difflib reconstruction.
 
+### Known additive-registration files (auto-pin in every wave's Cross-wave dependencies)
+**Default:** Treat the following as a STANDING list of known multi-stream
+additive-registration files. Whenever a wave has ≥2 streams that each touch one of
+them, the wave file's "Cross-wave dependencies" section MUST pin it keep-both-whole-block
+(per the intra-wave-conflict default above) WITHOUT waiting to discover the overlap at
+merge-time — these are known plural touchpoints, not surprises:
+- **`ms-enforce` TIER_1 registration** — each stream APPENDS its own `check_*` function +
+  its TIER_1 registration tuple; never reformat a neighbour's block. (Recurring since
+  S-68/S-69/S-75; S-75's disjointness claim missed this 3-way touch — BACKLOG `:166`.)
+- **Lint baselines** `.linecount-baseline.json`, `.factprobe-baseline.json`,
+  `.probe-health-baseline.json` — additive rows (shrink-only ratchets); keep-both on
+  conflict, never drop a row.
+**Why a standing list:** before this, the additive-file set was referenced only ad hoc in
+MERGE-LOG history, so each wave re-discovered it at merge-time. The list (mirrored in the
+wave `_TEMPLATE.md` Robot-mode comment) lets pre-flight auto-pin them. The list itself can
+rot — when a NEW recurring additive-registration file appears, add it here in the same
+stroke that introduces it. **Escalate when:** a "registration" turns out to carry semantic
+overlap (contradictory edits to the same logical entry) — then it is NOT a clean additive
+keep-both; apply the strict abort default.
+
 ### Command-style discipline (avoid hardcoded safety-check prompts)
 
 **Default:** Write Bash commands that the harness static analyzer can
