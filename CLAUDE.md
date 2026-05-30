@@ -28,7 +28,9 @@ Reference: `docs/WALK-BACK-LOG.md` for format and current entries.
 ## BACKLOG triage — no item stays bare `[ ]` open
 
 `docs/BACKLOG.md` is not a forever-parking lot. Every entry must be in one of:
-`[→ S-NN-stream]` (scheduled), `[park]` (with documented re-eval trigger),
+`[→ S-NN-stream]` (scheduled), `[park: re-eval <DATE>]` (deferred with a **measurable
+trigger + a mandatory backstop re-eval date + an owner** — see `.claude/ROBOT.md`
+§"BACKLOG triage discipline"; a vague/dateless/already-fired trigger is NOT valid),
 `[x]` (done), or `[—]` (won't fix with reason). Pure `[ ]` without an assigned
 target is not a valid long-term state.
 

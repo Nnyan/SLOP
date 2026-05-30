@@ -16,7 +16,13 @@ prefixing the prompt. Regular interactive sessions are unaffected.
 explicit states — pure `[ ]` open without an assigned target is not a valid end state:
 
 - `[→ S-NN-stream]` scheduled into a specific wave + stream
-- `[park]` deferred WITH a documented re-eval trigger (when/why we'll revisit)
+- `[park: re-eval <DATE>]` deferred WITH all three of: (1) a **measurable** trigger
+  (an event a tool or a glance can detect — NOT "someday" / "next sweep"); (2) a
+  **mandatory backstop re-eval DATE**, even for event triggers — the date is the
+  "look at this regardless" floor so the item can't rot if the event never fires;
+  (3) an **owner** (default: the Manager at each batch-landing retro; permanent
+  owner once it ships: S-75's gap-discovery ritual). A trigger that has already
+  FIRED must be re-triaged, not left `[park]`.
 - `[x]` done (kept for provenance; prune after 60 days)
 - `[—]` won't fix / superseded with reason
 
@@ -36,6 +42,14 @@ a cleanup wave; don't let the category grow unbounded.
 **Mechanical enforcement:** `tools/audit_backlog_stale.py` (shipped in S-69 alongside
 the orchestrator-dispatch gate) flags entries that have been bare `[ ]` for >14
 days. → enforced by `check_backlog_stale` (warn-only TIER_1 in ms-enforce, S-69-A).
+
+**Known enforcement gap (2026-05-30):** `check_backlog_stale` flags bare `[ ]` but
+NOT a `[park]`/`[→ batch-NN]` whose trigger is vague, dateless, or already fired —
+the loophole that let batch-11's readiness sit un-owned until surfaced by friction.
+Extending the gate to flag parks missing a backstop date, past their re-eval, or
+carrying an event-only trigger is folded into **S-75's gap-discovery ritual**
+(BACKLOG `[→ S-75]`). Until that lands, this is enforced by the Manager at each
+batch-landing retro plus the per-park backstop date — NOT yet automatic.
 
 ## When to use it
 

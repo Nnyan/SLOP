@@ -12,8 +12,21 @@ this file in sync mechanically. Until then, this is a manually maintained list.
 
 - `[ ]` open, unscheduled
 - `[→ S-NN]` scheduled into a wave (link target)
+- `[park: re-eval <DATE>]` deferred — requires a **measurable trigger + a mandatory
+  backstop re-eval date + an owner** (see `.claude/ROBOT.md` §"BACKLOG triage
+  discipline", strengthened 2026-05-30). Vague/dateless/already-fired triggers are not valid.
 - `[x]` done (kept for provenance; prune after 60 days)
 - `[—]` won't fix / superseded (with reason)
+
+**Park backstop (added 2026-05-30 — closes the un-owned-deferral gap):** every `[park]`
+entry in ANY section that does not state its own re-eval date carries an implicit
+**backstop re-eval of 2026-07-15** (the batch-11 checkpoint); the Manager re-triages
+each undated/event-only park at that date per the strengthened rule, and gives it a
+real date + owner or resolves it. **Triggers already known to have FIRED need a
+decision then, not continued parking** — notably the "Split `CLAUDE.md`" park below
+(its trigger "after S-55-B lands" has fired; S-55-B is done). Automatic enforcement
+(a gate flagging dateless/overdue/fired parks) is folded into S-75's gap-discovery
+ritual; until it lands this backstop + the Manager retro are the enforcement.
 
 ---
 
