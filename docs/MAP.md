@@ -8,6 +8,7 @@ they don't ship.
 - CONTRIBUTING.md — local setup, branch & PR norms
 - INSTALL.md — quick-start install reference (root-level)
 - docs/INSTALL.md — full install walkthrough
+- docs/DEPLOY.md — ownership/update model + diverged-clone recovery runbook
 - docs/DOCKER_INSTALL.md — Docker-only install path
 - CLAUDE.md — agent/contributor conventions
 

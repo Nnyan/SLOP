@@ -5,6 +5,7 @@
 #   ./deploy.sh                    # Full install (first time)
 #   ./deploy.sh --update           # Pull latest and restart (use ms-update instead)
 #   ./deploy.sh --frontend-only    # Rebuild frontend and restart
+#   ./deploy.sh --help             # Show this usage and exit
 #
 # What this does:
 #   1. Checks system dependencies (Python, Node, Docker, rsync)
@@ -18,20 +19,60 @@
 
 set -euo pipefail
 
-# ── Detect who is running this ─────────────────────────────────────────────
-# If invoked with sudo, use the calling user — not root
-REAL_USER="${SUDO_USER:-${USER:-$(whoami)}}"
-REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6 2>/dev/null || echo "/home/$REAL_USER")
-
 # ── Config ─────────────────────────────────────────────────────────────────
 # Single install location: the repo IS the install dir.
 # No more copying to /opt — edits and updates happen in one place.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_DIR="$SCRIPT_DIR"
+
+# ── Argument parsing (early — before sourcing the helper) ──────────────────
+# --help is parsed first so it works even before deploy_lib.sh exists.
+UPDATE_ONLY=false
+FRONTEND_ONLY=false
+for arg in "$@"; do
+  case "$arg" in
+    --update)        UPDATE_ONLY=true ;;
+    --frontend-only) FRONTEND_ONLY=true ;;
+    --help|-h)
+      echo "Usage: $0 [--update] [--frontend-only] [--help]"
+      echo ""
+      echo "  (no flags)        Full install — create venv, build frontend, install systemd unit"
+      echo "  --update          Fetch + reset to origin/main, rebuild, restart (same as ms-update)"
+      echo "  --frontend-only   Rebuild Vue frontend and restart the service"
+      echo "  --help            Show this message and exit"
+      exit 0 ;;
+    *)
+      echo "  ! Unknown flag: $arg" >&2 ;;
+  esac
+done
+
+# ── Shared helper (S-74-A produces this; B/C/D consume it) ─────────────────
+# Provides: detect_service_user, build_home, normalize_ownership
+# NOTE: tools/deploy_lib.sh is created by Stream A and merged before B's
+# branch is merged. In a pre-merge worktree it will not exist; bash -n
+# still passes because source is valid syntax even when the file is absent.
+# shellcheck source=tools/deploy_lib.sh
+source "$INSTALL_DIR/tools/deploy_lib.sh"
+
+# ── Service user (resolved from install-dir owner, not the login user) ─────
+# detect_service_user: stat -c %U <dir> → systemctl show mediastack -p User
+#   → literal "mediastack"  (PINNED contract from deploy_lib.sh)
+SERVICE_USER="$(detect_service_user "$INSTALL_DIR")"
+
 VENV_DIR="$INSTALL_DIR/.venv"
 DATA_DIR="${MS_DATA_DIR:-$INSTALL_DIR/data}"
-SERVICE_USER="$REAL_USER"
+
+# ── Canonical service port (PINNED — B owns this name; A + D consume it) ───
+# MS_PORT is the canonical var written to .env and baked into the unit.
+# Legacy MEDIASTACK_PORT is accepted as a read-only deprecated fallback.
+# Do NOT write MEDIASTACK_PORT anywhere; MS_PORT is the single source of truth.
+if [[ -z "${MS_PORT:-}" && -n "${MEDIASTACK_PORT:-}" ]]; then
+  # Deprecated fallback: warn and promote
+  echo "  ! MEDIASTACK_PORT is deprecated — please rename to MS_PORT in your .env" >&2
+  MS_PORT="$MEDIASTACK_PORT"
+fi
 BIND_PORT="${MS_PORT:-8080}"
+
 API_URL="http://localhost:${BIND_PORT}"
 SERVICE_FILE="/etc/systemd/system/mediastack.service"
 
@@ -45,22 +86,9 @@ warn()  { echo -e "  ${YELLOW}!${RESET} $*"; }
 err()   { echo -e "  ${RED}✗${RESET} $*" >&2; }
 step()  { echo -e "\n${BOLD}$*${RESET}"; }
 die()   { err "$*"; exit 1; }
-SUDO=""
-[[ "$EUID" -ne 0 ]] && SUDO="sudo"
-
-# ── Argument parsing ────────────────────────────────────────────────────────
-UPDATE_ONLY=false
-FRONTEND_ONLY=false
-for arg in "$@"; do
-  case "$arg" in
-    --update)        UPDATE_ONLY=true ;;
-    --frontend-only) FRONTEND_ONLY=true ;;
-    --help|-h)
-      echo "Usage: $0 [--update] [--frontend-only]"
-      exit 0 ;;
-    *) warn "Unknown flag: $arg" ;;
-  esac
-done
+SUDO="sudo"
+# Note: sudo is always used for privileged ops (systemctl, tee to /etc, ln to /usr/local/bin).
+# File-touching git/pip/npm operations run as SERVICE_USER via "sudo -u $SERVICE_USER".
 
 echo
 echo -e "${BOLD}  Mediastack v3 — Deploy${RESET}"
@@ -72,21 +100,40 @@ echo -e "  Port:        ${CYAN}${BIND_PORT}${RESET}"
 # ── Update only ─────────────────────────────────────────────────────────────
 if $UPDATE_ONLY; then
   step "Updating…"
-  cd "$INSTALL_DIR"
-  git pull origin main
-  "$VENV_DIR/bin/pip" install -q -r requirements.txt
-  cd frontend && npm ci --silent && npm run build && cd ..
-  $SUDO systemctl restart mediastack 2>/dev/null || true
+  # Fetch as the service user to avoid "dubious ownership" git errors when
+  # the invoking user (root or a login user) does not own the repo.
+  info "Fetching origin/main as $SERVICE_USER…"
+  if ! sudo -u "$SERVICE_USER" git -C "$INSTALL_DIR" fetch origin main 2>&1; then
+    err "git fetch failed — check network and repo access"
+    exit 1
+  fi
+  # Fast-forward attempt; fall back to reset --hard on a diverged (history-rewrite) clone.
+  if ! sudo -u "$SERVICE_USER" git -C "$INSTALL_DIR" merge --ff-only origin/main 2>/dev/null; then
+    warn "Fast-forward failed (diverged clone) — resetting to origin/main"
+    sudo -u "$SERVICE_USER" git -C "$INSTALL_DIR" reset --hard origin/main
+  fi
+  ok "Source updated to $(git -C "$INSTALL_DIR" rev-parse --short HEAD)"
+  # Install Python deps as service user
+  sudo -u "$SERVICE_USER" "$VENV_DIR/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt"
+  # Build frontend as service user with a writable HOME (mediastack HOME=/nonexistent)
+  sudo -u "$SERVICE_USER" env HOME="$(build_home)" \
+    bash -c "cd '$INSTALL_DIR/frontend' && npm ci --silent && npm run build"
+  ok "Frontend rebuilt → backend/static/"
+  # Normalize ownership after update (fixes root-owned .git/FETCH_HEAD etc.)
+  normalize_ownership "$INSTALL_DIR" "$SERVICE_USER"
+  $SUDO systemctl restart mediastack
   ok "Updated and restarted."
   exit 0
 fi
 
 if $FRONTEND_ONLY; then
   step "Rebuilding frontend…"
-  cd "$INSTALL_DIR/frontend"
-  npm ci --silent && npm run build
-  $SUDO systemctl restart mediastack 2>/dev/null || true
-  ok "Frontend rebuilt."
+  # Build as service user with a writable HOME (mediastack HOME=/nonexistent)
+  sudo -u "$SERVICE_USER" env HOME="$(build_home)" \
+    bash -c "cd '$INSTALL_DIR/frontend' && npm ci --silent && npm run build"
+  ok "Frontend rebuilt → backend/static/"
+  $SUDO systemctl restart mediastack
+  ok "Frontend rebuilt and service restarted."
   exit 0
 fi
 
@@ -126,9 +173,10 @@ mkdir -p "$DATA_DIR/.secrets"
 chmod 700 "$DATA_DIR/.secrets"
 ok "Data directory: $DATA_DIR"
 
-# Ensure install dir is owned by the real user (not root)
-$SUDO chown -R "$REAL_USER":"$REAL_USER" "$INSTALL_DIR" 2>/dev/null || true
-ok "Install directory: $INSTALL_DIR (owner: $REAL_USER)"
+# Normalize install-dir ownership to the service user
+# normalize_ownership: chowns tree to svc_user:svc_user + re-asserts .env mode 600
+normalize_ownership "$INSTALL_DIR" "$SERVICE_USER"
+ok "Install directory: $INSTALL_DIR (owner: $SERVICE_USER)"
 
 # ── Step 3: Python virtualenv ──────────────────────────────────────────────
 step "3 / 8 — Installing Python dependencies"
@@ -145,11 +193,11 @@ ok "Python packages installed in virtualenv"
 # ── Step 4: Build frontend ─────────────────────────────────────────────────
 step "4 / 8 — Building frontend"
 
-cd "$INSTALL_DIR/frontend"
-npm ci --silent
-npm run build
+# Build as service user with a writable HOME (mediastack HOME=/nonexistent causes
+# EACCES errors when npm tries to create ~/.npm). build_home returns ${MS_BUILD_HOME:-/tmp}.
+sudo -u "$SERVICE_USER" env HOME="$(build_home)" \
+  bash -c "cd '$INSTALL_DIR/frontend' && npm ci --silent && npm run build"
 ok "Frontend built → backend/static/"
-cd "$INSTALL_DIR"
 
 # ── Step 5: Create .env ────────────────────────────────────────────────────
 step "5 / 8 — Environment file"
@@ -230,7 +278,7 @@ KOMODO_PASSKEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
 DOCKHAND_DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(16))")
 ENVEOF
   chmod 600 "$ENV_FILE"
-  $SUDO chown "$REAL_USER":"$REAL_USER" "$ENV_FILE"
+  $SUDO chown "$SERVICE_USER":"$SERVICE_USER" "$ENV_FILE"
   ok "Created: $ENV_FILE"
   warn "Fill in CF_DNS_API_TOKEN, CF_ZONE_ID, CF_ACCOUNT_ID before running the wizard"
 else
@@ -240,6 +288,12 @@ fi
 # ── Step 6: Systemd service ────────────────────────────────────────────────
 step "6 / 8 — Installing systemd service"
 
+# OPERATOR-ENV (reconciled with Stream C contract @ S-74 merge)
+# Provisional model: .env is authoritative via EnvironmentFile=.
+# Operator settings MS_TRUSTED_HOSTS and DOMAIN are read by the Python process
+# via os.environ; they reach the process through the systemd EnvironmentFile=
+# directive below. To change them: edit $INSTALL_DIR/.env then restart the service.
+# If Stream C's resolution differs, update the EnvironmentFile= block accordingly.
 $SUDO tee "$SERVICE_FILE" > /dev/null << SVCEOF
 [Unit]
 Description=Mediastack v3 — Self-hosted media stack manager
@@ -264,6 +318,8 @@ StandardOutput=journal
 StandardError=journal
 
 # Environment — single .env file, no copies
+# Operator settings (MS_TRUSTED_HOSTS, DOMAIN, MS_PORT, etc.) are set in .env
+# and loaded into the process environment via EnvironmentFile= below.
 Environment=PYTHONPATH=${INSTALL_DIR}
 EnvironmentFile=${ENV_FILE}
 
