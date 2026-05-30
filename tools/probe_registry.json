@@ -46,6 +46,33 @@
       "brownout_tokens": ["INDETERMINATE"],
       "host_configured": false,
       "wrong_target": {"json_field": "bound_port", "wrong_values": [22], "note": "bound_port==22 (sshd, the lowest LISTEN socket) means the probe emitted a value for the WRONG target — a registry-trackable WRONG-PHYSICS defect, classified as a brownout, NOT a pass. Fixed in slop-reality-probe (_probe_bound_port targets 8080); tracked here so a regression ages red."}
+    },
+    {
+      "id": "ring_reachability_slop",
+      "physics": "filesystem stat of the SLOP triage queue file /home/stack/code/slop/docs/BACKLOG.md",
+      "cmd": "test -f /home/stack/code/slop/docs/BACKLOG.md && echo verified || echo INDETERMINATE",
+      "ground_tokens": ["verified"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "note": "BATCH-11 S2: per-ring reachability of the SLOP (repo,file,syntax) triage queue (RING_REGISTRY row 'slop'). Absent -> INDETERMINATE, aged to DRIFT by the engine after N runs."
+    },
+    {
+      "id": "ring_reachability_slop_process",
+      "physics": "filesystem stat of the slop-process triage queue file /home/stack/v5/docs/TODO.md",
+      "cmd": "test -f /home/stack/v5/docs/TODO.md && echo verified || echo INDETERMINATE",
+      "ground_tokens": ["verified"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "note": "BATCH-11 S2: per-ring reachability of the slop-process (repo,file,syntax) triage queue (RING_REGISTRY row 'slop_process'; resolved to docs/TODO.md, same bracket syntax). Absent -> INDETERMINATE."
+    },
+    {
+      "id": "ring_reachability_mediastack",
+      "physics": "filesystem stat of the mediastack triage queue file /home/stack/code/mediastack/docs/TODO.md",
+      "cmd": "test -f /home/stack/code/mediastack/docs/TODO.md && echo verified || echo INDETERMINATE",
+      "ground_tokens": ["verified"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "note": "BATCH-11 S2: per-ring reachability of the mediastack (repo,file,syntax) triage queue (RING_REGISTRY row 'mediastack'). NO canonical queue resolved at write-time (work fragmented across docs/TODO_*.md); this probe is INDETERMINATE until a canonical queue is chosen (BACKLOG follow-up). Honest TODO-hole, NOT a silent pass — ages to DRIFT, the intended pressure to resolve it."
     }
   ]
 }

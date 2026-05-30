@@ -1483,6 +1483,19 @@ def check_backlog_stale() -> tuple[bool, str]:
     venv_py = REPO / ".venv" / "bin" / "python3"
     py = str(venv_py) if venv_py.exists() else "python3"
 
+    # BATCH-11 S2: the gate iterates the cross-repo (repo,file,syntax) RING_REGISTRY
+    # instead of hardcoding `--repo str(REPO)`. The SLOP ring keeps its full bare-[ ]
+    # staleness scan; the other rings are reconciled for reachability (GROUND stat).
+    # registered-but-absent ring -> INDETERMINATE (ages via tools/probe_registry.json
+    # -> S1); present-ring-with-no-row -> DRIFT (coverage_drift + red-path test).
+    ring_detail = ""
+    _rc_rings, rings_out = _run([py, str(scanner), "--check-rings"], timeout=30)
+    indet_lines = [ln for ln in rings_out.splitlines() if ln.startswith("INDETERMINATE:")]
+    if indet_lines:
+        ring_detail = "\n  rings: " + str(len(indet_lines)) + " INDETERMINATE (cross-repo registry):"
+        ring_detail += "".join(f"\n    {ln[:120]}" for ln in indet_lines[:3])
+
+    # SLOP ring: full bare-[ ] staleness scan (S3 extends the same per-entry path).
     _rc, out = _run([py, str(scanner), "--repo", str(REPO)], timeout=30)
     warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING:")]
     if warning_lines:
@@ -1490,11 +1503,11 @@ def check_backlog_stale() -> tuple[bool, str]:
         detail += "\n".join(f"    {ln[:120]}" for ln in warning_lines[:5])
         if len(warning_lines) > 5:
             detail += f"\n    ... and {len(warning_lines) - 5} more"
-        return True, detail  # always True — warn-only
+        return True, detail + ring_detail  # always True — warn-only
     # No stale entries — summarise the OK message from scanner stderr.
     ok_lines = [ln for ln in out.splitlines() if ln.startswith("OK")]
     summary = ok_lines[0] if ok_lines else "no stale bare [ ] entries in BACKLOG.md"
-    return True, summary
+    return True, summary + ring_detail
 
 
 def check_wave_subagent_preamble() -> tuple[bool, str]:
