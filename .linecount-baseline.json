@@ -5,6 +5,7 @@
     "frontend_other": 500,
     "production_code": 500,
     "tests": 1000,
+    "uncategorized": 1000,
     "vue_views": 600
   },
   "files": [
@@ -40,7 +41,7 @@
     },
     {
       "category": "production_code",
-      "lines": 840,
+      "lines": 850,
       "path": "backend/core/state.py"
     },
     {
@@ -124,6 +125,11 @@
       "path": "installer/uninstall.py"
     },
     {
+      "category": "uncategorized",
+      "lines": 2456,
+      "path": "ms-test.py"
+    },
+    {
       "category": "tests",
       "lines": 1205,
       "path": "tests/test_api_coverage.py"
@@ -142,7 +148,12 @@
       "category": "tests",
       "lines": 1184,
       "path": "tests/test_runtime_bugs.py"
+    },
+    {
+      "category": "uncategorized",
+      "lines": 1012,
+      "path": "tools/merge_wave_to_main.py"
     }
   ],
-  "generated_at": "2026-05-28T04:46:37+00:00"
+  "generated_at": "2026-05-30T21:45:50+00:00"
 }

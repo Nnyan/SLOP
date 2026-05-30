@@ -100,10 +100,22 @@ class TestClassify:
         assert ratchet.classify("installer/uninstall.py") == "cli_installer"
 
     def test_uncategorized(self):
-        # Things outside the matched patterns return None.
+        # Non-source extensions (e.g. .md) still return None — not in INCLUDED_EXTENSIONS.
         assert ratchet.classify("docs/readme.md") is None
-        assert ratchet.classify("scripts/random.py") is None
-        assert ratchet.classify("backend/scripts/deploy.py") is None
+        # .py files outside named categories fall through to the catch-all "uncategorized".
+        # (batch-11 S8: *.py is a catch-all pattern so classify() never returns None
+        # for a .py path that reaches the walker.)
+        assert ratchet.classify("scripts/random.py") == "uncategorized"
+        assert ratchet.classify("backend/scripts/deploy.py") == "uncategorized"
+
+    def test_uncategorized_sh_yaml(self):
+        # .sh and .yaml files are now included (batch-11 S8) and fall to uncategorized.
+        assert ratchet.classify("deploy.sh") == "uncategorized"
+        assert ratchet.classify("tools/cleanup-helpers.sh") == "uncategorized"
+        assert ratchet.classify("installer/readiness_manifest.yaml") == "uncategorized"
+        assert ratchet.classify("catalog/apps/dumb.yaml") == "uncategorized"
+        assert ratchet.classify("migrations/003_sync.py") == "uncategorized"
+        assert ratchet.classify("ms-test.py") == "uncategorized"
 
 
 # ---------------------------------------------------------------------------
