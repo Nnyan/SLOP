@@ -4,6 +4,19 @@ Audit trail of independent reviews of significant changes — see CLAUDE.md § "
 
 ---
 
+## 2026-05-30 — Batch-11 S7: `check_independent_review` gate + walk-back GROUND leg
+
+- **Change:** built the PENDING `check_independent_review` gate (`tools/independent_review.py` + ms-enforce wrapper + TIER_1 registration), added a GROUND leg to `check_walkback_log` (numstat-add to `docs/WALK-BACK-LOG.md`, not just a message token), and exposed the PINNED `artifact_exists` helper for S11. This commit ADDS a `def check_` to ms-enforce → it trips the gate's own mechanical floor (correctly), so it carries this entry.
+- **Reviewer:** new-enforcement-mechanism tier → author-administered **four-question rationale** (the cheap floor reviewer; a fresh adversarial subagent is not spawnable inside a Robot worktree stream — the residual substance risk rides the Manager batch-landing review + the standing audits, depth-1). Durable committed record: this REVIEW-LOG entry (no `/tmp` pointer).
+- **Four-question rationale (additions extend the walk-back four):**
+  - **What need?** The Reuse/blast-radius + independent-review doctrine had a `[red-signal: PENDING]` — an unenforced checklist (yellow, not green). A significant change could land claiming "reviewed" with no committed artifact behind the claim (the exact `/tmp`-transcript rot the doctrine names).
+  - **Why this mechanism?** A GROUND artifact-existence leg: when the floor fires, the commit must cite a REVIEW-LOG record AND HEAD must have made a non-empty addition to the committed log (git numstat — physics). Token-without-entry → DRIFT. Reuses the `check_walkback_log` numstat-floor shape (sibling family).
+  - **Failure mode?** Substance is UNPROBED — the leg proves an entry *landed*, not that the review was *good*; a low-quality entry passes the leg. Mitigation: honest `[red-signal: PARTIAL]`; substance rides the Manager batch-landing review. The GROUND-on-fabrication leg is the half that can go red against physics today.
+  - **Red-signal?** `[red-signal: PARTIAL]` — GROUND on missing-artifact (red against git numstat); UNPROBED on substance. HARD STOP: warn-only, no auto-promotion to blocking until a deliberate recorded escalation.
+- **Acyclicity (the sharpest correctness point), enforced IN CODE:** the floor-path set statically excludes `docs/REVIEW-LOG.md` (`_FLOOR_EXCLUDED_PATHS`) and the gate's own `def check_independent_review` (`_SELF_CHECK_NAME`, skipped in `_adds_check_def`) — a review (whose only output is a REVIEW-LOG entry) can NEVER trigger a review. Proven by `test_acyclicity_review_log_only_does_not_trip` + `test_acyclicity_adding_own_check_def_does_not_trip`. Changing the exclusion trips WALK-BACK-LOG.
+- **Reconciliation vs physics:** ran the tool on live HEAD → DRIFT (this commit's pre-state cited no REVIEW-LOG entry); after adding this entry the same commit reads `verified` [GROUND: numstat]. 12 red-path tests pass (DRIFT on non-existent record; verified on committed record; both acyclicity legs; walk-back token-without-entry → DRIFT).
+- **Record:** lands in the same commit as the gate, the helper, and the tests.
+
 ## 2026-05-30 — Batch-11 (Enforcement-Lifecycle) wave DESIGN — pre-fire review
 
 - **Change:** the batch-11 wave design (`.claude/waves/BATCH-11-ENFORCEMENT-LIFECYCLE.md` + `BATCH-11-LAUNCH-PROMPT.md`) — High-complexity wave = a "significant change" requiring one independent review before firing.

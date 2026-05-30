@@ -1204,6 +1204,13 @@ def check_walkback_log() -> tuple[bool, str]:
     Warn-only: returns (True, summary). Graduates to fail when the aging-policy
     mechanism (planned S-70) ships and explicitly escalates this check.
 
+    GROUND leg (BATCH-11 S7, P7): a message token alone is gameable, so the
+    check also reads HEAD's numstat for docs/WALK-BACK-LOG.md — a doctrine
+    removal must have actually ADDED a non-empty entry to the walk-back log
+    (numstat ``added > 0``), not merely name-dropped it in the message. Message
+    token present but NO committed WALK-BACK-LOG addition → DRIFT (the cited
+    artifact is missing). [GROUND: git numstat — touches what really landed.]
+
     Rationale: every doctrine rule encodes a NEED; removing the rule without
     addressing the underlying need leaves the need orphaned. The walk-back log
     captures the meta-thinking (what was the rule preventing; new mechanism;
@@ -1214,6 +1221,7 @@ def check_walkback_log() -> tuple[bool, str]:
         ".claude/AUTONOMOUS-DEFAULTS.md",
         "CLAUDE.md",
     }
+    walkback_path = "docs/WALK-BACK-LOG.md"
     # Get HEAD commit message + files-changed numstat in one git call.
     rc, msg = _run(["git", "log", "-1", "--format=%B"], timeout=5)
     if rc != 0:
@@ -1225,6 +1233,7 @@ def check_walkback_log() -> tuple[bool, str]:
         return True, "git numstat unavailable (skip)"
 
     flagged: list[tuple[str, int]] = []
+    walkback_added = 0  # GROUND: lines added to docs/WALK-BACK-LOG.md on HEAD
     for line in numstat.splitlines():
         line = line.strip()
         if not line:
@@ -1233,6 +1242,12 @@ def check_walkback_log() -> tuple[bool, str]:
         if len(parts) != 3:
             continue
         added_s, deleted_s, path = parts
+        if path == walkback_path:
+            try:
+                walkback_added = int(added_s)
+            except ValueError:
+                walkback_added = 0
+            continue
         if path not in doctrine_files:
             continue
         try:
@@ -1246,8 +1261,24 @@ def check_walkback_log() -> tuple[bool, str]:
         return True, "no substantive doctrine removals on HEAD (no walk-back log reference required)"
 
     msg_lower = commit_msg.lower()
-    if "walk-back-log" in msg_lower or "walk_back_log" in msg_lower or "walkback" in msg_lower:
-        return True, f"doctrine removals on HEAD reference walk-back log ({len(flagged)} file(s))"
+    cites_walkback = (
+        "walk-back-log" in msg_lower or "walk_back_log" in msg_lower or "walkback" in msg_lower
+    )
+    if cites_walkback and walkback_added > 0:
+        return True, (
+            f"doctrine removals on HEAD reference walk-back log and added "
+            f"+{walkback_added} line(s) to {walkback_path} "
+            f"({len(flagged)} file(s)) [GROUND: numstat]"
+        )
+    if cites_walkback and walkback_added == 0:
+        # Message claims a walk-back but NO committed entry landed → DRIFT.
+        gd = "".join(f"    {p}: -{d} lines\n" for p, d in flagged)
+        return True, (
+            f"WARNING (DRIFT): HEAD cites the walk-back log but added NO content "
+            f"to {walkback_path} — the cited entry is missing. A message token is "
+            f"not the artifact; add a dated WALK-BACK-LOG entry.\n{gd}"
+            f"    [GROUND: numstat shows +0 to {walkback_path}]"
+        )
 
     summary = (
         f"WARNING: HEAD removes >=3 lines from doctrine file(s) without referencing "
@@ -1841,6 +1872,50 @@ def check_probe_aging() -> tuple[bool, str]:
     return True, "\n".join(parts)  # always True — warn-only
 
 
+# ── independent-review artifact-existence gate (BATCH-11 S7, P7) ───────────
+def check_independent_review() -> tuple[bool, str]:
+    """Tier 1 (BATCH-11 S7, P7): independent-review artifact-existence — warn-only.
+
+    Thin wrapper over tools/independent_review.py. When HEAD trips the
+    mechanical floor (touches CLAUDE.md / .claude/ROBOT.md /
+    .claude/AUTONOMOUS-DEFAULTS.md, adds a file under tools/sanctioned/, or adds
+    a ``def check_`` to ms-enforce), the commit must cite a COMMITTED
+    docs/REVIEW-LOG.md entry — and that entry must actually exist (HEAD made a
+    non-empty addition to the log). Cited record missing → DRIFT. [GROUND leg:
+    git numstat + filesystem — proves the artifact landed, not a message token.]
+
+    ACYCLICITY IN CODE: the floor statically EXCLUDES docs/REVIEW-LOG.md and the
+    gate's own ``def check_independent_review`` (see tools/independent_review.py
+    _FLOOR_EXCLUDED_PATHS / _SELF_CHECK_NAME) — a review (whose only output is a
+    REVIEW-LOG entry) can never trigger a review. Changing that exclusion needs
+    a WALK-BACK-LOG entry.
+
+    [red-signal: PARTIAL] — GROUND on fabrication / missing-artifact; review
+    *substance* is UNPROBED (rides the standing audits + Manager batch-landing
+    review). HARD STOP: warn-only; never auto-promotes to blocking until the
+    GROUND leg is deliberately escalated (Enforcement-Lifecycle).
+
+    Vocabulary: GROUND = touches physics (may say verified or DRIFT).
+    INDETERMINATE = git unreachable, emitted loudly. UNPROBED = no probe for
+    review substance. "A green light is only trustworthy if it can go red
+    against physics."
+    """
+    tool = REPO / "tools" / "independent_review.py"
+    if not tool.exists():
+        return True, "independent_review.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(tool), "--repo", str(REPO)], timeout=20)
+    out = out.strip()
+    if "INDETERMINATE" in out:
+        return True, f"WARNING (INDETERMINATE): {out}"
+    if "DRIFT" in out:
+        return True, f"WARNING (DRIFT): {out}"
+    return True, out
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1916,6 +1991,8 @@ TIER_1: list[tuple[str, object]] = [
     # ── end S-75-C ─────────────────────────────────────────────────────────
     # ── probe-aging / GROUND-gate brownout detector (BATCH-11 S1, P0) ──────
     ("Probe aging — GROUND-gate brownout detector (warn only)", check_probe_aging),
+    # ── independent-review artifact-existence gate (BATCH-11 S7, P7) ───────
+    ("Independent review — REVIEW-LOG artifact-existence (warn only)", check_independent_review),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
