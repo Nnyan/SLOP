@@ -1736,6 +1736,58 @@ def check_handoff_freshness() -> tuple[bool, str]:
     return True, out
 
 
+# ── fact-store freshness (S-75-D) ──────────────────────────────
+def check_fact_freshness() -> tuple[bool, str]:
+    """Tier 1 (S-75-D): fact-store freshness / verify-probe audit — warn-only.
+
+    Shells out to tools/audit_fact_freshness.py which:
+      - Parses memory-file YAML frontmatter for ``verify_probe`` entries and
+        runs each probe (GROUND); a failing probe → DRIFT (loud warn).
+      - Scans CLAUDE.md "Project facts" for ``<!-- verify: <cmd> -->``
+        annotations and runs each command (GROUND); failure → DRIFT.
+      - Counts facts with NO probe as UNPROBED.  UNPROBED facts are counted
+        by a shrink-only ratchet (``.factprobe-baseline.json``); a growing
+        UNPROBED count emits a WARNING.
+
+    Vocabulary: GROUND = touches physics (may say verified or DRIFT).
+    UNPROBED = counted, never silently blessed.
+    "A green light must be able to go red against physics."
+
+    Always returns True (warn-only TIER_1).  Promotion trigger: when DRIFT
+    findings become recurrent (facts that drift for >30d without remediation).
+    """
+    script = REPO / "tools" / "audit_fact_freshness.py"
+    if not script.exists():
+        return True, "audit_fact_freshness.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=60)
+
+    drift_lines = [ln for ln in out.splitlines() if ln.startswith("DRIFT:")]
+    ratchet_warnings = [ln for ln in out.splitlines() if ln.startswith("WARNING:")]
+    verified_lines = [ln for ln in out.splitlines() if ln.startswith("VERIFIED:")]
+    unprobed_lines = [ln for ln in out.splitlines() if ln.startswith("UNPROBED:")]
+
+    parts: list[str] = []
+    if verified_lines:
+        parts.append(f"{len(verified_lines)} fact(s) verified (GROUND)")
+    if unprobed_lines:
+        parts.append(f"{len(unprobed_lines)} fact(s) UNPROBED (counted, not blessed)")
+    if drift_lines:
+        parts.append(f"WARNING — {len(drift_lines)} DRIFT finding(s):")
+        parts.extend(f"    {ln[:120]}" for ln in drift_lines[:5])
+        if len(drift_lines) > 5:
+            parts.append(f"    ... and {len(drift_lines) - 5} more")
+    for w in ratchet_warnings:
+        parts.append(f"WARNING — {w[:120]}")
+
+    if not parts:
+        return True, "fact-freshness: no findings"
+    return True, "\n".join(parts)  # always True — warn-only
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1806,6 +1858,8 @@ TIER_1: list[tuple[str, object]] = [
     ("Doc-vs-reality reconciliation (warn only)", check_doc_reality),
     # ── handoff SHA freshness (S-75-C) ─────────────────────────────────────
     ("Handoff SHA freshness (warn only)", check_handoff_freshness),
+    # ── fact-store freshness (S-75-D) ─────────────────────────
+    ("Fact-store freshness / verify-probe (warn only)", check_fact_freshness),
     # ── end S-75-C ─────────────────────────────────────────────────────────
 ]
 TIER_2: list[tuple[str, object]] = [
