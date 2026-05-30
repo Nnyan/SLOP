@@ -28,3 +28,25 @@ audited after the fact.
 **Convention:** newest entries at the TOP (below the `---` divider).
 
 ---
+
+## 2026-05-30T15:33:43Z — robot_settings: push-then-restore (complete)
+
+- **Tool:** robot_settings
+- **Op:** push-then-restore (complete)
+- **Pre-SHA:** 8c22fa1
+- **Post-SHA:** 8c22fa1
+- **Result:** OK
+- **Caller:** stack
+- **Notes:** target /home/stack/code/slop main; push deny restored unconditionally in finally block
+
+
+## 2026-05-30T15:33:42Z — robot_settings: push-then-restore (start)
+
+- **Tool:** robot_settings
+- **Op:** push-then-restore (start)
+- **Pre-SHA:** 8c22fa1
+- **Post-SHA:** n/a
+- **Result:** LIFTED
+- **Caller:** stack
+- **Notes:** push deny lifted; executing git -C /home/stack/code/slop push origin main
+

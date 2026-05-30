@@ -31,6 +31,9 @@ they don't ship.
 - docs/BACKLOG.md — broader project work queue
 - docs/ACCESS-REQUESTS.md — tracked install/upgrade/allow-list requests (queue file, processed by tools/process_access_requests.py per S-59; see ROBOT.md doctrine integration)
 - docs/RULES-TO-TESTS-AUDIT.md — CLAUDE.md rules audited for testability (S-50 Stream C output, S-55 Stream B consumer)
+- docs/KNOWLEDGE-LIFECYCLE-AUDIT.md — charter for the K-L / gap-discovery audit (produced S-75 / batch-10)
+- docs/KNOWLEDGE-LIFECYCLE-AUDIT-REPORT.md — K-L audit findings: failure taxonomy, GROUND-vs-XREF keystone, two-owner reconciliation
+- docs/COVERAGE-HANDOFF-AUDIT.md — charter for the combined coverage-completeness + handoff-integrity audit (scheduled; produces batch-11)
 - docs/MANAGER-HANDOFF.md — operator-assist session continuity guide (Robot batch handoff state, doctrine pointers)
 - docs/MERGE-LOG.md — audit trail of wave-branch merges to main (entry per batch)
 - docs/WALK-BACK-LOG.md — doctrine walk-back entries (each records the orphaned need + new mechanism)
