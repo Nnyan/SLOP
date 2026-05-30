@@ -15,227 +15,200 @@ You are the operator-assist session — the single long-running Claude that:
 
 You are NOT a Robot mode orchestrator. Orchestrators are fired in SEPARATE fresh Opus sessions per the one-orchestrator-per-batch doctrine; you coordinate around them.
 
-You are NOT a wave-drafting session either; those are also separate fresh sessions when needed.
+You are NOT a wave-drafting or audit session either; those are also separate fresh sessions.
 
-## Current state (as of 2026-05-29, batch-7 LANDED)
+## Current state (as of 2026-05-30 — batch-8 LANDED; batches 9 & 10 drafted + fire-ready)
 
-- **origin/main at `8c2415c`** (batch-7 bookkeeping commit on top of the S-73 merge
-  `ff27adb` — confirm the live value with `git rev-parse origin/main`).
-- **✅ BATCH-7 (S-73-WAVE-AUTHORING-RIGOR) IS LANDED.** Merged via
-  `tools/merge_wave_to_main.py` → `ff27adb`, pushed; bookkeeping (BACKLOG flip +
-  MERGE-LOG corrections) in `8c2415c`. All 5 stream worktrees + wave/stream branches
-  pruned. Run-state archived to `.claude/run-archive/2026-05-29-batch7/`. No
-  orchestrator/drafting session running — **main-side git ops are safe.**
-  - Shipped on main: ROBOT.md per-stream Model column + rubric + complexity-gate
-    doctrine; `tools/wave_complexity.py` scorer; `tools/preflight_wave.py` harness +
-    `.claude/run/preflight/` wiring; `validate-wave-file.py --json`; first
-    `.claude/waves/_TEMPLATE.md` (11 sections).
-  - Merge review confirmed: merge-tree conflict-free (wave change-set disjoint from the
-    in-run external docs push `02769fe`); MERGE-1/2/3 decisions verified in the real diff.
-  - **Open cosmetic follow-up:** `tests/test_preflight_harness.py` tests
-    `tools/preflight_wave.py` (name mismatch) — rename in the batch-8 sweep.
-  - **Batch-7 lesson (see retro):** a subagent's Bash cwd reset to the main checkout and
-    Stream B briefly committed to main mid-run (self-corrected). Harden via `git -C
-    <worktree>` in the orchestrator preamble. Also: pin harness/tool filenames in
-    Deliverables (the unpinned-symbol gap MERGE-2 reconciled).
-- **Batch-6 FULLY LANDED** (`ebaf67c`) + all follow-ups done (both merge-tool bugs
-  FIXED `cea63cb`; scrub.py egress leak FIXED `cb58f70`; SANCTIONED-OPS-LOG cleaned).
-- **Consolidation done:** the 5 remaining candidates condensed → 3 waves + 1 direct
-  fix. The full spec is `docs/POST-BATCH6-WAVE-MAP.md` (READ IT — it's your roadmap).
+- **origin/main at `ae1f179`** (confirm live: `git rev-parse origin/main`). Tree clean;
+  **no orchestrator/drafting/audit session running — main-side git ops are safe.**
+- **✅ Batches 7 & 8 LANDED.** Batch-7 = S-73-WAVE-AUTHORING-RIGOR (`ff27adb`): the
+  `_TEMPLATE.md` + per-stream Model column + `wave_complexity.py`/`preflight_wave.py`
+  pre-flight tooling. Batch-8 = S-71-TEST-DATA-HYGIENE (`96fd6a2`): ADR-0019, the
+  `SLOP_AUDIT_LOG_PATH` redirect, the warn-only `check_test_isolation` gate, narrowed the
+  S-66-B autouse fixture, renamed the preflight test. Both swept + archived.
+- **🟢 Batch-9 = S-74-DEPLOY-HARDENING — DRAFTED, on main, FIRE-READY NOW.** Wave
+  `.claude/waves/S-74-DEPLOY-HARDENING.md` + launch prompt `.claude/waves/S-74-LAUNCH-PROMPT.md`,
+  dogfooded DISPATCH-OK. Fixes the genuinely-broken `ms-update`/`deploy.sh` path
+  (run-as-service-user, surface-don't-swallow fetch errors, reachable reset fallback,
+  build-HOME, port-var, `.env`-vs-systemd config decision, + a post-update SHA-verify
+  rider I added). **This is the next thing to fire.**
+- **🟡 Batch-10 = S-75-KNOWLEDGE-LIFECYCLE — DRAFTED, on main, fire-ready but GATED.** Wave
+  + launch prompt + `docs/KNOWLEDGE-LIFECYCLE-AUDIT-REPORT.md`, dogfooded DISPATCH-OK.
+  Builds the two-owner reality-reconciliation layer (the SLOP AI Agent emits a
+  runtime-only RealityView; a SEPARATE dev-time `check_doc_reality` reconciler owns docs)
+  + the GROUND-vs-XREF discipline + the gap-discovery ritual. **HARD-sequenced: do NOT fire
+  until S-74 has executed and landed on main** (shared `CLAUDE.md` deploy section; the
+  host-probe needs S-74's fixed update path). Its launch prompt gates on this.
+- **⏸ Batch-11 = ENFORCEMENT-LIFECYCLE (S-70+S-72) — deferred, undrafted.** Aging wave.
+  Readiness is now OWNED (re-eval 2026-07-15; see Wave queue). NOT yet ready.
+- **Session arc:** a live Rocinante deploy → surfaced real `ms-update` bugs → S-74. Then a
+  **Knowledge-Lifecycle audit** (the operator was tired of being the detector-of-last-resort
+  for stale/dropped/un-owned things) → S-75 + a doctrine strengthening (parks now require
+  measurable trigger + backstop date + owner). See `docs/KNOWLEDGE-LIFECYCLE-AUDIT.md`
+  (charter) + the report, and memories `project-knowledge-lifecycle-audit` +
+  `project-rocinante-deploy`.
 
 ## Wave queue (current)
 
-The remaining roadmap is the consolidated 3-wave plan in `docs/POST-BATCH6-WAVE-MAP.md`
-(5 raw candidates → 3 waves + 1 direct fix; condensed 2026-05-29). Sequenced:
+Roadmap: `docs/POST-BATCH6-WAVE-MAP.md` (READ IT). Live sequence:
 
-- **Batch-7 = S-73-WAVE-AUTHORING-RIGOR** — ✅ LANDED (`ff27adb`). Per-stream Model
-  column + rubric, complexity-gated automated pre-flight (`tools/wave_complexity.py` +
-  extended `validate-wave-file.py` + `tools/preflight_wave.py`), first
-  `.claude/waves/_TEMPLATE.md`. Done — no longer a queue item.
-- **Batch-8 = TEST-DATA-HYGIENE** (merge of S-71 + the batch-6 pollution root-cause) —
-  **NEXT. Draft it now using S-73's new `_TEMPLATE.md` + Model column** (S-73 has landed,
-  so the tooling is on main and dogfoodable). Core: test-data lifecycle policy, finish
-  the `write_entry`/scanner repo-relative-path fix, `check_test_isolation` gate, sweep
-  offenders (narrow the S-66-B autouse fixture). Fold in the cosmetic
-  `test_preflight_harness.py`→`preflight_wave` rename. See the brief in
-  POST-BATCH6-WAVE-MAP.md.
-- **Batch-9 = ENFORCEMENT-LIFECYCLE** (merge of S-70 + S-72) — draft/fire LATER, once
-  the ~11 warn-only gates + doctrine have accumulated run-history (aging policy needs
-  signal). Core: gate-aging policy + `audit_gate_age.py`, doctrine-relevance audit.
-  **Two low-effort parked items woven in as bundled adjacents** (2026-05-29): the
-  pre-commit file-size-ratchet hook + provenance-headers `check_provenance` gate.
+- **Batch-7 = S-73** ✅ LANDED. **Batch-8 = S-71** ✅ LANDED. Not queue items.
+- **Batch-9 = S-74-DEPLOY-HARDENING** — 🟢 fire-ready. Paste
+  `.claude/waves/S-74-LAUNCH-PROMPT.md` into a fresh Opus orchestrator. 4 streams.
+- **Batch-10 = S-75-KNOWLEDGE-LIFECYCLE** — 🟡 fire-ready, GATED on S-74 landing first.
+  Paste `.claude/waves/S-75-LAUNCH-PROMPT.md` AFTER S-74 is on main. 5 streams. After it
+  merges, apply the one-line cross-repo touchpoint (S-75 Stream B's addition to the v5
+  SessionStart hook `/home/stack/v5/docs/tools/check_push_status.sh` — v5 isn't worktree-able).
+- **Batch-11 = ENFORCEMENT-LIFECYCLE (S-70+S-72)** — ⏸ deferred/undrafted. **Readiness is
+  OWNED now** (was an un-owned vague trigger; fixed 2026-05-30): trigger = ≥30d since the
+  newest warn-only gate was added (clock NOT started — gate set still growing) + gates
+  exercised ≥2 batches + a stable fired/never-fired classification across 2 reviews;
+  **hard re-eval checkpoint 2026-07-15**; owner = Manager retro (interim) / S-75 ritual
+  (permanent). Absorbs S-75's aging-engine design + adds the 4th aging leg (probes age).
+  Two woven adjacents ride along (pre-commit ratchet hook + `check_provenance`). Spec:
+  POST-BATCH6-WAVE-MAP §"Wave 3 — Readiness".
 
-Parked (reviewed 2026-05-29 — do NOT fit batch-8/9 themes; forcing them would dilute
-coherence, the same reason we kept the batches separate): CLAUDE.md split, refresh-train
-auto-bisect, prometheus-instrumentator tracking, installer/state.py root-chown,
-`apps.py:964` register-endpoint TODO, scrub.py bare-"stack" over-redaction (cosmetic;
-direct-fix candidate), `.bak` cleanup (→ a small `robot_settings.py --prune-backups`
-direct follow-up), OPTIONAL-FILE-SIZE-REMEDIATION (re-eval 2026-08-27).
-
-**Already direct-fixed this session (not waves):** scrub.py `is_external` egress leak (`cb58f70`).
+Parked items all now carry a **2026-07-15 backstop re-eval** (strengthened park rule).
+The "Split CLAUDE.md" park's trigger has FIRED (S-55-B landed) → needs a decision at the
+checkpoint. See BACKLOG "Park backstop".
 
 ## Read order (after you finish this file)
 
-1. **Memory** — `~/.claude/projects/-home-stack-code-slop/memory/MEMORY.md` (auto-loaded; key entries: `project-robot-mode`, `feedback-no-version-pinning`, `feedback-no-fix-all-failures-rule`, `feedback-one-orchestrator-per-batch`, `feedback-robot-design-decisions`, `project-next-robot-batch-plan`, `feedback-manager-role-handoff` — the entry that points to this file).
-2. **CLAUDE.md** (auto-loaded; project-level rules including BACKLOG triage + walk-back log + ONE-orchestrator-per-batch).
-3. **`.claude/ROBOT.md`** — full Robot mode doctrine v4 with two-phase architecture, BACKLOG triage section, post-batch-4 caveats.
-4. **`.claude/AUTONOMOUS-DEFAULTS.md`** — full default register including base-commit-from-origin, snapshot/coverage worktree-artifact trap, orchestrator dispatch pattern.
-5. **`docs/BACKLOG.md`** — re-annotated state; every open item has explicit fold-in target. Review for "from batch-5 retro" section.
-6. **`docs/ACCESS-REQUESTS.md`** — install/upgrade/allow queue. Note the `[—]` entry confirming sensitive-path silencing is unsolvable in acceptEdits.
-7. **`docs/MERGE-LOG.md`** — audit trail for every merge. Newest entries at top.
-8. **`docs/WALK-BACK-LOG.md`** — meta-process artifact for doctrine rule removals.
-9. **`tools/merge_wave_to_main.py`** + **`tools/sanctioned/`** — the sanctioned merge channel + toolkit (shipped/fixed in batch-6); your primary tools for handoffs. Use instead of inline lift-restore scripts.
-10. **`docs/POST-BATCH6-WAVE-MAP.md`** — THE ROADMAP. The consolidated 3-wave plan
-    (S-73 batch-7 / Test-Data-Hygiene batch-8 / Enforcement-Lifecycle batch-9) with
-    per-wave briefs, processor-contract pins, sequencing, and the woven parked items.
-11. **memory `project-s73-wave-authoring-rigor`** — the S-73 design rationale.
-(The batch-6 wave files `.claude/waves/S-66..S-69` are landed/spent; S-73 is executing — no longer queue items.)
+1. **Memory** — `~/.claude/projects/-home-stack-code-slop/memory/MEMORY.md` (auto-loaded). Key NEW entries: `project-knowledge-lifecycle-audit`, `project-rocinante-deploy`; plus `feedback-one-orchestrator-per-batch`, `feedback-orchestrator-cwd-verification`, `feedback-prompt-and-menu-formatting`, `feedback-manager-role-handoff` (points here).
+2. **CLAUDE.md** (auto-loaded; BACKLOG triage — park rule strengthened; deploy fact corrected; one-orchestrator-per-batch).
+3. **`.claude/ROBOT.md`** — Robot mode doctrine; BACKLOG triage discipline (strengthened park rule + the known enforcement gap); subagent preamble (`git -C <worktree>` pin).
+4. **`.claude/AUTONOMOUS-DEFAULTS.md`** — default register (processor-pattern contract incl. filename-as-shared-symbol; worktree-artifact trap; dispatch pattern).
+5. **`docs/BACKLOG.md`** — every item triaged; the "Park backstop" note + the `[→ S-74]`/`[→ batch-11]`/`[→ S-75]` entries.
+6. **`docs/POST-BATCH6-WAVE-MAP.md`** — THE ROADMAP: batch-9 S-74 / batch-10 S-75 (Wave 4) / batch-11 Enforcement-Lifecycle (Wave 3, with the owned Readiness spec).
+7. **`docs/KNOWLEDGE-LIFECYCLE-AUDIT.md`** (charter) + **`docs/KNOWLEDGE-LIFECYCLE-AUDIT-REPORT.md`** (the audit's findings — the reconciliation methodology, the 8-class taxonomy, why prior audits missed these).
+8. **`.claude/waves/S-74-*` and `S-75-*`** — the two fire-ready waves + their launch prompts.
+9. **`docs/MERGE-LOG.md`** — audit trail; newest at top.
+10. **`tools/merge_wave_to_main.py`** + **`tools/sanctioned/`** — sanctioned merge channel + toolkit; your primary handoff tools.
+11. **`docs/WALK-BACK-LOG.md`** + **`docs/ACCESS-REQUESTS.md`** — doctrine-removal log; install/allow queue.
+(Batch-6/7/8 wave files are landed/spent — don't re-fire.)
 
-## Immediate next actions (picking up with batch-7 landed)
+## Immediate next actions (the queue is assembled — nothing needs drafting)
 
-Batch-7 (S-73) is LANDED, pushed, swept, and archived. Post-merge BACKLOG flip +
-MERGE-LOG corrections are done (`8c2415c`). What remains, in order:
+1. **Fire batch-9 (S-74-DEPLOY-HARDENING).** Paste `.claude/waves/S-74-LAUNCH-PROMPT.md`
+   into a fresh Opus orchestrator (one-orchestrator-per-batch). Re-confirm
+   `git rev-parse origin/main` for the base SHA at fire time. You coordinate; you don't run it.
+2. **Review + merge S-74.** On COMPLETE: merge-tree conflict-check; verify the PINNED
+   contracts (`deploy_lib.sh` interface, port-var, operator-env contract) + the rider
+   (post-update SHA-verify); `python3 tools/merge_wave_to_main.py wave/S-74-deploy-hardening`;
+   push via `/tmp/lift-push-restore.py all`; sweep (prune worktrees/branches, archive
+   run-state, flip BACKLOG `[→ S-74]`→`[x]`, correct MERGE-LOG). NOTE: S-74 can't be
+   CI-tested against a real server — verification is shellcheck + dry-run + unit tests;
+   consider a confirmation run on Rocinante (`project-rocinante-deploy` has the runbook).
+3. **Fire batch-10 (S-75) — ONLY after S-74 is on main.** Paste
+   `.claude/waves/S-75-LAUNCH-PROMPT.md`. Review + merge as above. AFTER merge, apply the
+   one-line v5-hook touchpoint (Stream B; v5 isn't worktree-able so the orchestrator/you
+   edit it directly).
+4. **Batch-11 deferred** — re-evaluate at 2026-07-15 (or when its trigger fires); it's owned.
+5. **Each batch landing:** BACKLOG re-annotation + retro + MERGE-LOG audit; and at the
+   2026-07-15 backstop, re-triage all parked items per the strengthened rule.
 
-1. **Draft batch-8 = TEST-DATA-HYGIENE** using S-73's freshly-landed `_TEMPLATE.md` +
-   Model column (now dogfoodable: run `tools/wave_complexity.py` + `validate-wave-file.py`
-   + `tools/preflight_wave.py` on the draft). Brief in `docs/POST-BATCH6-WAVE-MAP.md`.
-   Either a fresh bypassPermissions session drafts it (you supply the one-line pointer to
-   the brief) OR the Manager drafts it directly when the operator so directs; you review +
-   merge the draft branch to main before firing. Fold in the cosmetic
-   `test_preflight_harness.py`→`preflight_wave` rename.
-2. **Fire batch-8:** ONE fresh Opus orchestrator (one-orchestrator-per-batch). Confirm
-   `git rev-parse origin/main` for the base SHA at prompt-writing time. You coordinate,
-   you don't run it; then review + merge its branch via `merge_wave_to_main.py` + push.
-3. **Batch-9 = ENFORCEMENT-LIFECYCLE later** (after the warn-only gates age and accumulate
-   run-history). Same draft→review→merge. Two low-effort parked adjacents woven in
-   (pre-commit ratchet hook + `check_provenance` gate).
-4. **Each batch landing:** BACKLOG re-annotation + retro + MERGE-LOG audit (the standing ritual).
-
-**Merge mechanics reminder:** for multi-branch batches with additive conflicts, use
-the merge-worktree integration pattern (build off main in a scratch worktree, resolve
-keep-both / difflib-reconstruct, verify ms-enforce green + suite, then ONE clean
-sanctioned merge of the integration branch) — the batch-6 MERGE-LOG entry is the worked example.
-
-**Note:** the standalone batch-6 wave files (`.claude/waves/S-66..S-69`) and S-73 are
-spent/executing — don't re-fire them. New waves (batch-8/9) get drafted fresh.
+**Merge mechanics:** single-wave batches merge clean via the sanctioned tool. For
+multi-branch batches with additive conflicts, use the merge-worktree integration pattern
+(build off main in a scratch worktree, resolve keep-both, verify ms-enforce + suite, then
+ONE clean sanctioned merge) — the batch-6 MERGE-LOG entry is the worked example.
 
 ## Working patterns / discipline
 
 ### Sanctioned channel hierarchy
-- Merges to main → `tools/merge_wave_to_main.py` (S-59-D; both batch-6 bugs now fixed — runs ms-enforce branch-isolated, clean MERGE-LOG formatting)
-- Settings lift/restore + force-push + filter-branch + rm-recursive → `tools/sanctioned/` (SHIPPED in S-68: `robot_settings.py`, `force_push_tag.py`, `filter_branch_secret_scrub.py`, `rm_recursive_safe.py`, on shared `_lift_restore.py`/`_audit.py`)
-- Push to origin → still operator-manual OR `/tmp/lift-push-restore.py` (S-68 did not add a push wrapper; `robot_settings.py push-then-restore` exists but you've been using the /tmp helper)
-- Canonical wave-mode deny profile → `.claude/settings-wave-mode-profile.json` (S-68; `robot_settings.py restore` re-applies it)
+- Merges to main → `tools/merge_wave_to_main.py` (runs ms-enforce branch-isolated, appends a MERGE-LOG entry to the working tree which YOU then commit/correct — push status + notes).
+- Settings lift/restore + force-push + filter-branch + rm-recursive → `tools/sanctioned/` (`robot_settings.py`, `force_push_tag.py`, `filter_branch_secret_scrub.py`, `rm_recursive_safe.py`).
+- Push to origin → `/tmp/lift-push-restore.py all` (lifts the push deny, pushes, restores).
+- Canonical wave-mode deny profile → `.claude/settings-wave-mode-profile.json`.
 
-### Helper scripts in `/tmp/`
-- `/tmp/lift-push-restore.py` — lift git push deny → push origin main → restore
-- `/tmp/fix-detached-head.py` — FF main from a detached commit; recovery template
-- /tmp/ scripts are EPHEMERAL. Don't promote them to permanent without going through the sanctioned-tool pattern.
+### Cross-session HEAD safety (REINFORCED 2026-05-30 — bit us twice this session)
+- The hazard is the SHARED working tree `/home/stack/code/slop`. Orchestrator *subagents*
+  are isolated (worktrees), but a session's OWN cwd is the main checkout — drafting/audit
+  sessions `git switch -c docs/wave-draft-X` THERE and leave it checked out, so the NEXT
+  session's commits LEAK onto that branch. This session: the deploy-hardening drafter left
+  its branch checked out → the K-L charter commit landed on it (cherry-picked back); and
+  stale batch-7/8 `worktree-agent-*` branches/worktrees lingered (pruned).
+- **Rule:** while ANY orchestrator/drafter/audit session is using the main checkout, do NO
+  main-side git ops there — wait, or isolate yourself (`git worktree add /tmp/slop-manager
+  origin/main`). After such a session finishes, your FIRST action is `git switch main` +
+  verify branch/tree state before anything. (Fixing this — sessions in dedicated worktrees
+  — is folded into S-75's ritual scope.)
+- Verify with `git -C`/abs-paths and trust exit codes, not scrollback (memory `feedback-orchestrator-cwd-verification`).
 
-### Sensitive paths in acceptEdits (your session is acceptEdits, NOT bypassPermissions)
-- Writes to `.claude/waves/` and `.claude/run/` trigger sensitive-file prompts. **No silencing mechanism exists** (confirmed via claude-code-guide research; documented in `docs/ACCESS-REQUESTS.md` `[—]` entry).
-- Mitigation: write to those paths ONLY when necessary. Use `docs/` for things that don't need to be under `.claude/`. Use Bash heredocs (still prompts but a single prompt per file vs many for Write-tool calls).
-
-### Multi-line commit messages from `!` prefix
-- Don't. Bash eats the closing quote. Use single-line `-m` OR `git commit -F <file>` with a pre-written message file.
-
-### Cross-session HEAD safety
-- Batch-5 hit two collisions because main's working tree was shared with the orchestrator session.
-- If a Robot orchestrator is running in parallel, do NOT do main-side operations in `/home/stack/code/slop/`. Either wait or use a separate worktree (`git worktree add /tmp/slop-manager origin/main`).
-- When a wave-file drafter session is running (as opposed to an orchestrator), the same caveat applies but at lower risk — drafters don't switch branches. (None running as of this refresh.)
-
-### BACKLOG triage (enforced)
-- Every entry: `[→ S-NN-stream]` | `[park: trigger=X]` | `[x]` done | `[—]` won't fix.
-- Pure `[ ]` >14 days is a triage failure.
-- Pre-batch planning includes a BACKLOG sweep.
+### BACKLOG triage (enforced; park rule STRENGTHENED 2026-05-30)
+- Every entry: `[→ S-NN-stream]` | `[park: re-eval <DATE>]` | `[x]` | `[—]`.
+- A `[park]` now REQUIRES all three: a **measurable** trigger, a **mandatory backstop
+  re-eval DATE**, and an **owner** (Manager-retro interim / S-75 ritual permanent). A
+  vague/dateless/already-fired trigger is invalid. All current undated parks carry a
+  2026-07-15 backstop.
+- `check_backlog_stale` only catches bare `[ ]` today — it does NOT yet flag overdue/
+  dateless/fired parks (that gate is owed by S-75's ritual). Until then YOU enforce it at
+  each batch-landing + the backstop date.
+- Pure `[ ]` >14 days is a triage failure. Pre-batch planning includes a BACKLOG sweep.
 
 ### Walk-back log (enforced)
-- Any doctrine rule removal needs an entry in `docs/WALK-BACK-LOG.md` answering four questions.
-- `ms-enforce check_walkback_log` (warn-only) catches commits that remove ≥3 lines from `.claude/ROBOT.md`, `.claude/AUTONOMOUS-DEFAULTS.md`, or `CLAUDE.md` without referencing the log.
+- Any doctrine rule REMOVAL needs an entry in `docs/WALK-BACK-LOG.md` (four questions).
+  STRENGTHENINGS (like this session's park-rule tightening) are not walk-backs.
+- `ms-enforce check_walkback_log` (warn-only) catches commits removing ≥3 lines from `.claude/ROBOT.md`, `.claude/AUTONOMOUS-DEFAULTS.md`, or `CLAUDE.md` without a log reference.
 
 ### Cleanup-wave doctrine
-- "fix-all-failures" was walked back. Focused waves don't expand scope.
-- **Inverse:** dedicated cleanup waves are how pre-existing failures get drained. S-57 (TIER_2), S-58 (TestClient), S-66 (queued unmask cleanup), S-67 (queued doc/tooling hygiene) are the established pattern.
-- When BACKLOG accumulates ≥10 open items in one category, draft a cleanup wave.
+- "fix-all-failures" was walked back; focused waves don't expand scope.
+- **Inverse:** dedicated cleanup waves drain accumulated pre-existing issues (S-57/S-58/S-66/S-67 pattern). When BACKLOG accumulates ≥10 open items in one category, draft a cleanup wave.
 
-## Open meta-patterns (from the user's "extremely deep" prompt earlier)
+### Sensitive paths in acceptEdits (your session is acceptEdits, NOT bypassPermissions)
+- Writes to `.claude/waves/` and `.claude/run/` trigger sensitive-file prompts; no silencing exists (documented `[—]` in ACCESS-REQUESTS). Prefer `docs/` where possible; use Bash heredocs for new files under `.claude/`.
 
-The user asked me to identify where ad-hoc point-fixes hide structural patterns. I categorized into 7 tiers, ranked by leverage:
+### Multi-line commit messages
+- Don't build them from a `!` prefix (Bash eats the quote). Use repeated `-m` flags or `git commit -F <file>`.
 
-1. **Sanctioned-exception pattern** — every deny rule needs either a sanctioned tool OR an explicit no-exceptions rationale. `tools/merge_wave_to_main.py` is the prototype; S-68 builds out the rest.
-2. **Tool-enforced doctrine** — convert ~10 human-enforced rules (BACKLOG triage, subagent preamble, base-SHA discipline, merge-log completeness, status freshness, memory staleness) to ms-enforce gates. S-69 owns this.
-3. **Walk-back log** — landed (commit `73a8fe0` cherry-picked from `995a4c7`). Doctrine in place.
-4. **Aging policy for warn-only** — warn-only checks ignore-forever loophole. S-70 candidate.
-5. **Test data lifecycle policy** — would have prevented S-58's 52 fixes and Stream C snapshot regression. S-71 candidate.
-6. **Doctrine self-audit** — periodic relevance check on accumulated doctrine. S-72 candidate.
-7. **Wave-file schema** — convert prose convention to structured fields. Parked (high effort, unclear payoff).
+## Open meta-patterns (the structural backbone)
 
-Status (2026-05-29): 1 + 2 LANDED (S-68 sanctioned toolkit + S-69 mechanical-enforcement
-gates, batch-6 `ebaf67c`). 3 done. 5 (test-data lifecycle) → **batch-8 = TEST-DATA-HYGIENE,
-next.** 4 + 6 (aging policy + doctrine self-audit) → **batch-9 = ENFORCEMENT-LIFECYCLE,
-later.** 7 (wave-file schema) was effectively addressed by batch-7's `_TEMPLATE.md` + the
-complexity-gated validator (structured pre-flight without a hard schema rewrite).
+The user's "where do point-fixes hide structural patterns" analysis, updated 2026-05-30:
+1. Sanctioned-exception pattern — LANDED (merge tool + S-68 toolkit).
+2. Tool-enforced doctrine — LANDED (S-69 gates).
+3. Walk-back log — LANDED.
+4. Aging policy for warn-only gates → **batch-11 (deferred, owned).**
+5. Test-data lifecycle → **batch-8 S-71 ✅ LANDED.**
+6. Doctrine self-audit → **batch-11 (deferred, owned).**
+7. Wave-file schema → addressed by batch-7's `_TEMPLATE.md` + validator.
+8. **(NEW) Knowledge-lifecycle / reality-reconciliation** — the operator was the
+   detector-of-last-resort for stale/dropped/un-owned facts → **batch-10 S-75
+   (drafted/fire-ready).** Adds the 4th aging leg (probes age) and strengthened the park
+   rule. The recurring theme: truth is reliable when **derived/reconciled against physics**,
+   rots when **stored-and-trusted**; the fix is owned reconciliation, not more memory.
 
 ## Communication with the user
+- Concise; the user is direct and decisive. They tolerate long responses when the meta-thinking IS the point.
+- **Structural answers, not point-fixes.** When you catch yourself proposing a per-occurrence patch, step back and fix the class.
+- **Formatting (memory `feedback-prompt-and-menu-formatting`):** the prompt comes LAST (never alongside open decisions); menus are numbered/labeled lists, not paragraphs; concise recs without whys; ALWAYS label selectable options with a number/letter; copy-paste prompts wrapped in `====` dividers with a "Prompt for X to do Y starts here:" header.
+- They fire shell commands via the `!` prefix (it runs in their shell, bypassing your tool deny-list — useful for ssh/sudo you can't run).
+- When they say "do this" they mean it; "think about this" wants analysis first.
 
-- Concise responses preferred. The user is direct and decisive.
-- They tolerate long responses when the meta-thinking is the point (they explicitly asked for "extremely deep and hard" thinking at one point).
-- They want structural answers, not point-fixes. When you catch yourself proposing a per-occurrence patch, step back.
-- They will tell you when to wait and when to act. Don't over-assume.
-- They have been firing things via `!` prefix in this session — be careful with multi-line commit messages.
-- When they say "do this" they mean it. When they say "think about this" they want analysis first.
-- They've been on this session for many hours and are slightly impatient with avoidable rework. Be careful, get it right.
+## Helper scripts in `/tmp/` (verify with `ls /tmp/`; EPHEMERAL — not canonical)
+- `/tmp/lift-push-restore.py` — lift push-deny → push origin main → restore. KEEPER (your push path).
+- `/tmp/fix-detached-head.py` — FF main from a detached commit; recovery template.
 
-## Helper-script library in `/tmp/`
-
-Likely still present (verify with `ls /tmp/`):
-- `/tmp/lift-push-restore.py` — keeper
-- `/tmp/fix-detached-head.py` — recovery template
-- `/tmp/batch5-recovery-and-merge.py` — example of comprehensive merge handling
-- `/tmp/batch5-continue.py` — example of mid-merge recovery
-- `/tmp/cleanup-tmp.py` — periodic /tmp cruft cleanup
-
-These are NOT canonical tools. S-68 will promote the durable ones to `tools/sanctioned/`.
-
-## Open follow-up items (BACKLOG entries to remember)
-
-The batch-6 (S-66/S-67/S-68/S-69) and batch-7 (S-73) follow-up entries are all realized
-and flipped. Currently open / re-targeted:
-- `[→ batch-8]` test-data hygiene: `write_entry`/scanner repo-root-relative pollution +
-  narrow the S-66-B `_isolate_config_data_dir` autouse fixture (both core, not adjacents).
-- `[→ batch-9]` enforcement-lifecycle: gate-aging policy + `audit_gate_age.py`;
-  doctrine-relevance audit; + 2 woven adjacents (pre-commit ratchet hook, `check_provenance`).
-- Cosmetic: rename `tests/test_preflight_harness.py` → match `tools/preflight_wave.py`
-  (fold into batch-8).
-
-Your job after each batch lands: do another BACKLOG re-annotation pass.
+## Open follow-up items
+- `[→ S-74]` deploy-hardening — realized when batch-9 executes; flip `[x]` after it lands.
+- `[→ batch-11]` enforcement-lifecycle core + the 2 woven adjacents — deferred (owned, re-eval 2026-07-15).
+- `[→ S-75]` the gap-discovery ritual must monitor deferred-wave/parked triggers + flag dateless/overdue/fired parks (the automatic enforcement the park-rule strengthening still lacks).
+- **Rocinante (test server) housekeeping** (operator-side; memory `project-rocinante-deploy`): ghost-container reconciliation via Settings → System Health; optional `.env` `MS_TRUSTED_HOSTS` dedup. The `check_push_status.sh` unpulled-detection edit is uncommitted in the v5 repo (operator commits it with their docs work).
+- Parked items: all carry the 2026-07-15 backstop; the "Split CLAUDE.md" trigger has fired.
 
 ## What this session's prior Manager (me) did, and where you pick up
 
-Done this session (2026-05-29, batch-7 landing):
-1. Reviewed batch-7 (S-73) on `wave/S-73-wave-authoring-rigor`: merge-tree dry-run
-   (conflict-free vs current main), verified the 3 MERGE decisions in the real diff,
-   confirmed the keep-both ROBOT.md subsection ordering and harness-name consistency.
-   (Caught + corrected my own false alarm: the orchestrator's disjointness claim was
-   right; I'd computed `comm` against `main..wave` instead of the wave's change-set.)
-2. Merged via `tools/merge_wave_to_main.py` → `ff27adb`; pushed; corrected the
-   auto-generated MERGE-LOG entry (push status + ms-enforce field).
-3. Swept: removed stray `_TEMPLATE.md` + old `.bak`, pruned 5 stream worktrees +
-   wave/stream branches, archived run-state to `.claude/run-archive/2026-05-29-batch7/`,
-   flipped BACKLOG `[→ S-73]`→`[x]` (`8c2415c`).
-4. Refreshed this handoff to post-batch-7 state.
+Done this session (2026-05-29 → 30):
+1. **Landed batch-8 (S-71-TEST-DATA-HYGIENE)** — reviewed, merged (`96fd6a2`), swept, archived; logged the Rocinante deploy-hardening forensics into BACKLOG.
+2. **Updated the Rocinante test server live** (08bbf42 → 55aded1, a 402-commit jump across the 2026-05-28 history rewrite) — `sudo ms-update` was silently broken; recovered by hand; the forensics became S-74. Corrected the false CLAUDE.md "no git on server" fact. Runbook in memory `project-rocinante-deploy`.
+3. **Drafted + landed S-74-DEPLOY-HARDENING (batch-9)** — wave + launch prompt on main, dogfooded, with the post-update SHA-verify rider added.
+4. **Ran the Knowledge-Lifecycle audit** (fresh Opus Auditor-Manager, 5-lens read-only fan-out + blind-spot critic) → **S-75 (batch-10)** + report on main, dogfooded. Two-owner architecture, GROUND-vs-XREF keystone, gap-discovery ritual.
+5. **Strengthened doctrine** from the findings: subagent `git -C <worktree>` pin + filename-as-shared-symbol (batch-7 retro); **parks now require measurable trigger + backstop date + owner**; gave batch-11 readiness an owner + 2026-07-15 checkpoint; fixed batch-number drift (S-74=9, S-75=10, enforcement=11).
+6. Refreshed this handoff.
 
-You pick up at: **batch-7 landed; batch-8 (TEST-DATA-HYGIENE) is next and undrafted.**
-See Immediate next actions above.
-
-**User-preference memory (reaffirmed this session):** `feedback-prompt-and-menu-formatting`
-— always label selectable options with a number/letter so the user can pick by it; prompt
-comes LAST; menus not paragraphs; concise recs without whys.
+You pick up at: **batches 9 & 10 are drafted + fire-ready on main; nothing needs assembling. Fire batch-9 (S-74) next** — paste its launch prompt into a fresh Opus orchestrator, review + merge, then batch-10 (S-75) after S-74 lands. See Immediate next actions.
 
 ## Final notes
+- No orchestrator/drafting/audit session running as of this refresh — main-side git ops are safe.
+- Trust the audit trails — `docs/MERGE-LOG.md`, `docs/BACKLOG.md`, `.claude/run-archive/`, the memory dir — these are the institutional memory. But remember the lesson of this whole session: a stored claim can be stale; reconcile load-bearing facts against reality before relying on them.
+- When in doubt, ask the user — they prefer one clarification question over silent wrong action.
 
-- No orchestrator or drafting session is running as of this refresh — main-side git ops are safe.
-- Trust the audit trails. `docs/MERGE-LOG.md`, `docs/BACKLOG.md`, `.claude/run-archive/`, memory entries — these are the institutional memory.
-- When in doubt, ask the user. They prefer one clarification question over silent wrong action.
-
-Good luck. The infrastructure is solid; you're picking up at a clean state with a clear queue.
+Good luck. The infrastructure is solid; you're picking up at a clean state with two fire-ready batches and a clear queue.
