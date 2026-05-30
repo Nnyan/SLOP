@@ -49,6 +49,40 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-30 — wave/S-75-knowledge-lifecycle
+
+- **Method:** tools/merge_wave_to_main.py
+- **Operator/Caller:** stack
+- **Pre-merge main HEAD:** `4d09f1c2e82aeeb734c27f69227e6277e6efc32f`
+- **Branches merged (in order):**
+  1. `wave/S-75-knowledge-lifecycle` → merge commit `9983ceba0c9174c9b0c46d9d90b7eab4e703f5e5`
+- **Post-merge main HEAD:** `9983ceba0c9174c9b0c46d9d90b7eab4e703f5e5`
+- **Pushed to origin:** yes — pushed in the batch-10 sweep (merge commit `9983ceb` on origin/main)
+- **Pre-flight checks run:**
+  - working-tree: CLEAN
+  - branch-exists:wave/S-75-knowledge-lifecycle: OK
+  - status:wave/S-75-knowledge-lifecycle: COMPLETE (**Manager-reconstructed** — see Notes)
+  - diff:wave/S-75-knowledge-lifecycle: OK (18 diff-stat lines)
+  - ms-enforce:wave/S-75-knowledge-lifecycle: EXIT 0 (All Core Rules satisfied)
+- **Notes:** Manager review/merge of batch-10 (S-75-KNOWLEDGE-LIFECYCLE). All 5 streams merged on
+  the wave branch (A→E→B→C→D; E-before-D for the CLAUDE.md ownership split), 3 keep-both whole-block
+  merge decisions (no union-interleave; S-69 lesson honored). The orchestrator wrote a complete,
+  high-quality closing status **under the full-wave filename `S-75-KNOWLEDGE-LIFECYCLE.md` instead of
+  the conventional short `S-75.md`** — so the Manager's initial `S-75.md` lookup found nothing
+  (handoff gap: the status filename is not pinned in the convention → evidence for the
+  handoff-integrity audit's status-protocol standardization). The Manager re-verified acceptance
+  independently before merging and it matched the orchestrator's report exactly: ms-enforce EXIT 0;
+  the 3 new TIER_1 warn-only gates (`check_doc_reality`/`check_handoff_freshness`/
+  `check_fact_freshness`) registered + green, with doc-reality emitting `3 INDETERMINATE` (loud, not
+  OK) when no `--host` ground truth is present; file-size ratchet holds (`agent.py` 257/500); 66 new
+  unit tests pass; orchestrator-supplied proof-of-red confirmed per gate. **NEW:** the merge tool now runs Stream C's
+  promotion-reconciliation check, which emitted **42 warn-only "un-promoted finding" warnings** for
+  historical run-archive decisions/observations never reconciled into BACKLOG/MERGE-LOG/WALK-BACK-LOG/
+  MAP (warn-only; did not block) — logged to BACKLOG. The missing-status-protocol gap is evidence for
+  the handoff-integrity audit. v5 SessionStart-hook one-liner is uncommitted (operator-owned). Final
+  main HEAD `9983ceb`.
+
+
 ## 2026-05-30 — wave/S-74-deploy-hardening
 
 - **Method:** tools/merge_wave_to_main.py
