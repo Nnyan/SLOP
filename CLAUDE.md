@@ -91,6 +91,36 @@ reclassify it.
 
 This is an addition/strengthening, not a walk-back (no WALK-BACK-LOG entry required).
 
+## Reuse-and-blast-radius checkpoint
+
+A write-time forcing function, sibling to "No phantom owners" above. When authoring a tool /
+gate / fix whose operand is a member of a KNOWN plural set (the 3 repo rings, the file-size
+ratchet categories, the sanctioned-channel hierarchy, the BACKLOG-triage queues), OR whose home
+directory already has a sibling family (`tools/`, `tools/sanctioned/`,
+`frontend/src/composables/`):
+
+- **(a) Reuse.** Check the sibling family for an existing/adaptable solution BEFORE building new.
+  Adapting one requires all three: run its suite (regression) + a test that feeds a known-bad
+  input and asserts DRIFT/non-zero exit (proving the new path can go red — the
+  `check_handoff_freshness` pattern) + map every caller/side-effect (blast radius). The recorded
+  reuse note is *rationale* (XREF-class — it may flag INCONSISTENT, never assert "verified"); it
+  is NOT a green light.
+- **(b) Blast radius.** PARAMETERIZE THE INTERFACE over the set (a `--repo`/registry param), NOT
+  the implementation. Ship the one entity in scope; file a BACKLOG `[→]`/`[park]` (trigger +
+  backstop date + owner) for the uncovered members. Hardcoding a single entity when the set is
+  plural is a defect UNLESS the scope-reason is recorded. When the set is genuinely open at
+  write-time, the obligation is the SEAM (a registry, not a hardcode) plus a freshness signal on
+  the registry itself — you needn't know all members, but you must not foreclose them.
+
+This composes with focused-wave discipline: you generalize the SIGNATURE (cheap, in-scope), never
+pre-implement the COVERAGE (expensive, deferred). It is the general form of the frontend
+"grep before you create" rule below, which is its `.vue` instance.
+
+`[red-signal: PENDING — `tools/audit_single_entity_hardcode.py` (routed to batch-11). Interim
+enforcement = the combined Coverage+Handoff audit's single-entity-hardcode target list + Manager
+batch-landing review.]` (This is honestly stamped PENDING so it is not mistaken for green — per the
+keystone, a checklist with no red-signal is yellow.)
+
 ## Knowledge-Lifecycle & reconciliation
 
 SLOP is reliable where truth is **derived/reconciled against physical ground truth
@@ -155,6 +185,10 @@ recorded act, never silent (Enforcement-Lifecycle wave's job).
 **Before adding any function, computed, or reactive state to a view file:**
 1. `grep -n "function\|computed\|const.*=.*ref\|const.*=.*computed" frontend/src/views/<File>.vue` — check if similar logic already exists before creating a new one.
 2. If the logic exceeds ~5 lines or is reusable, create or extend `frontend/src/composables/use<Feature>.ts` instead.
+
+This grep-before-you-create step is the `.vue` INSTANCE of the general "Reuse-and-blast-radius
+checkpoint" above (its parent rule) — `frontend/src/composables/` is the sibling family you search
+first. The general rule governs all sibling families and known plural sets, not just views.
 
 **File-size limits for views are enforced globally — see the "File size limits (ratchet-enforced)" section below.** Vue views fall under the `frontend/src/views/**.vue` category (600-line hard cap).
 Existing violators (SetupView ~1711, SettingsView ~1369, ModelsView ~1182, HealthView ~752, CatalogView ~642 in SLOP) are grandfathered but should shrink over time, not grow.

@@ -78,6 +78,19 @@ orchestrator prompts, `docs/KNOWLEDGE-LIFECYCLE-AUDIT-REPORT.md`.
    generalizing mechanism + the new mechanism's own failure mode. (The `check_backlog_stale`
    → `(repo, file, syntax)` registry is the template.)
 
+Track A additionally carries two NAMED enumeration/hunt targets (each governed by the keystone —
+a target is "covered" only if its gate can go RED against physics):
+
+- **(i) Operator-owned blast-radius.** Enumerate EVERY operator-owned / manual step; each must be
+  reclassified (automated / session-owned) OR carry a red-when-stale signal — enforce the
+  CLAUDE.md "No phantom owners; no silently-trusted manual step" doctrine. A manual step with no
+  red-when-stale signal is a coverage gap of the same class as an unreconciled state tier.
+- **(ii) Single-entity-hardcoded tools/gates.** Hunt EVERY tool/gate hardcoded to one member of a
+  known plural set (the `check_backlog_stale` SLOP-only path and the push-tool lineage are seed
+  instances) — enforce the CLAUDE.md "Reuse-and-blast-radius checkpoint". Honor recorded
+  scope-reasons: a justified hardcode (e.g. `lift_push_restore.py`'s `SETTINGS_PATH`) is NOT a
+  finding.
+
 ### Track B — Handoff-Integrity (meta-pattern #10; LONGITUDINAL method)
 
 Review the **HISTORY** of handoffs (not a snapshot) to find what varied and what correlated

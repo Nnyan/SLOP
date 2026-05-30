@@ -221,6 +221,12 @@ The user's "where do point-fixes hide structural patterns" analysis, updated 202
    (drafted/fire-ready).** Adds the 4th aging leg (probes age) and strengthened the park
    rule. The recurring theme: truth is reliable when **derived/reconciled against physics**,
    rots when **stored-and-trusted**; the fix is owned reconciliation, not more memory.
+11. **(NEW) Write-time vs audit-time enforcement asymmetry** — sound principles ("fix the class",
+    "reuse before build") live only as audit-time doctrine or narrow instances, never as proactive
+    write-time forcing functions; the enforced "stay narrow" beats the merely-encouraged "blast
+    radius" by default. Resolution = the Reuse-and-blast-radius checkpoint (CLAUDE.md) + its GROUND
+    scanner (batch-11). NOTE: the meta-pattern's own resolution IS the scanner — without it, the
+    meta-pattern is itself stored-and-trusted.
 
 ## Communication with the user
 - Concise; the user is direct and decisive. They tolerate long responses when the meta-thinking IS the point.

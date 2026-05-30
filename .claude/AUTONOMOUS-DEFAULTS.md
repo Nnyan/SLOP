@@ -610,6 +610,25 @@ coverage-completeness audit (every operator-owned item reclassified or red-signa
 
 ---
 
+## Category: reuse-and-blast-radius checkpoint
+
+See CLAUDE.md § "Reuse-and-blast-radius checkpoint" for the rule.
+
+### Authoring a tool/gate in a sibling family or over a known plural set
+**Default:** Before authoring a tool/gate/fix whose home directory has a sibling family
+(`tools/`, `tools/sanctioned/`, `frontend/src/composables/`) or whose operand is a member of a
+known plural set (the 3 repo rings, file-size ratchet categories, the sanctioned-channel
+hierarchy, the BACKLOG-triage queues), SEARCH the sibling family first. If adapting an existing
+one: regression (run its suite) + a red-path test (feed a known-bad input, assert DRIFT/non-zero
+exit) + a caller/side-effect map (blast radius). Parameterize the INTERFACE over the set (a
+`--repo`/registry param), ship the one entity in scope, and file a BACKLOG `[→]`/`[park]`
+(trigger + backstop date + owner) for the uncovered members.
+**Escalate when:** the entity set is open/unknowable at write-time — then build a registry (NOT a
+hardcode) and put a freshness signal on the registry itself, so an unregistered member surfaces
+loudly rather than going silently unwatched.
+
+---
+
 ## How to add an entry
 
 When a Robot run produces a decision file marked "not covered by defaults",

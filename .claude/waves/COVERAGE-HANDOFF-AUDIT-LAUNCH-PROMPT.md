@@ -30,7 +30,16 @@ Run shape (per the charter §3-§4):
       Track A (coverage, SNAPSHOT): enumerate every KNOWN tiered/enumerable
         invariant (seed list in charter §3-A — discover more), then
         coverage-check each tier → Covered / Warn-only / Doctrine-only /
-        UNCOVERED / N/A, then a max-blast-radius fix per gap.
+        UNCOVERED / N/A, then a max-blast-radius fix per gap. Track A ALSO
+        carries two named enumeration/hunt targets (charter §3-A):
+          (i) Operator-owned blast-radius — enumerate every operator-owned /
+              manual step; each must be reclassified (automated/session-owned)
+              OR carry a red-when-stale signal (enforce "No phantom owners").
+          (ii) Single-entity-hardcoded tools/gates — hunt every tool/gate
+              hardcoded to one member of a known plural set (check_backlog_stale
+              + the push-tool lineage are seeds); enforce the "Reuse-and-blast-
+              radius checkpoint"; honor recorded scope-reasons (a justified
+              hardcode like lift_push_restore.py's SETTINGS_PATH is NOT a finding).
       Track B (handoff, LONGITUDINAL): review the HISTORY of handoffs
         (MANAGER-HANDOFF.md git history, the memory corpus's evolution, the
         .claude/waves/ launch-prompt archive, MERGE-LOG, .claude/run-archive/,
