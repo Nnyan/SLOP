@@ -1664,6 +1664,41 @@ def check_merge_worktree_pattern() -> tuple[bool, str]:
     return True, "\n".join(parts)  # always True — warn-only
 
 
+# ── handoff SHA freshness (S-75-C) ────────────────────────────────────────
+
+
+def check_handoff_freshness() -> tuple[bool, str]:
+    """Tier 1 (S-75-C): handoff SHA freshness — warn-only.
+
+    Thin wrapper: delegates to tools/check_handoff_freshness.py.
+
+    Parses the SHA declared in docs/MANAGER-HANDOFF.md for origin/main and
+    compares it to the live ``git rev-parse origin/main`` output (GROUND-class).
+
+    Verdicts:
+      verified      — declared SHA is a prefix of live SHA [GROUND: git rev-parse]
+      DRIFT         — declared SHA does NOT match live SHA (loud warn)
+      INDETERMINATE — origin unreachable or SHA line absent/unparseable (loud warn)
+
+    Always returns True (warn-only TIER_1). Graduates to blocking when two
+    consecutive batches show DRIFT without a corresponding handoff update commit.
+    """
+    tool = REPO / "tools" / "check_handoff_freshness.py"
+    if not tool.exists():
+        return True, "check_handoff_freshness.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(tool)], timeout=20)
+    out = out.strip()
+    if "INDETERMINATE" in out:
+        return True, f"WARNING (INDETERMINATE): {out}"
+    if "DRIFT" in out:
+        return True, f"WARNING (DRIFT): {out}"
+    return True, out
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1730,6 +1765,9 @@ TIER_1: list[tuple[str, object]] = [
     ("Memory staleness — dated entries >60d old (warn only)", check_memory_staleness),
     # ── Merge-worktree pattern (S-69-G) ───────────────────────────────────
     ("Merge-worktree pattern — dedicated worktrees for wave merges (warn only)", check_merge_worktree_pattern),
+    # ── handoff SHA freshness (S-75-C) ─────────────────────────────────────
+    ("Handoff SHA freshness (warn only)", check_handoff_freshness),
+    # ── end S-75-C ─────────────────────────────────────────────────────────
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
