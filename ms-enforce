@@ -1854,6 +1854,78 @@ def check_probe_aging() -> tuple[bool, str]:
     return True, "\n".join(parts)  # always True — warn-only
 
 
+# ── BATCH-11 S6 (P6 + R10) — sanctioned-channel GROUND leg + hardcode scanner ──
+
+def check_sanctioned_ground() -> tuple[bool, str]:
+    """Tier 1 (BATCH-11 S6, P6): Sanctioned-channel GROUND leg — warn-only.
+
+    The sibling gate `check_sanctioned_channels_complete` is XREF-only (deny-string
+    vs doc-table; report §4c: a deny pointing at a deleted/broken tool passes, and the
+    lift->restore cycle is never probed). This gate adds the GROUND leg: shells out to
+    tools/audit_sanctioned_ground.py, which AST-asserts that every registry-row tool in
+    docs/SANCTIONED-CHANNELS.md EXISTS + imports + calls lift/restore/audit AND has a
+    finally-guarded restore (so a crash mid-push cannot leak the deny).
+
+    AST presence != correct ordering (§4c) — the REAL proof is the per-tool crash-mid-
+    push RED-PATH test in tests/test_sanctioned_ground.py. This gate is the standing
+    structural check; it goes DRIFT against physics (the AST of the real source).
+
+    Vocabulary: GROUND (touches the filesystem + AST) — may say verified or DRIFT;
+    INDETERMINATE when the registry doc or a source cannot be parsed (no silent pass).
+
+    Always returns True (warn-only TIER_1). No auto-promotion to blocking here.
+    """
+    script = REPO / "tools" / "audit_sanctioned_ground.py"
+    if not script.exists():
+        return True, "audit_sanctioned_ground.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    drift = [ln for ln in out.splitlines() if ln.startswith("DRIFT:")]
+    indet = [ln for ln in out.splitlines() if ln.startswith("INDETERMINATE:")]
+    if drift:
+        detail = "\n".join(f"    {ln[:140]}" for ln in drift[:5])
+        return True, f"WARNING — {len(drift)} sanctioned-tool GROUND DRIFT:\n{detail}"
+    if indet:
+        return True, f"INDETERMINATE — {indet[0][:140]}"
+    return True, "sanctioned-channel GROUND: all registry-row tools verified"
+
+
+def check_single_entity_hardcode() -> tuple[bool, str]:
+    """Tier 1 (BATCH-11 S6, R10 / BACKLOG:58): single-entity-hardcode scanner — warn-only.
+
+    The GROUND red-signal for CLAUDE.md's "Reuse-and-blast-radius checkpoint" (its
+    PENDING red-signal note can now cite this shipped scanner). Shells out to
+    tools/audit_single_entity_hardcode.py, which greps tools/ + tools/sanctioned/ for a
+    SLOP-only hardcoded literal in a tool that exposes NO --repo/registry param (the
+    plural-set members foreclosed). HONORS recorded scope-reasons (suppresses justified
+    hardcodes, e.g. lift_push_restore.py SETTINGS_PATH).
+
+    Vocabulary: verified (no foreclosing hardcode) / DRIFT (unjustified SLOP-only
+    literal, no --repo) / INDETERMINATE (a source unreadable/unparseable).
+
+    Always returns True (warn-only TIER_1). No auto-promotion to blocking here.
+    """
+    script = REPO / "tools" / "audit_single_entity_hardcode.py"
+    if not script.exists():
+        return True, "audit_single_entity_hardcode.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    drift = [ln for ln in out.splitlines() if ln.startswith("DRIFT:")]
+    indet = [ln for ln in out.splitlines() if ln.startswith("INDETERMINATE:")]
+    if drift:
+        detail = "\n".join(f"    {ln[:140]}" for ln in drift[:5])
+        return True, f"WARNING — {len(drift)} single-entity hardcode(s):\n{detail}"
+    if indet:
+        return True, f"INDETERMINATE — {indet[0][:140]}"
+    return True, "single-entity-hardcode: no foreclosing SLOP-only hardcode found"
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1929,6 +2001,10 @@ TIER_1: list[tuple[str, object]] = [
     # ── end S-75-C ─────────────────────────────────────────────────────────
     # ── probe-aging / GROUND-gate brownout detector (BATCH-11 S1, P0) ──────
     ("Probe aging — GROUND-gate brownout detector (warn only)", check_probe_aging),
+    # ── sanctioned-channel GROUND leg (BATCH-11 S6, P6) ────────────────────
+    ("Sanctioned-channel GROUND — tool exists + lift/restore/audit wired (warn only)", check_sanctioned_ground),
+    # ── single-entity-hardcode scanner (BATCH-11 S6, R10 / BACKLOG:58) ─────
+    ("Single-entity hardcode — Reuse-and-blast-radius red-signal (warn only)", check_single_entity_hardcode),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
