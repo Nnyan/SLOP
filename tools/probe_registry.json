@@ -73,6 +73,15 @@
       "brownout_tokens": ["INDETERMINATE"],
       "host_configured": false,
       "note": "BATCH-11 S2: per-ring reachability of the mediastack (repo,file,syntax) triage queue (RING_REGISTRY row 'mediastack'). NO canonical queue resolved at write-time (work fragmented across docs/TODO_*.md); this probe is INDETERMINATE until a canonical queue is chosen (BACKLOG follow-up). Honest TODO-hole, NOT a silent pass — ages to DRIFT, the intended pressure to resolve it."
+    },
+    {
+      "id": "session_winddown_hook_present",
+      "physics": "filesystem read of .claude/settings.json hooks config (is the Stop hook still wired?)",
+      "cmd": "python3 -c \"import json,os; p='.claude/settings.json'; print('verified' if os.path.exists(p) and json.load(open(p)).get('hooks',{}).get('Stop') else 'DRIFT')\"",
+      "ground_tokens": ["verified", "DRIFT"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "note": "S4 (P4, report 4f): the Stop hook is config text, not a boundary — register it so a removed/disarmed Stop hook ages RED (else it is the next F7). GROUND = filesystem read; settings.json missing OR no Stop hook -> DRIFT (a GROUND verdict, not a silent pass). Wired to tools/check_session_winddown.py (the ADVISORY wind-down aggregator)."
     }
   ]
 }
