@@ -5,15 +5,16 @@ Parses docs/BACKLOG.md and flags any entry whose status token is bare `[ ]`
 (not scheduled, parked, done, or won't-fix) AND whose provenance date is
 older than 14 days from the reference date.
 
-Status tokens that are NOT flagged:
+Status tokens that are NOT flagged as bare-open:
   `[→ S-NN]`     — scheduled into a wave
   `[→ S-NN-X]`   — scheduled with stream suffix
-  `[park]`        — explicitly parked with re-eval trigger
+  `[park]`        — explicitly parked with re-eval trigger (has its own checks — see S3)
   `[parked]`      — alternate spelling of park
   `[x]`           — done
   `[—]`           — won't fix / superseded
 
-Only bare `[ ]` (possibly with trailing spaces before the closing `]`) is flagged.
+Only bare `[ ]` (possibly with trailing spaces before the closing `]`) is flagged
+by the staleness check.
 
 Provenance date detection:
   - Primary: a `Date added: YYYY-MM-DD` fragment anywhere on the same bullet line
@@ -70,6 +71,31 @@ S3 contract (DO NOT BREAK): the SLOP-ring scan signature is unchanged —
 `load_backlog(repo)` + `_parse_entries(text)` + `main()`'s `--repo`/`--today`
 flags behave exactly as before. The ring registry and `--check-rings` mode are
 ADDITIVE; S3 adds park-rule parser legs to the same per-entry path.
+
+Park-rule triad (BATCH-11 S3, P3)
+----------------------------------------------------------------------
+Three new parser legs applied to `[park]`/`[parked]` entries (warn-only, never blocking):
+
+  Leg 1 — backstop re-eval date (DRIFT — mechanical, GROUND-ish):
+    Each `[park]` entry MUST contain `re-eval YYYY-MM-DD`.
+    Missing date  -> DRIFT (closing the dateless-skip escape hatch).
+    Past date     -> DRIFT (the backstop has already fired; needs re-triage).
+
+  Leg 2 — non-vague trigger (INCONSISTENT — heuristic, lower-tier):
+    A park entry's trigger text must not match the vagueness denylist.
+    Vague trigger -> INCONSISTENT (advisory; may over/under-fire — do not hard-DRIFT).
+
+  Leg 3 — owner token (INCONSISTENT — heuristic, lower-tier):
+    A park entry should name an owner/session.
+    Missing owner -> INCONSISTENT (advisory).
+
+  Batch-ref landed check (DRIFT — mechanical):
+    Each `[→ batch-NN]` entry DRIFTs if batch-NN already appears in MERGE-LOG.
+    Cross-check: `docs/MERGE-LOG.md` — any "batch-NN" merge entry marks it landed.
+
+Hard DRIFT only on the MECHANICAL legs (missing/past date, landed batch).
+INCONSISTENT for vagueness + missing-owner (heuristics — may over/under-fire).
+All legs stay warn-only; no auto-promote.
 """
 from __future__ import annotations
 
@@ -165,6 +191,283 @@ _TRIAGED_TOKENS = re.compile(
 
 # Regex to extract a date from "Date added: YYYY-MM-DD"
 _DATE_ADDED_RE = re.compile(r"Date added:\s*(\d{4}-\d{2}-\d{2})")
+
+# ---------------------------------------------------------------------------
+# BATCH-11 S3: Park-rule triad + batch-ref landed check (P3)
+# ---------------------------------------------------------------------------
+
+# Detect a [park] / [parked] bullet line (with or without backticks).
+_PARK_LINE_RE = re.compile(
+    r"^-\s+(?:`\[park(?:ed)?\b[^\]]*\]`|\[park(?:ed)?\b[^\]]*\])"
+)
+
+# Extract the backstop re-eval date from a park entry's text.
+# Accepts multiple real-world formats found in BACKLOG.md:
+#   "re-eval 2026-07-15"                     — inline token form
+#   "re-eval: 2026-07-15"                    — colon variant
+#   "Re-eval date: **2026-08-27**"           — prose with bold markdown
+#   "**Backstop re-eval date:** 2026-08-30"  — bold label
+# Case-insensitive; the word boundary on "re-eval" stops substring matches.
+_PARK_REEVAL_DATE_RE = re.compile(
+    r"(?i)\bre-eval\b[^:0-9\n]{0,20}:?\s*\*?\*?\s*(\d{4}-\d{2}-\d{2})"
+)
+
+# Detect a [→ batch-NN] bullet line (batch-ref scheduled entry).
+# Accepts bare and backtick-wrapped forms.
+_BATCH_REF_LINE_RE = re.compile(
+    r"^-\s+(?:`\[→\s*batch-(\d+)[^\]]*\]`|\[→\s*batch-(\d+)[^\]]*\])"
+)
+
+# Vagueness denylist — triggers that are too fuzzy to be measurable.
+# INCONSISTENT (lower-tier), not DRIFT: this is a heuristic that may over/under-fire.
+# Keep the list SHORT and unambiguous — prefer false-negatives to false-positives
+# (a heuristic that cries wolf trains teams to ignore it).
+_VAGUE_TRIGGER_TERMS = [
+    "someday", "eventually", "when convenient",
+    "at some point", "tbd", "one day",
+]
+
+# Owner token heuristic: look for "owner:", "Owner:", or a @mention / role-name
+# pattern. INCONSISTENT if not found — heuristic, may over/under-fire.
+_OWNER_RE = re.compile(
+    r"(?i)\bowner\s*:|\bmanager\b|\boperator\b|@\w+|next.*session|incoming.*session"
+)
+
+# Detect a landed-batch entry in MERGE-LOG: look for patterns that indicate a batch
+# actually completed (not just "batch-NN drafts" or incidental mentions).
+# Patterns that indicate completion:
+#   "## YYYY-MM-DD — batch-N:" (header with batch-N: prefix)
+#   "## YYYY-MM-DD — batch-N " (header with batch-N followed by space, e.g. "batch-6 retro")
+#   "batch-N." (end-of-sentence in Notes — "batch-7." "batch-8." "batch-9.")
+#   "Manager review/merge of batch-N" (explicit completion phrase)
+#   "LANDED batch-N" (done annotation)
+# Exclusions: "batch-N drafts", "batch-N wave file", "batch-N prep", "batch-N retro"
+#   "docs mention of batch-N" — these are planning/reference mentions, not landing.
+_MERGE_LOG_BATCH_LANDED_RE = re.compile(
+    r"(?:"
+    r"##\s+\d{4}-\d{2}-\d{2}\s+—\s+batch-(\d+)\s*:"   # header "batch-N:"
+    r"|##\s+\d{4}-\d{2}-\d{2}\s+—\s+batch-(\d+)\s+(?!drafts|prep|retro|wave)"  # header w/ non-draft next word
+    r"|Manager\s+review/merge\s+of\s+batch-(\d+)"     # explicit completion
+    r"|LANDED\s+batch-(\d+)"                           # done annotation
+    r"|batch-(\d+)\."                                  # end-of-sentence (e.g. "batch-7.")
+    r")"
+)
+
+
+def _parse_park_entries(
+    text: str,
+) -> list[tuple[int, str]]:
+    """Return (lineno, line_text) for every `[park]`/`[parked]` bullet found
+    after the first horizontal rule separator.
+
+    Each entry's snippet includes the bullet header line and any immediately
+    following indented continuation lines (not starting with `- `) up to 8
+    lines below — to capture re-eval dates / owner info in multi-line entries
+    without bleeding into the NEXT bullet's content.
+
+    Returns a list of (1-based lineno, full_snippet) tuples.
+    """
+    lines = text.splitlines()
+    entries: list[tuple[int, str]] = []
+    past_first_sep = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if not past_first_sep:
+            if stripped == "---":
+                past_first_sep = True
+            i += 1
+            continue
+        if _PARK_LINE_RE.match(stripped):
+            # Capture header + continuation lines (stop at next bullet or blank+bullet).
+            snippet_lines = [lines[i]]
+            j = i + 1
+            while j < len(lines) and (j - i) < 9:
+                next_stripped = lines[j].strip()
+                # Stop if we hit a new bullet (next entry starts here).
+                if next_stripped.startswith("- ") or next_stripped == "---":
+                    break
+                snippet_lines.append(lines[j])
+                j += 1
+            snippet = "\n".join(snippet_lines)
+            entries.append((i + 1, snippet))
+        i += 1
+    return entries
+
+
+def _parse_batch_ref_entries(
+    text: str,
+) -> list[tuple[int, str, int]]:
+    """Return (lineno, line_text, batch_number) for every `[→ batch-NN]` bullet
+    found after the first horizontal rule separator.
+    """
+    lines = text.splitlines()
+    entries: list[tuple[int, str, int]] = []
+    past_first_sep = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not past_first_sep:
+            if stripped == "---":
+                past_first_sep = True
+            continue
+        m = _BATCH_REF_LINE_RE.match(stripped)
+        if m:
+            batch_num = int(m.group(1) or m.group(2))
+            entries.append((i + 1, line, batch_num))
+    return entries
+
+
+def _load_landed_batches(repo: Path) -> set[int]:
+    """Derive the set of batch numbers that have landed on main from MERGE-LOG.
+
+    GROUND-ish (reads the MERGE-LOG file from disk; absent file = empty set,
+    which means no batch-ref DRIFTs — conservative: better to miss a landed
+    batch than to false-DRIFT a live entry).
+
+    Uses `_MERGE_LOG_BATCH_LANDED_RE` to match only real landing signals
+    (completed merges), NOT incidental mentions like "batch-NN drafts" or
+    "batch-NN prep" which appear when a batch's wave-file lands but the batch
+    itself is still in-progress.
+    """
+    merge_log = repo / "docs" / "MERGE-LOG.md"
+    if not merge_log.exists():
+        return set()
+    text = merge_log.read_text(encoding="utf-8", errors="replace")
+    landed: set[int] = set()
+    for m in _MERGE_LOG_BATCH_LANDED_RE.finditer(text):
+        # The regex has 5 capture groups; take the first non-None one.
+        batch_str = next(g for g in m.groups() if g is not None)
+        landed.add(int(batch_str))
+    return landed
+
+
+def check_park_triad(
+    text: str,
+    today: datetime.date,
+    queue_label: str = "docs/BACKLOG.md",
+) -> list[dict]:
+    """Run the three park-rule legs against all `[park]` entries in `text`.
+
+    Returns a list of finding dicts, each with keys:
+      lineno, snippet (truncated), verdict (DRIFT | INCONSISTENT), leg, detail.
+
+    Legs:
+      1. Backstop re-eval date — DRIFT if missing or in the past.
+      2. Non-vague trigger     — INCONSISTENT if trigger matches vagueness denylist.
+      3. Owner token           — INCONSISTENT if no owner-like token found.
+
+    Called with warn-only intent; caller decides whether to print/suppress.
+    """
+    findings: list[dict] = []
+    entries = _parse_park_entries(text)
+
+    for lineno, snippet in entries:
+        short = snippet.splitlines()[0].strip()[:120]
+
+        # --- Leg 1: backstop re-eval date (DRIFT — mechanical) ---
+        m = _PARK_REEVAL_DATE_RE.search(snippet)
+        if not m:
+            findings.append({
+                "lineno": lineno,
+                "snippet": short,
+                "verdict": "DRIFT",
+                "leg": "park-date-missing",
+                "detail": (
+                    f"{queue_label}:{lineno}  DRIFT [park-date-missing]: "
+                    f"[park] entry has no parseable `re-eval YYYY-MM-DD` backstop date"
+                    f" — dateless [park] is not valid triage: {short}"
+                ),
+            })
+        else:
+            try:
+                reeval = datetime.date.fromisoformat(m.group(1))
+                if reeval < today:
+                    findings.append({
+                        "lineno": lineno,
+                        "snippet": short,
+                        "verdict": "DRIFT",
+                        "leg": "park-date-past",
+                        "detail": (
+                            f"{queue_label}:{lineno}  DRIFT [park-date-past]: "
+                            f"[park] backstop date {m.group(1)} is in the past "
+                            f"(today={today}) — needs re-triage: {short}"
+                        ),
+                    })
+            except ValueError:
+                findings.append({
+                    "lineno": lineno,
+                    "snippet": short,
+                    "verdict": "DRIFT",
+                    "leg": "park-date-invalid",
+                    "detail": (
+                        f"{queue_label}:{lineno}  DRIFT [park-date-invalid]: "
+                        f"[park] `re-eval` value {m.group(1)!r} is not a valid date: {short}"
+                    ),
+                })
+
+        # --- Leg 2: non-vague trigger (INCONSISTENT — heuristic) ---
+        snippet_lower = snippet.lower()
+        for term in _VAGUE_TRIGGER_TERMS:
+            if term in snippet_lower:
+                findings.append({
+                    "lineno": lineno,
+                    "snippet": short,
+                    "verdict": "INCONSISTENT",
+                    "leg": "park-vague-trigger",
+                    "detail": (
+                        f"{queue_label}:{lineno}  INCONSISTENT [park-vague-trigger]: "
+                        f"[park] trigger contains vague term {term!r} "
+                        f"(heuristic — may over-fire): {short}"
+                    ),
+                })
+                break  # one INCONSISTENT per entry is enough
+
+        # --- Leg 3: owner token (INCONSISTENT — heuristic) ---
+        if not _OWNER_RE.search(snippet):
+            findings.append({
+                "lineno": lineno,
+                "snippet": short,
+                "verdict": "INCONSISTENT",
+                "leg": "park-missing-owner",
+                "detail": (
+                    f"{queue_label}:{lineno}  INCONSISTENT [park-missing-owner]: "
+                    f"[park] entry has no owner token (heuristic — may over-fire): {short}"
+                ),
+            })
+
+    return findings
+
+
+def check_batch_refs(
+    text: str,
+    landed_batches: set[int],
+    queue_label: str = "docs/BACKLOG.md",
+) -> list[dict]:
+    """Check `[→ batch-NN]` entries: DRIFT if that batch already landed.
+
+    DRIFT is emitted when batch-NN appears in the landed set (derived from
+    MERGE-LOG — GROUND-ish: filesystem read of docs/MERGE-LOG.md).
+
+    Returns a list of finding dicts with keys: lineno, snippet, verdict, leg, detail.
+    """
+    findings: list[dict] = []
+    entries = _parse_batch_ref_entries(text)
+    for lineno, line_text, batch_num in entries:
+        short = line_text.strip()[:120]
+        if batch_num in landed_batches:
+            findings.append({
+                "lineno": lineno,
+                "snippet": short,
+                "verdict": "DRIFT",
+                "leg": "batch-ref-landed",
+                "detail": (
+                    f"{queue_label}:{lineno}  DRIFT [batch-ref-landed]: "
+                    f"[→ batch-{batch_num}] entry references a batch that already "
+                    f"landed per docs/MERGE-LOG.md — needs re-triage: {short}"
+                ),
+            })
+    return findings
 
 
 def load_backlog(repo: Path) -> str:
@@ -385,6 +688,7 @@ def main() -> None:
         )
         sys.exit(0)
 
+    # --- Existing stale bare [ ] check (S2 + pre-S3 behaviour unchanged) ---
     entries = _parse_entries(text)
 
     stale: list[tuple[int, str, int]] = []
@@ -404,7 +708,29 @@ def main() -> None:
             f"bare [ ] entry is {age} days old: {line_text.strip()[:120]}"
         )
 
-    # Summary to stderr.
+    # --- S3: Park-rule triad (BATCH-11 S3, P3) ---
+    # Leg 1 closes the dateless-skip escape hatch: a dateless [park] is DRIFT.
+    # Legs 2+3 are INCONSISTENT (heuristic, lower-tier).
+    # check_park_triad handles ALL [park]/[parked] entries — any that lacked a
+    # date previously skipped silently (no gate); now they surface as DRIFT.
+    park_findings = check_park_triad(text, today, queue_label="docs/BACKLOG.md")
+    for f in park_findings:
+        if f["verdict"] == "DRIFT":
+            print(f"DRIFT: {f['detail']}")
+        else:  # INCONSISTENT — lower-tier
+            print(f"INCONSISTENT: {f['detail']}", file=sys.stderr)
+
+    # --- S3: Batch-ref landed check ---
+    # [→ batch-NN] entries DRIFT when batch-NN is in MERGE-LOG (GROUND-ish).
+    landed = _load_landed_batches(repo)
+    batch_findings = check_batch_refs(text, landed, queue_label="docs/BACKLOG.md")
+    for f in batch_findings:
+        print(f"DRIFT: {f['detail']}")
+
+    # --- Summary to stderr ---
+    total_drift = len([f for f in park_findings if f["verdict"] == "DRIFT"]) + len(batch_findings)
+    total_inconsistent = len([f for f in park_findings if f["verdict"] == "INCONSISTENT"])
+
     if stale:
         print(
             f"\nSummary: {len(stale)} stale bare [ ] entry/entries "
@@ -433,6 +759,19 @@ def main() -> None:
                 "provenance — not flagged (conservative).",
                 file=sys.stderr,
             )
+
+    if total_drift or total_inconsistent:
+        print(
+            f"\nS3 park-triad + batch-ref summary (warn-only, TIER_1): "
+            f"{total_drift} DRIFT finding(s), "
+            f"{total_inconsistent} INCONSISTENT finding(s).",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "S3 park-triad + batch-ref: no findings (all [park] entries compliant).",
+            file=sys.stderr,
+        )
 
     sys.exit(0)  # always exit 0 — warn-only
 
