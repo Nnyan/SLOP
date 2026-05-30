@@ -17,7 +17,9 @@ You are NOT a Robot mode orchestrator. Orchestrators are fired in SEPARATE fresh
 
 You are NOT a wave-drafting or audit session either; those are also separate fresh sessions.
 
-## Current state (as of 2026-05-30 — S-74 + S-75 LANDED; combined audit CLOSED + report landed on main; batch-11 DRAFTED; LR-1 fixed)
+## Current state (as of 2026-05-30 — S-74/S-75 LANDED; combined audit CLOSED+landed; batch-11 DRAFTED + pre-fire REVIEWED + fire-ready (operator holding to fire); LR-1 fixed; LR-2 probe installed; agent-expansion surveyed)
+
+> **CLEAN-SLATE HANDOFF (2026-05-30):** this is a quiescent handoff — **no active orchestrator run, no in-flight subagent.** The operator is deliberately HOLDING the batch-11 fire until a clean slate, so the incoming Manager can re-confirm the batch-11 launch prompt before they fire. Your first jobs are below.
 
 **Handoff-freshness now grounded on `.handoff-sha` (LR-1 fix):** the origin/main SHA
 this handoff was refreshed against lives in the committed `.handoff-sha` file, NOT in
@@ -50,19 +52,32 @@ refresh bumps `.handoff-sha` — that is the designed nudge, not a defect. Alway
   branch `docs/audit-coverage-handoff` and merged to main with this batch. Unifying finding: the
   **"GROUND-gate brownout"** (absence-of-ground returns the same color as a match). **Two LIVE-RED on
   main:** LR-1 (`check_handoff_freshness` defeated by the `95dc0e0` prose rewrite) — **FIXED this session**
-  (grounded on `.handoff-sha`); LR-2 (`slop-reality-probe` never installed → S-75 reconciler touches zero
-  physics, rc=127) — **OWED to the operator** (install on the host + put on the deploy path; see Open
-  follow-ups). **F10** (the two-session / Manager-handoff-artifact gap — a Manager handoff must emit a
-  distinct Manager-handoff prompt, not just the working launch prompt) was MISSED by the audit's Track B
-  and caught at Manager review → folded into batch-11 S5 (BACKLOG).
-- **🟢 Batch-11 = ENFORCEMENT-LIFECYCLE — DRAFTED + fire-ready pending its pre-fire design review.** Wave
-  file `.claude/waves/BATCH-11-ENFORCEMENT-LIFECYCLE.md` (10 streams, P0/S1 aging-engine hard-first) +
-  single-orchestrator launch prompt `.claude/waves/BATCH-11-LAUNCH-PROMPT.md`. Absorbs the audit's P0–P9
-  + all `[→ batch-11]` BACKLOG items (S-70+S-72 aging core = P0/S1; `check_backlog_stale` registry;
-  `audit_single_entity_hardcode.py`; `check_independent_review` + artifact-existence leg; status-protocol
-  additions; provenance + pre-commit-hook adjacents; the 42-finding drain; F10). **OWED before the
-  operator fires it:** one independent review of the wave DESIGN (BACKLOG `[→ batch-11 — OWED before
-  firing]`, ages red under `check_backlog_stale`). Re-eval checkpoint 2026-07-15.
+  (grounded on `.handoff-sha`); LR-2 (`slop-reality-probe` never installed → rc=127) — **probe INSTALLED
+  on the host this session** (the install-dir facts now ground); TWO follow-ups remain: the host clone is
+  stale/behind origin/main (full redeploy owed, operator), and the bare-call returns the WRONG port (`:22`
+  not `:8080`) → logged to batch-11 S1 (Open follow-ups). **F10** (the two-session / Manager-handoff-
+  artifact gap — a Manager handoff must emit a distinct Manager-handoff prompt, not just the working
+  launch prompt) was MISSED by the audit's Track B, caught at Manager review → batch-11 S11.
+- **🟢 Batch-11 = ENFORCEMENT-LIFECYCLE — DRAFTED + pre-fire REVIEWED + FIRE-READY (operator holding).** Wave
+  file `.claude/waves/BATCH-11-ENFORCEMENT-LIFECYCLE.md` (**11 streams**, P0/S1 aging-engine hard-first) +
+  single-orchestrator launch prompt `.claude/waves/BATCH-11-LAUNCH-PROMPT.md`. The pre-fire independent
+  review is **DONE** (`docs/REVIEW-LOG.md`, 2026-05-30 — NEEDS-CHANGES, 3 blockers, all 11 findings folded
+  in: F10 split to its own stream S11, CLAUDE.md/ROBOT.md region-pins, F10 artifact precondition,
+  merge-worktree detach-from-batch-branch). Absorbs the audit's P0–P9 + all `[→ batch-11]` BACKLOG items.
+  **The operator is HOLDING the fire for a clean slate — your job: re-verify state, re-confirm the launch
+  prompt, present it; they fire it in a fresh session; you review + sanctioned-merge `wave/batch-11` when
+  it closes.** Re-eval checkpoint 2026-07-15.
+- **🔵 Agent self-audit / spine wave + agent-expansion roadmap — SURVEYED + decisions LOCKED (next product work).**
+  Independent divergence pass (2026-05-30) + Manager synthesis → durable survey `docs/AGENT-EXPANSION-SURVEY.md`.
+  The SLOP AI Agent has a solid liveness layer but ~0% of the **"recoverable"** half of its mandate + the
+  host substrate. **Spine** = reconcile (GROUND) → interpret (LLM=XREF/advisory) → remediate (bounded,
+  gated), reusing S-61 anonymization + S-62/63 ms-router + S-60/64 safe-autofix. Self-audit wave decisions
+  LOCKED (GROUND floor always-on; LLM review opt-in/most-private; provider-registry default on-host/own-key;
+  fail-closed sanitizer). First expansion wave = host-substrate + recoverability probe pack; the **global
+  autofix circuit-breaker** rides WITH S-64 (highest-risk gap). Two BACKLOG entries (`[→ next agent wave —
+  self-audit/spine]`, `[→ future — agent-expansion roadmap]`). **Owed before firing the spine wave:** an
+  independent review charged at the egress/sanitization + advisory-only-remediation boundary. Runtime-only
+  (two-owner firewall preserved).
 
 **NEW DOCTRINE enshrined this session (all in CLAUDE.md — READ them; each was independently reviewed):**
 - **No phantom owners; no silently-trusted manual step** — every operator-owned/deferred item resolves
@@ -120,7 +135,7 @@ CLAUDE.md" park's trigger has FIRED (S-55-B landed) → needs a decision at the 
 11. **`docs/WALK-BACK-LOG.md`** + **`docs/ACCESS-REQUESTS.md`** — doctrine-removal log; install/allow queue.
 (Batch-6/7/8/9/10 wave files are landed/spent — don't re-fire.)
 
-## Immediate next actions (audit CLOSED + landed; batch-11 DRAFTED; your first job is the batch-11 pre-fire review, then fire it)
+## Immediate next actions (clean-slate handoff; batch-11 reviewed+fire-ready+HELD; your first job is to re-confirm the batch-11 prompt so the operator can fire)
 
 **Two-session model — the operator runs the orchestrators, not you.** YOU generate + finalize each
 launch prompt and PRESENT it in a `====` block (prompt-formatting doctrine); the operator opens a FRESH
@@ -131,19 +146,23 @@ status filename isn't pinned — glob both the short AND full wave name when loo
 0. **VERIFY state first — do not trust the SHAs above.** `git rev-parse origin/main`; `git status`;
    `git worktree list` (expect only the main checkout); `ls .claude/run/status/` (empty = no active
    wave); read `docs/MERGE-LOG.md` + `docs/REVIEW-LOG.md` for what landed.
-1. **Run the batch-11 pre-fire independent review** (OWED — BACKLOG `[→ batch-11 — OWED before firing]`).
-   The wave DESIGN is High-complexity = a "significant change" → one fresh-Opus adversarial review +
-   `docs/REVIEW-LOG.md` entry (grounded on a committed record) BEFORE presenting the launch prompt. Then
-   present `.claude/waves/BATCH-11-LAUNCH-PROMPT.md` (single orchestrator, 10 streams, P0/S1 hard-first)
-   to the operator for a fresh session. The audit (CLOSED) + batch-11 drafts already landed on main.
-2. **LR-2 is OWED to the operator** — install `slop-reality-probe` on the Rocinante host and add it to
-   the automated deploy path (`deploy_lib.sh` / `DEPLOY.md`) so the S-75 reconciler touches physics again
-   (today rc=127 → 0 verified, exits 0). Until then doc-vs-reality stays INDETERMINATE. See Open
-   follow-ups + memory `project-rocinante-deploy`.
-3. **Each batch landing:** sweep (prune branches/worktrees, archive run-state to `.claude/run-archive/`,
+1. **Re-confirm + present the batch-11 launch prompt** (the pre-fire review is DONE — `docs/REVIEW-LOG.md`).
+   Read `.claude/waves/BATCH-11-LAUNCH-PROMPT.md` + `BATCH-11-ENFORCEMENT-LIFECYCLE.md` (11 streams, P0/S1
+   hard-first), sanity-check them against current main, then present the launch prompt for the operator's
+   fresh session. **The operator is holding the fire for a clean slate** — they fire when you present it.
+   When `wave/batch-11` closes: read its closing output, then sanctioned-merge via `merge_wave_to_main.py`.
+2. **Draft the agent self-audit / spine wave** from `docs/AGENT-EXPANSION-SURVEY.md` + the LOCKED decisions
+   (BACKLOG `[→ next agent wave — self-audit/spine]`). Then its **owed independent review** charged at the
+   egress/sanitization + advisory-only-remediation boundary → present. The agent-expansion roadmap (host-
+   substrate + recoverability probe pack first; global autofix circuit-breaker WITH S-64) is the multi-wave
+   follow-on (`[→ future — agent-expansion roadmap]`).
+3. **LR-2 follow-ups** — the probe is installed (install-dir facts ground), but: (a) the Rocinante host
+   clone is behind origin/main (full redeploy owed, operator; memory `project-rocinante-deploy`), and
+   (b) the bare-call wrong-port bug is logged to batch-11 S1.
+4. **Each batch landing:** sweep (prune branches/worktrees, archive run-state to `.claude/run-archive/`,
    correct the MERGE-LOG entry), BACKLOG re-annotation, retro. **At 2026-07-15:** re-triage all parked
    items per the strengthened rule (the "Split CLAUDE.md" park trigger has already FIRED).
-4. **For any significant change YOU author** (doctrine edit, new gate/sanctioned tool, irreversible
+5. **For any significant change YOU author** (doctrine edit, new gate/sanctioned tool, irreversible
    git): follow the tiered independent-review discipline and record it in `docs/REVIEW-LOG.md`. Push
    routine via `tools/sanctioned/lift_push_restore.py` (NOT the superseded `/tmp` helper).
 
