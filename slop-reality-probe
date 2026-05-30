@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""slop-reality-probe — host-side GROUND-class reality probe (S-75 Stream B).
+
+READ-ONLY. Ships in the SLOP repo so it reaches the deploy host (alongside the
+other `ms-*` host scripts at repo root). Touches PHYSICS only — the live bound
+socket, the install-dir git status + owner, and the environment sources of the
+SLOP-managed vars — and prints the PINNED RealityView JSON to stdout.
+
+PINNED RealityView schema (Stream A owns; this probe emits it VERBATIM):
+  {
+    "schema_version": 1,
+    "observed_at": <iso8601 str>,
+    "bound_port": int,             # the port the SLOP service is bound/listening on
+    "install_dir_is_git": bool,    # is the install dir a git working tree
+    "install_dir_owner": str,      # owning user of the install dir
+    "env_sources": {<VAR>: "environ"|"dotenv"|"unset"}
+  }
+
+Every field is GROUND (touches the live machine). Nothing here is text-vs-text.
+This script makes NO network calls, writes NOTHING, and never mutates state.
+
+Usage (run ON the deploy host, typically via the reconciler's ambient SSH):
+  slop-reality-probe
+  slop-reality-probe --install-dir /opt/mediastack --port 8080
+  slop-reality-probe --env-var MS_TRUSTED_HOSTS --env-var PUID
+
+Defaults match the standard SLOP install layout (see CLAUDE.md "Path layout"):
+  install dir = /opt/mediastack, env file = <install-dir>/.env.
+
+The probe never fails loudly on a missing ground source; it records the honest
+observed value (e.g. bound_port = 0 when no listening socket is found, owner =
+"" when the dir is absent) so the reconciler upstream can judge DRIFT vs the
+docs. Emitting a fabricated/green value would violate the GROUND contract.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+SCHEMA_VERSION = 1
+
+# SLOP-managed env vars whose source (environ / dotenv / unset) is ground-probed.
+# Mirrors the vars the deploy facts make load-bearing claims about.
+_DEFAULT_ENV_VARS = ("MS_TRUSTED_HOSTS", "MS_DATA_DIR", "PUID", "PGID", "TZ")
+
+
+def _now_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def _probe_bound_port(hint_port: int | None) -> int:
+    """GROUND: read /proc/net/tcp{,6} for a LISTEN-state socket.
+
+    Returns the listening port. If a --port hint is given, confirm it is in the
+    live listen set and return it when present; otherwise return the lowest
+    non-loopback-only listening port found, or 0 if none.
+
+    Reading /proc touches the live kernel socket table — this is physics, not a
+    config read.
+    """
+    listen_ports: set[int] = set()
+    # 0A == TCP_LISTEN in the /proc/net/tcp state column.
+    for proc in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(proc, "r", encoding="ascii", errors="replace") as fh:
+                next(fh, None)  # header
+                for line in fh:
+                    cols = line.split()
+                    if len(cols) < 4:
+                        continue
+                    local = cols[1]
+                    state = cols[3]
+                    if state != "0A":
+                        continue
+                    _addr, _, port_hex = local.partition(":")
+                    try:
+                        listen_ports.add(int(port_hex, 16))
+                    except ValueError:
+                        continue
+        except (OSError, StopIteration):
+            continue
+
+    if hint_port is not None and hint_port in listen_ports:
+        return hint_port
+    if hint_port is not None and not listen_ports:
+        # No socket table readable at all (e.g. sandbox) — honest unknown.
+        return 0
+    # Prefer the hint even if we could not confirm? No — only assert ground we saw.
+    # Return lowest listening port as the observed bound port, else 0.
+    return min(listen_ports) if listen_ports else 0
+
+
+def _probe_install_dir_is_git(install_dir: Path) -> bool:
+    """GROUND: `git -C <dir> rev-parse --is-inside-work-tree`."""
+    if not install_dir.exists():
+        return False
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(install_dir), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True, text=True, timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return res.returncode == 0 and res.stdout.strip() == "true"
+
+
+def _probe_install_dir_owner(install_dir: Path) -> str:
+    """GROUND: stat the inode and resolve the owning username."""
+    if not install_dir.exists():
+        return ""
+    try:
+        uid = install_dir.stat().st_uid
+    except OSError:
+        return ""
+    try:
+        import pwd
+        return pwd.getpwuid(uid).pw_name
+    except (KeyError, ImportError):
+        return str(uid)
+
+
+_ENV_LINE_RE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
+
+
+def _dotenv_vars(env_file: Path) -> set[str]:
+    """GROUND: which vars are actually present in the on-disk .env file."""
+    found: set[str] = set()
+    if not env_file.exists():
+        return found
+    try:
+        for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            m = _ENV_LINE_RE.match(line)
+            if m:
+                found.add(m.group(1))
+    except OSError:
+        return found
+    return found
+
+
+def _probe_env_sources(env_vars: tuple[str, ...], env_file: Path) -> dict[str, str]:
+    """GROUND: classify each var as 'environ' | 'dotenv' | 'unset'.
+
+    'environ' wins (the running app reads os.environ, e.g. systemd Environment=);
+    else 'dotenv' if present on disk; else 'unset'. Touches the live process env
+    and the on-disk file — both physics.
+    """
+    dotenv = _dotenv_vars(env_file)
+    sources: dict[str, str] = {}
+    for var in env_vars:
+        if var in os.environ:
+            sources[var] = "environ"
+        elif var in dotenv:
+            sources[var] = "dotenv"
+        else:
+            sources[var] = "unset"
+    return sources
+
+
+def build_reality_view(
+    install_dir: Path,
+    env_file: Path,
+    env_vars: tuple[str, ...],
+    hint_port: int | None,
+) -> dict[str, object]:
+    """Assemble the PINNED RealityView from GROUND probes only."""
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "observed_at": _now_iso(),
+        "bound_port": _probe_bound_port(hint_port),
+        "install_dir_is_git": _probe_install_dir_is_git(install_dir),
+        "install_dir_owner": _probe_install_dir_owner(install_dir),
+        "env_sources": _probe_env_sources(env_vars, env_file),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--install-dir", default="/opt/mediastack",
+        help="SLOP install dir to ground-probe (default: /opt/mediastack)",
+    )
+    parser.add_argument(
+        "--env-file", default=None,
+        help="Path to the .env file (default: <install-dir>/.env)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=None,
+        help="Expected service port; confirmed against the live listen set",
+    )
+    parser.add_argument(
+        "--env-var", action="append", default=None,
+        help="Env var to classify (repeatable). Default: SLOP-managed set.",
+    )
+    args = parser.parse_args(argv)
+
+    install_dir = Path(args.install_dir)
+    env_file = Path(args.env_file) if args.env_file else (install_dir / ".env")
+    env_vars = tuple(args.env_var) if args.env_var else _DEFAULT_ENV_VARS
+
+    view = build_reality_view(install_dir, env_file, env_vars, args.port)
+    json.dump(view, sys.stdout, sort_keys=True)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
