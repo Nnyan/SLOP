@@ -148,30 +148,30 @@ def test_both_scripts_use_same_canonical_port_when_aligned():
     assert "MS_PORT" in _read("ms-update")
 
 
-# ── Stream B unique assertions (kept at merge — S-74-MERGE-1) ────────────────
 
-def test_deploy_sh_no_new_mediastack_port_writes():
-    """MEDIASTACK_PORT must only appear as a deprecated fallback read, never written."""
-    dep = _deploy_sh_text()
-    if not dep or "deploy_lib.sh" not in dep:
-        import pytest
-        pytest.skip("deploy.sh not yet aligned (Stream B)")
-    assert "MEDIASTACK_PORT=" not in dep
+# --- Stream B unique assertions (kept at merge — S-74-MERGE-1) -----------
+
+
+def test_deploy_sh_no_mediastack_port_write():
+    if not _deploy_aligned():
+        pytest.skip("deploy.sh not yet aligned by Stream B (merge-time gate)")
+    # MEDIASTACK_PORT may be READ as a deprecated fallback but never WRITTEN.
+    assert not re.search(
+        r"^\s*MEDIASTACK_PORT\s*=(?!=)", _read("deploy.sh"), re.MULTILINE
+    ), "deploy.sh must not write MEDIASTACK_PORT (deprecated fallback is read-only)"
 
 
 def test_deploy_sh_no_bare_git_pull():
-    """deploy.sh --update must not use a bare 'git pull origin main'."""
-    dep = _deploy_sh_text()
-    if not dep or "deploy_lib.sh" not in dep:
-        import pytest
-        pytest.skip("deploy.sh not yet aligned (Stream B)")
-    assert "git pull origin main" not in dep
+    if not _deploy_aligned():
+        pytest.skip("deploy.sh not yet aligned by Stream B (merge-time gate)")
+    assert "git pull origin main" not in _read("deploy.sh"), (
+        "deploy.sh must not use bare 'git pull origin main' — use fetch + reset --hard fallback"
+    )
 
 
 def test_deploy_sh_uses_detect_service_user():
-    """deploy.sh must call detect_service_user (not hardcode REAL_USER)."""
-    dep = _deploy_sh_text()
-    if not dep or "deploy_lib.sh" not in dep:
-        import pytest
-        pytest.skip("deploy.sh not yet aligned (Stream B)")
-    assert "detect_service_user" in dep
+    if not _deploy_aligned():
+        pytest.skip("deploy.sh not yet aligned by Stream B (merge-time gate)")
+    assert "detect_service_user" in _read("deploy.sh"), (
+        "deploy.sh must call detect_service_user (not hardcode REAL_USER)"
+    )

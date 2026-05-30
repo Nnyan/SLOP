@@ -42,7 +42,7 @@ Environment:
   MS_BRANCH        upstream branch (default: main)
   MS_BUILD_HOME    writable HOME for the npm build (default: /tmp)
 
-OPERATOR-ENV (reconcile w/ Stream C @ merge):
+OPERATOR-ENV (Stream C contract — .env authoritative):
   Operator settings MS_TRUSTED_HOSTS / DOMAIN live in the install-dir .env
   (authoritative). To change them, edit "$MS_INSTALL_DIR/.env" then run
   `systemctl restart mediastack`. (The generated systemd unit carries
