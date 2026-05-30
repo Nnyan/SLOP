@@ -2,6 +2,15 @@
 
 Mechanical enforcement of CLAUDE.md rules migrated from prose to tests (S-55 Stream B).
 
+NOTE ON WHERE THESE TESTS RUN
+-------------------------------
+These invariant tests are executed by the `test.yml` GitHub Actions workflow
+(job: `pytest tests/ -q ...`), NOT by `ms-enforce`. This distinction matters:
+- `ms-enforce` runs locally as a pre-commit / CI gate on lint/schema rules.
+- This file (and the broader `tests/` suite) runs in CI via `test.yml`.
+If you need to verify these invariants locally, run:
+    python3 -m pytest tests/test_rules_migration_batch1.py -q
+
 Rules mechanized here:
   R1: _SLOP_MANAGED_VARS is a module-level frozenset in backend/api/apps.py
       containing the canonical wizard-managed vars (PUID, PGID, TZ, DOMAIN,
@@ -18,8 +27,17 @@ Rules mechanized here:
   R4: Any field returned by to_catalog_entry() is also present in the Pydantic
       CatalogEntry model in backend/api/catalog.py — FastAPI silently drops
       fields not in the response model.
-      Source: "Project facts — Catalog has two CatalogEntry definitions" section
-      of CLAUDE.md.
+      Source: "Project facts — Catalog entry shape" section of CLAUDE.md.
+      Updated (batch-11 S9): checks union over ALL manifests, not just first.
+
+  R5: _DEFAULT_STACKS in backend/api/platform.py references only valid catalog
+      app keys (every key exists as catalog/apps/<key>.yaml).
+      Source: "Project facts — Quick Stacks" section of CLAUDE.md.
+
+  R6: Catalog app web_port values are unique across all manifests, with an
+      explicit allowlist for ports that are intentionally shared (Traefik-
+      managed system ports that apps don't bind directly as host ports).
+      Source: CLAUDE.md + test.yml "Check for port conflicts" step.
 """
 from __future__ import annotations
 
@@ -229,26 +247,30 @@ class TestCatalogEntryFieldSync:
     """
 
     def test_all_to_catalog_entry_keys_present_in_pydantic_model(self):
-        """Every key returned by to_catalog_entry() must be a field in CatalogEntry."""
+        """Every key returned by to_catalog_entry() must be a field in CatalogEntry.
+
+        Checks the UNION of keys across ALL manifests (not just the first) so
+        that a manifest with an unusual field set can't slip through unnoticed.
+        Updated batch-11 S9 from first-only to union-over-all.
+        """
         from backend.api.catalog import CatalogEntry
         from backend.manifests.loader import load_all_manifests
 
         manifests = load_all_manifests()
         assert manifests, "load_all_manifests() returned empty dict — catalog not found"
 
-        # Use first manifest to get a representative to_catalog_entry() output
-        first_manifest = next(iter(manifests.values()))
-        entry_dict = first_manifest.to_catalog_entry()
-
         pydantic_fields = set(CatalogEntry.model_fields.keys())
-        entry_keys = set(entry_dict.keys())
+        # Union of all keys across every manifest's to_catalog_entry() output.
+        all_entry_keys: set[str] = set()
+        for m in manifests.values():
+            all_entry_keys |= set(m.to_catalog_entry().keys())
 
-        missing_from_pydantic = entry_keys - pydantic_fields
+        missing_from_pydantic = all_entry_keys - pydantic_fields
         assert not missing_from_pydantic, (
             f"Fields returned by to_catalog_entry() are NOT in CatalogEntry Pydantic model "
             f"and will be silently dropped by FastAPI: {missing_from_pydantic!r}. "
             "Add these fields to CatalogEntry in backend/api/catalog.py. "
-            "(CLAUDE.md: 'Catalog has two CatalogEntry definitions')"
+            "(CLAUDE.md: 'Catalog entry shape split across two artefacts')"
         )
 
     def test_pydantic_model_can_consume_entry_dict(self):
@@ -268,3 +290,125 @@ class TestCatalogEntryFieldSync:
             "CatalogEntry(**to_catalog_entry()) validation failed for manifests:\n"
             + "\n".join(f"  {e}" for e in errors[:10])
         )
+
+
+# ---------------------------------------------------------------------------
+# R5: _DEFAULT_STACKS references valid catalog app keys
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultStacksReferentialIntegrity:
+    """_DEFAULT_STACKS in backend/api/platform.py must reference only valid catalog keys.
+
+    A key in _DEFAULT_STACKS that has no corresponding YAML manifest in
+    catalog/apps/ will cause a silent install failure when the user picks that
+    stack — the missing key is skipped without feedback.
+
+    Source: CLAUDE.md "Quick Stacks — _DEFAULT_STACKS in backend/api/platform.py
+    is the single source of truth."
+    """
+
+    def test_default_stacks_keys_exist_in_catalog(self):
+        """Every app_key in every _DEFAULT_STACKS entry must exist as catalog/apps/<key>.yaml."""
+        from backend.api.platform import _DEFAULT_STACKS
+
+        catalog_dir = Path(__file__).resolve().parent.parent / "catalog" / "apps"
+        catalog_keys = {p.stem for p in catalog_dir.glob("*.yaml")}
+        assert catalog_keys, "catalog/apps/ is empty — can't validate _DEFAULT_STACKS"
+
+        missing: list[str] = []
+        for stack in _DEFAULT_STACKS:
+            stack_id = stack.get("id", "<unknown>")
+            for key in stack.get("app_keys", []):
+                if key not in catalog_keys:
+                    missing.append(f"{stack_id}: {key!r}")
+
+        assert not missing, (
+            "_DEFAULT_STACKS references catalog app keys that have no YAML manifest:\n"
+            + "\n".join(f"  {m}" for m in missing)
+            + "\nEither add the missing manifest to catalog/apps/ or remove the key "
+            "from _DEFAULT_STACKS in backend/api/platform.py."
+        )
+
+    def test_default_stacks_structure(self):
+        """Every entry in _DEFAULT_STACKS must have id, label, app_keys, ram_note, ram_gb."""
+        from backend.api.platform import _DEFAULT_STACKS
+
+        required_fields = {"id", "label", "app_keys", "ram_note", "ram_gb"}
+        errors: list[str] = []
+        for i, stack in enumerate(_DEFAULT_STACKS):
+            missing_fields = required_fields - set(stack.keys())
+            if missing_fields:
+                errors.append(
+                    f"_DEFAULT_STACKS[{i}] (id={stack.get('id', '?')!r}) "
+                    f"missing fields: {missing_fields!r}"
+                )
+            if not isinstance(stack.get("app_keys", None), list):
+                errors.append(
+                    f"_DEFAULT_STACKS[{i}] (id={stack.get('id', '?')!r}) "
+                    "app_keys must be a list"
+                )
+
+        assert not errors, (
+            "_DEFAULT_STACKS entries have structural problems:\n"
+            + "\n".join(f"  {e}" for e in errors)
+        )
+
+
+# ---------------------------------------------------------------------------
+# R6: Catalog host-port uniqueness (with intended-collision allowlist)
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogHostPortUniqueness:
+    """Catalog app web_port values must be unique across all manifests.
+
+    Ports on the SYSTEM_PORTS allowlist are intentionally shared — they are
+    Traefik-managed ports (80, 443, 8080, 8081) that apps don't bind directly
+    as host ports; Traefik owns those ports and proxies to the app containers.
+
+    This test mirrors the 'Check for port conflicts' step in .github/workflows/test.yml
+    but lives here so it is also run locally via pytest and its failure message is
+    richer. The test.yml step and this test should agree.
+
+    Allowlist rationale (batch-11 S9 — built from reality, not invented):
+      - 80:   HTTP — owned by Traefik; filebrowser/freshrss/ntfy/speedtest_tracker/
+               vaultwarden all default to internal :80 but Traefik proxies them.
+      - 443:  HTTPS — Traefik terminates TLS.
+      - 8080: Traefik HTTP entrypoint — Traefik proxies; multiple apps default to
+               :8080 internally (bentopdf, dozzle, glance, localai, open_webui,
+               scrutiny, stirling_pdf) but are reached via Traefik subdomains.
+      - 8081: Traefik alt-HTTP / metrics entrypoint — same pattern.
+    """
+
+    # Ports that are intentionally shared across apps because Traefik owns them.
+    # Apps on these ports do NOT bind host ports directly — Traefik proxies.
+    SYSTEM_PORTS: frozenset[int] = frozenset({80, 443, 8080, 8081})
+
+    def test_non_system_ports_are_unique(self):
+        """web_port values outside SYSTEM_PORTS must be unique across all catalog apps."""
+        from backend.manifests.loader import load_all_manifests
+
+        manifests = load_all_manifests()
+        assert manifests, "load_all_manifests() returned empty dict — catalog not found"
+
+        port_map: dict[int, list[str]] = {}
+        for key, m in manifests.items():
+            if m.web_port is not None and m.web_port not in self.SYSTEM_PORTS:
+                port_map.setdefault(m.web_port, []).append(key)
+
+        conflicts = {p: keys for p, keys in port_map.items() if len(keys) > 1}
+        assert not conflicts, (
+            "Catalog app web_port collisions found (outside the Traefik system-port "
+            "allowlist {80, 443, 8080, 8081}):\n"
+            + "\n".join(
+                f"  port {p}: {', '.join(sorted(keys))}"
+                for p, keys in sorted(conflicts.items())
+            )
+            + "\nEither assign unique ports or add the port to SYSTEM_PORTS if it is "
+            "a Traefik-managed entrypoint that apps don't bind directly."
+        )
+
+    def test_system_ports_allowlist_is_not_empty(self):
+        """SYSTEM_PORTS allowlist must be non-empty (a fully-empty allowlist is suspicious)."""
+        assert self.SYSTEM_PORTS, "SYSTEM_PORTS allowlist is empty — this is likely a bug"

@@ -45,6 +45,12 @@ from pathlib import Path
 
 SCHEMA_VERSION = 1
 
+# The SLOP service's expected bound port (standard install — CLAUDE.md "Path
+# layout"). Used as the default target when no --port hint is given so the probe
+# grounds against SLOP's port, NOT the lowest LISTEN socket (which on a real host
+# is sshd :22 — the LR-2 "GROUND probe touching the WRONG physics" defect).
+_DEFAULT_SLOP_PORT = 8080
+
 # SLOP-managed env vars whose source (environ / dotenv / unset) is ground-probed.
 # Mirrors the vars the deploy facts make load-bearing claims about.
 _DEFAULT_ENV_VARS = ("MS_TRUSTED_HOSTS", "MS_DATA_DIR", "PUID", "PGID", "TZ")
@@ -55,11 +61,20 @@ def _now_iso() -> str:
 
 
 def _probe_bound_port(hint_port: int | None) -> int:
-    """GROUND: read /proc/net/tcp{,6} for a LISTEN-state socket.
+    """GROUND: read /proc/net/tcp{,6} for the SLOP service's LISTEN-state socket.
 
-    Returns the listening port. If a --port hint is given, confirm it is in the
-    live listen set and return it when present; otherwise return the lowest
-    non-loopback-only listening port found, or 0 if none.
+    We are probing for SLOP's bound port specifically, NOT "any listening port".
+    Resolution order:
+      1. If a --port hint is given, confirm it is in the live listen set and
+         return it when present (the strongest GROUND assertion).
+      2. Otherwise check whether the default SLOP port (8080) is in the live
+         listen set and return it when present.
+      3. Otherwise return 0 (honest "SLOP's port is not listening here").
+
+    We deliberately do NOT fall back to ``min(listen_ports)`` — on a real host
+    that returns sshd's :22 (the lowest LISTEN socket), which is a GROUND probe
+    asserting the WRONG physics (LR-2 defect). "Lowest listening port" is not
+    "SLOP's port"; emitting it would be a fabricated-target pass.
 
     Reading /proc touches the live kernel socket table — this is physics, not a
     config read.
@@ -86,14 +101,14 @@ def _probe_bound_port(hint_port: int | None) -> int:
         except (OSError, StopIteration):
             continue
 
-    if hint_port is not None and hint_port in listen_ports:
-        return hint_port
-    if hint_port is not None and not listen_ports:
-        # No socket table readable at all (e.g. sandbox) — honest unknown.
-        return 0
-    # Prefer the hint even if we could not confirm? No — only assert ground we saw.
-    # Return lowest listening port as the observed bound port, else 0.
-    return min(listen_ports) if listen_ports else 0
+    # Resolve which port counts as "SLOP's port": the explicit hint, else 8080.
+    target = hint_port if hint_port is not None else _DEFAULT_SLOP_PORT
+    if target in listen_ports:
+        return target
+    # SLOP's target port is not in the live listen set (or the table was
+    # unreadable). Honest unknown — we do NOT substitute some other listening
+    # port (e.g. sshd :22). The reconciler upstream reads 0 as "not bound here".
+    return 0
 
 
 def _probe_install_dir_is_git(install_dir: Path) -> bool:
@@ -193,7 +208,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--port", type=int, default=None,
-        help="Expected service port; confirmed against the live listen set",
+        help="Expected SLOP service port; confirmed against the live listen "
+             "set (default target: 8080 — NOT the lowest listening socket)",
     )
     parser.add_argument(
         "--env-var", action="append", default=None,

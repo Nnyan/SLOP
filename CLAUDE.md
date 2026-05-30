@@ -61,6 +61,44 @@ This rule was lost briefly between Round 2 and the planned next batch (one
 orchestrator-per-wave prompts were drafted by mistake). The pattern is
 documented here so future sessions generating prompts do not deviate.
 
+## Two-session Manager handoff — BOTH artifacts, with a back-reference
+
+A Manager→Manager (two-session) handoff is **stored-and-trusted** knowledge — the
+rot-prone class (Knowledge-Lifecycle keystone). To keep it GROUND-able instead of
+prose-only, a Manager handoff MUST emit **two on-disk artifacts**, and the gate
+discriminates them by a committed back-reference token (NOT by liveness or prose):
+
+- **Artifact A — the Manager-handoff prompt** (canonical filename
+  `.claude/waves/<BATCH>-MANAGER-HANDOFF-PROMPT.md`): the durable state-+-pointers
+  prompt the *next Manager session* reads first (derived-not-asserted state — SHA
+  paired with `git rev-parse origin/main`; pointers to MERGE-LOG / REVIEW-LOG /
+  `run/status/`; a step-0 VERIFY gate; the named closing-output as the payload).
+  This is the canonical handoff record.
+- **Artifact B — any working launch prompt** (`.claude/waves/<NAME>-LAUNCH-PROMPT.md`):
+  the operational paste-block that fires an orchestrator or a worker session. B is
+  *not* a substitute for A. **B MUST carry a back-reference token** pointing at its
+  Manager-handoff prompt, on its own line:
+
+  ```
+  <!-- manager-handoff-prompt: .claude/waves/<BATCH>-MANAGER-HANDOFF-PROMPT.md -->
+  ```
+
+**Emitting B in place of A is malformed by construction** — a launch prompt whose
+back-reference token resolves to NO existing Manager-handoff-prompt file is a
+dangling handoff (the prose-only F-class defect: state with no durable, named,
+GROUND-able record behind it). The token is the **discriminator**: a deliberately
+combined handoff that DOES ship A alongside B (B back-referencing a real A) is
+well-formed and passes.
+
+**Red-signal:** `ms-enforce check_manager_handoff_artifacts` (TIER_1 warn-only) —
+GROUND on the filesystem: it finds the newest handoff prompt; if that is a working
+`*-LAUNCH-PROMPT.md` whose back-reference token resolves to no existing
+Manager-handoff-prompt file → **DRIFT**. A `*-LAUNCH-PROMPT.md` carrying no token at
+all is INCONSISTENT (a B that never declared its A), not a silent pass. This is an
+addition/strengthening, not a walk-back (no WALK-BACK-LOG entry required). Reference:
+`.claude/ROBOT.md` § "Two-session Manager→Manager handoff artifacts (§3.3)" and
+`docs/COVERAGE-HANDOFF-AUDIT-REPORT.md` §3.1–§3.3.
+
 ## No phantom owners; no silently-trusted manual step
 
 Deferring work to "later, when someone does the related thing" is **not** assigning an
@@ -257,7 +295,7 @@ Steps in `operation_steps` DB table. `clear_op_steps()` runs before each new ins
 | `/var/lib/mediastack/` | Runtime data, DB, compose fragments (MS_DATA_DIR) |
 | `/var/lib/mediastack/compose/` | Per-app docker-compose fragments |
 | `/opt/mediastack/.env` | Secrets + config (env_file) |
-| `config.config_root` | User app config dirs (set by wizard, stored in platform DB) |
+| `config.config_root` | User app config dirs (set by wizard, stored in platform DB; default `/srv/mediastack/config` — see `DEFAULT_CONFIG_ROOT` in `backend/core/state.py`) |
 
 ## Apply scripts / SSH
 
@@ -285,7 +323,9 @@ Stable architectural truths. Moved here from HANDOFF.md on 2026-05-24 (S2a split
 |------|---------|
 | `/opt/mediastack/` | Code + venv (install_dir) |
 | `/var/lib/mediastack/` | Runtime data, DB, compose fragments (MS_DATA_DIR via systemd) |
-| `/srv/mediastack/config` | User app config dirs (set via wizard, stored in platform DB + .env) |
+| `/srv/mediastack/config` | User app config dirs (set via wizard, stored in platform DB + .env) — default value; wizard-editable |
+
+The `/srv/mediastack/config` path is the schema default (see `backend/core/schema.sql` platform.config_root DEFAULT). The SoT constant is `DEFAULT_CONFIG_ROOT` in `backend/core/state.py`. The "Path layout" table above uses `config.config_root` to denote the runtime value, which may differ from the default if the wizard was configured otherwise.
 
 **Vue view files — NO business logic.** See above. Rule-007 gates new files at 600 lines.
 
@@ -300,8 +340,12 @@ from `.env` (which the app reads only via Starlette `Config`, never into `os.env
 described an older layout and was false — verified on the Rocinante test server. Known
 `ms-update`/ownership/port bugs tracked in `docs/BACKLOG.md` §"From Rocinante deploy session".)
 
-**Catalog has two `CatalogEntry` definitions** — `loader.py` dataclass AND `catalog.py` Pydantic
-response model. Field sync is enforced by tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync (S-55-B). <!-- verify: grep -q "class CatalogEntry" backend/api/catalog.py && echo OK -->
+**Catalog entry shape is split across two artefacts** — the `AppManifest` dataclass in
+`loader.py` (which owns `to_catalog_entry()`) AND the `CatalogEntry` Pydantic response
+model in `catalog.py`. There is no `CatalogEntry` class in `loader.py`; the loader's
+class is `AppManifest`. Field sync (every key returned by `to_catalog_entry()` must be a
+field in `CatalogEntry`) is enforced by
+tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync (S-55-B). <!-- verify: grep -q "class CatalogEntry" backend/api/catalog.py && echo OK -->
 
 **Custom install flow (two steps)**:
 1. `POST /api/v1/apps/install-custom` → registers manifest in `catalog/community/` — returns `{key}`.

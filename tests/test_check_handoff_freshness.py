@@ -1,12 +1,21 @@
-"""Tests for tools/check_handoff_freshness.py (S-75 Stream C).
+"""Tests for tools/check_handoff_freshness.py (S-75 Stream C; LR-1 grounded
+rewrite + batch-11 S5 .handoff-sha auto-stamp contract).
 
 All tests use tmp_path only — no live repo reads.
+
+The LR-1 fix moved the freshness SHA from a deletable prose bullet in
+docs/MANAGER-HANDOFF.md to a committed machine artifact `.handoff-sha`, and made
+ABSENCE of that artifact a DRIFT (a defect to fix), NOT INDETERMINATE. The test
+helper below writes `.handoff-sha` to reflect that contract (it previously wrote
+the old prose format and never created `.handoff-sha`, so the suite DRIFTed
+against the fixed gate — fixed here, batch-11 S5).
+
 Covers:
-  - SHA match        → verdict "verified" [GROUND: git rev-parse]
-  - SHA mismatch     → verdict "DRIFT" (warn, still returns True)
-  - unreachable origin → INDETERMINATE (warn, still returns True)
-  - absent SHA line  → INDETERMINATE (warn, still returns True)
-  - missing handoff file → INDETERMINATE (warn, still returns True)
+  - SHA match            → verdict "verified" [GROUND: git rev-parse]
+  - SHA mismatch         → verdict "DRIFT" (warn, still returns True)
+  - unreachable origin   → INDETERMINATE (the only genuine one)
+  - absent .handoff-sha  → DRIFT (defect — artifact must exist), NOT INDETERMINATE
+  - malformed .handoff-sha → DRIFT
 
 Promotion-reconciliation tests:
   - finding referenced in tracked doc → no warning
@@ -56,23 +65,21 @@ REAL_SHORT = "a1b2c3d"
 
 
 def _make_handoff(tmp_path: Path, declared_sha: str | None = REAL_SHORT) -> Path:
-    """Write a minimal MANAGER-HANDOFF.md with the given declared SHA (or no SHA line if None)."""
-    docs_dir = tmp_path / "docs"
-    docs_dir.mkdir(parents=True, exist_ok=True)
-    handoff = docs_dir / "MANAGER-HANDOFF.md"
+    """Write the committed `.handoff-sha` artifact the LR-1-fixed gate reads.
+
+    declared_sha=None means "do NOT create the artifact" — which the grounded gate
+    treats as DRIFT (a defect), not INDETERMINATE. Returns the .handoff-sha path
+    (the file may not exist when declared_sha is None).
+    """
+    sha_path = tmp_path / ".handoff-sha"
     if declared_sha is not None:
-        content = (
-            "# SLOP Manager Session — Handoff\n\n"
-            f"- **origin/main at `{declared_sha}`** — CONFIRM LIVE "
-            "(`git rev-parse origin/main`); do NOT trust this number.\n"
+        # First whitespace token is the SHA; a trailing comment is tolerated.
+        sha_path.write_text(
+            f"{declared_sha}\n"
+            "# origin/main SHA the current handoff was refreshed against.\n",
+            encoding="utf-8",
         )
-    else:
-        content = (
-            "# SLOP Manager Session — Handoff\n\n"
-            "Some content without any SHA declaration.\n"
-        )
-    handoff.write_text(content, encoding="utf-8")
-    return handoff
+    return sha_path
 
 
 # ── handoff freshness tests ───────────────────────────────────────────────────
@@ -111,22 +118,28 @@ class TestHandoffFreshness:
         # Must never say 'verified' on unreachable origin
         assert "verified" not in msg.lower() or "INDETERMINATE" in msg
 
-    def test_absent_sha_line_indeterminate(self, tmp_path):
-        """Handoff file present but no SHA line → INDETERMINATE."""
-        _make_handoff(tmp_path, declared_sha=None)  # no SHA line
-        with patch.object(chf, "_get_live_sha", return_value=REAL_SHA):
-            ok, msg = chf.check(repo_root=tmp_path)
-        assert ok is True
-        assert "INDETERMINATE" in msg
+    def test_absent_handoff_sha_artifact_drift(self, tmp_path):
+        """No .handoff-sha artifact at all → DRIFT (defect), NOT INDETERMINATE.
 
-    def test_missing_handoff_file_indeterminate(self, tmp_path):
-        """Missing handoff file → INDETERMINATE."""
-        # Don't create any handoff file
+        This is the LR-1 brownout closure: a missing machine artifact is a defect
+        that must go red, never silently downgrade to "not red".
+        """
+        _make_handoff(tmp_path, declared_sha=None)  # creates nothing
+        with patch.object(chf, "_get_live_sha", return_value=REAL_SHA):
+            ok, msg = chf.check(repo_root=tmp_path)
+        assert ok is True, "warn-only gate must always return True"
+        assert "DRIFT" in msg
+        assert "INDETERMINATE" not in msg
+        assert "verified" not in msg
+
+    def test_malformed_handoff_sha_drift(self, tmp_path):
+        """.handoff-sha present but not a SHA token → DRIFT, NOT INDETERMINATE."""
+        (tmp_path / ".handoff-sha").write_text("not-a-sha-value\n", encoding="utf-8")
         with patch.object(chf, "_get_live_sha", return_value=REAL_SHA):
             ok, msg = chf.check(repo_root=tmp_path)
         assert ok is True
-        assert "INDETERMINATE" in msg
-        # Never a silent OK
+        assert "DRIFT" in msg
+        assert "INDETERMINATE" not in msg
         assert "verified" not in msg
 
     def test_verdict_names_ground_truth(self, tmp_path):
@@ -136,19 +149,18 @@ class TestHandoffFreshness:
             _, msg = chf.check(repo_root=tmp_path)
         assert "GROUND: git rev-parse" in msg
 
-    def test_parse_declared_sha_real_format(self, tmp_path):
-        """Parser handles the exact format from the real MANAGER-HANDOFF.md."""
-        docs = tmp_path / "docs"
-        docs.mkdir()
-        handoff = docs / "MANAGER-HANDOFF.md"
-        handoff.write_text(
-            "## Current state\n\n"
-            "- **origin/main at `e3a0eef`** — CONFIRM LIVE (`git rev-parse origin/main`);"
-            " do NOT trust this number, it goes stale.\n",
+    def test_read_declared_sha_from_artifact(self, tmp_path):
+        """Reader returns the first whitespace token of .handoff-sha (comment tolerated)."""
+        (tmp_path / ".handoff-sha").write_text(
+            "e3a0eef  # origin/main at last handoff refresh\n",
             encoding="utf-8",
         )
-        declared = chf._parse_declared_sha(handoff)
+        declared = chf._read_declared_sha(tmp_path)
         assert declared == "e3a0eef"
+
+    def test_read_declared_sha_absent_is_none(self, tmp_path):
+        """No artifact → reader returns None (the gate turns this into DRIFT)."""
+        assert chf._read_declared_sha(tmp_path) is None
 
 
 # ── promotion-reconciliation tests ────────────────────────────────────────────

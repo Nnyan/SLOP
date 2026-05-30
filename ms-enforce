@@ -1204,6 +1204,13 @@ def check_walkback_log() -> tuple[bool, str]:
     Warn-only: returns (True, summary). Graduates to fail when the aging-policy
     mechanism (planned S-70) ships and explicitly escalates this check.
 
+    GROUND leg (BATCH-11 S7, P7): a message token alone is gameable, so the
+    check also reads HEAD's numstat for docs/WALK-BACK-LOG.md — a doctrine
+    removal must have actually ADDED a non-empty entry to the walk-back log
+    (numstat ``added > 0``), not merely name-dropped it in the message. Message
+    token present but NO committed WALK-BACK-LOG addition → DRIFT (the cited
+    artifact is missing). [GROUND: git numstat — touches what really landed.]
+
     Rationale: every doctrine rule encodes a NEED; removing the rule without
     addressing the underlying need leaves the need orphaned. The walk-back log
     captures the meta-thinking (what was the rule preventing; new mechanism;
@@ -1214,6 +1221,7 @@ def check_walkback_log() -> tuple[bool, str]:
         ".claude/AUTONOMOUS-DEFAULTS.md",
         "CLAUDE.md",
     }
+    walkback_path = "docs/WALK-BACK-LOG.md"
     # Get HEAD commit message + files-changed numstat in one git call.
     rc, msg = _run(["git", "log", "-1", "--format=%B"], timeout=5)
     if rc != 0:
@@ -1225,6 +1233,7 @@ def check_walkback_log() -> tuple[bool, str]:
         return True, "git numstat unavailable (skip)"
 
     flagged: list[tuple[str, int]] = []
+    walkback_added = 0  # GROUND: lines added to docs/WALK-BACK-LOG.md on HEAD
     for line in numstat.splitlines():
         line = line.strip()
         if not line:
@@ -1233,6 +1242,12 @@ def check_walkback_log() -> tuple[bool, str]:
         if len(parts) != 3:
             continue
         added_s, deleted_s, path = parts
+        if path == walkback_path:
+            try:
+                walkback_added = int(added_s)
+            except ValueError:
+                walkback_added = 0
+            continue
         if path not in doctrine_files:
             continue
         try:
@@ -1246,8 +1261,24 @@ def check_walkback_log() -> tuple[bool, str]:
         return True, "no substantive doctrine removals on HEAD (no walk-back log reference required)"
 
     msg_lower = commit_msg.lower()
-    if "walk-back-log" in msg_lower or "walk_back_log" in msg_lower or "walkback" in msg_lower:
-        return True, f"doctrine removals on HEAD reference walk-back log ({len(flagged)} file(s))"
+    cites_walkback = (
+        "walk-back-log" in msg_lower or "walk_back_log" in msg_lower or "walkback" in msg_lower
+    )
+    if cites_walkback and walkback_added > 0:
+        return True, (
+            f"doctrine removals on HEAD reference walk-back log and added "
+            f"+{walkback_added} line(s) to {walkback_path} "
+            f"({len(flagged)} file(s)) [GROUND: numstat]"
+        )
+    if cites_walkback and walkback_added == 0:
+        # Message claims a walk-back but NO committed entry landed → DRIFT.
+        gd = "".join(f"    {p}: -{d} lines\n" for p, d in flagged)
+        return True, (
+            f"WARNING (DRIFT): HEAD cites the walk-back log but added NO content "
+            f"to {walkback_path} — the cited entry is missing. A message token is "
+            f"not the artifact; add a dated WALK-BACK-LOG entry.\n{gd}"
+            f"    [GROUND: numstat shows +0 to {walkback_path}]"
+        )
 
     summary = (
         f"WARNING: HEAD removes >=3 lines from doctrine file(s) without referencing "
@@ -1261,6 +1292,121 @@ def check_walkback_log() -> tuple[bool, str]:
         "of the new mechanism. See docs/WALK-BACK-LOG.md for format."
     )
     return True, summary  # warn-only: True means pass
+
+
+# ── BATCH-11 S11 (F10): two-session Manager-handoff-artifact contract ──────────
+#
+# Canonical artifact convention (CLAUDE.md § "Two-session Manager handoff";
+# .claude/ROBOT.md § "Two-session Manager→Manager handoff artifacts (§3.3)"):
+#   Artifact A — Manager-handoff prompt : .claude/waves/<BATCH>-MANAGER-HANDOFF-PROMPT.md
+#   Artifact B — working launch prompt  : .claude/waves/<NAME>-LAUNCH-PROMPT.md
+#   Back-reference token (carried by B, its own line):
+#       <!-- manager-handoff-prompt: <path-to-A> -->
+#
+# NOTE (BATCH-11 merge-time): this gate's existence check is implemented as a
+# direct filesystem check (S7's artifact-existence helper is not yet on the
+# wave/batch-11 base at S11 author-time).  When S7 merges, REFACTOR the
+# `_mh_artifact_exists` body to call S7's shared helper (e.g.
+# `cited_record_exists()` / `artifact_exists()`) so there is one
+# artifact-existence GROUND implementation.
+
+# Back-reference token regex: `<!-- manager-handoff-prompt: <path> -->`
+_MH_BACKREF_RE = re.compile(
+    r"<!--\s*manager-handoff-prompt:\s*(?P<path>\S+?)\s*-->"
+)
+_MH_WAVES_DIR = REPO / ".claude" / "waves"
+
+
+def _mh_artifact_exists(rel_or_abs: str) -> bool:
+    """GROUND leg: does the cited Manager-handoff-prompt artifact exist on disk?
+
+    Resolves the back-reference path relative to REPO (the repo root) when not
+    absolute.  Touches the filesystem — may assert verified/DRIFT.
+
+    BATCH-11 merge-time refactor target: replace this body with S7's shared
+    artifact-existence helper once S7 lands on the batch branch.
+    """
+    p = Path(rel_or_abs)
+    if not p.is_absolute():
+        p = REPO / rel_or_abs
+    return p.is_file()
+
+
+def check_manager_handoff_artifacts() -> tuple[bool, str]:
+    """Tier 1 (BATCH-11 S11, F10): two-session Manager-handoff-artifact contract.
+
+    A Manager→Manager handoff MUST emit BOTH artifact A (the Manager-handoff
+    prompt, canonical filename `<BATCH>-MANAGER-HANDOFF-PROMPT.md`) and artifact B
+    (any working `*-LAUNCH-PROMPT.md`), with B back-referencing A via a committed
+    token:  `<!-- manager-handoff-prompt: <path-to-A> -->`.  Emitting B in place
+    of A is malformed by construction.
+
+    GROUND on the filesystem (vocabulary: GROUND = touches physics — here, the
+    `.claude/waves/` directory and the cited artifact path; MAY assert verified or
+    DRIFT).  The newest handoff prompt is found by mtime; if it is a working
+    `*-LAUNCH-PROMPT.md` whose back-reference token resolves to NO existing
+    Manager-handoff-prompt file → DRIFT.  The token is the DISCRIMINATOR that
+    prevents false-positives on a deliberately-combined handoff (a B shipping
+    alongside a real A passes).  A `*-LAUNCH-PROMPT.md` carrying no token at all →
+    INCONSISTENT (XREF-class: a B that never declared its A), never a silent OK.
+
+    Always returns True (warn-only TIER_1).  Does NOT auto-promote to blocking.
+    """
+    if not _MH_WAVES_DIR.is_dir():
+        # No waves dir → ground truth unreachable for this fact.
+        return True, "INDETERMINATE: .claude/waves/ not present (no handoff artifacts to check)"
+
+    # Candidate handoff prompts = launch prompts + Manager-handoff prompts.
+    launch = sorted(_MH_WAVES_DIR.glob("*-LAUNCH-PROMPT.md"))
+    handoff = sorted(_MH_WAVES_DIR.glob("*-MANAGER-HANDOFF-PROMPT.md"))
+    candidates = launch + handoff
+    if not candidates:
+        return True, "INDETERMINATE: no handoff/launch prompts in .claude/waves/ (nothing to ground)"
+
+    # Newest by mtime — the live handoff state the next session would read.
+    newest = max(candidates, key=lambda p: p.stat().st_mtime)
+
+    # A Manager-handoff prompt as newest is well-formed by name (artifact A present).
+    if newest.name.endswith("-MANAGER-HANDOFF-PROMPT.md"):
+        return True, (
+            f"verified: newest handoff is a Manager-handoff prompt "
+            f"({newest.name}) — artifact A present"
+        )
+
+    # Newest is a working launch prompt (artifact B). Read its back-reference token.
+    try:
+        text = newest.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return True, f"INDETERMINATE: cannot read {newest.name} ({exc})"
+
+    m = _MH_BACKREF_RE.search(text)
+    if m is None:
+        # B that never declared its A — XREF-class inconsistency, not a silent pass.
+        return True, (
+            f"INCONSISTENT: newest handoff {newest.name} is a working launch prompt "
+            f"(artifact B) with NO back-reference token "
+            f"`<!-- manager-handoff-prompt: <path> -->` declaring its Manager-handoff "
+            f"prompt (artifact A). A launch prompt is not a substitute for a "
+            f"Manager-handoff prompt — see CLAUDE.md § \"Two-session Manager handoff\"."
+        )
+
+    cited = m.group("path")
+    if _mh_artifact_exists(cited):
+        return True, (
+            f"verified: newest handoff {newest.name} back-references an existing "
+            f"Manager-handoff prompt ({cited}) — paired A+B well-formed"
+        )
+
+    # DRIFT: the GROUND red-path — token resolves to no file on disk.
+    return True, (  # warn-only: True means pass, message carries the DRIFT
+        f"DRIFT: newest handoff {newest.name} is a working launch prompt (artifact B) "
+        f"whose back-reference token points at a Manager-handoff prompt that does NOT "
+        f"exist on disk: {cited}\n"
+        f"    A launch prompt emitted in place of a Manager-handoff prompt is malformed "
+        f"by construction. Emit `.claude/waves/<BATCH>-MANAGER-HANDOFF-PROMPT.md` "
+        f"(artifact A) and point the token at it. See CLAUDE.md § \"Two-session "
+        f"Manager handoff\"."
+    )
 
 
 def check_orchestrator_prompt_format() -> tuple[bool, str]:
@@ -1483,6 +1629,19 @@ def check_backlog_stale() -> tuple[bool, str]:
     venv_py = REPO / ".venv" / "bin" / "python3"
     py = str(venv_py) if venv_py.exists() else "python3"
 
+    # BATCH-11 S2: the gate iterates the cross-repo (repo,file,syntax) RING_REGISTRY
+    # instead of hardcoding `--repo str(REPO)`. The SLOP ring keeps its full bare-[ ]
+    # staleness scan; the other rings are reconciled for reachability (GROUND stat).
+    # registered-but-absent ring -> INDETERMINATE (ages via tools/probe_registry.json
+    # -> S1); present-ring-with-no-row -> DRIFT (coverage_drift + red-path test).
+    ring_detail = ""
+    _rc_rings, rings_out = _run([py, str(scanner), "--check-rings"], timeout=30)
+    indet_lines = [ln for ln in rings_out.splitlines() if ln.startswith("INDETERMINATE:")]
+    if indet_lines:
+        ring_detail = "\n  rings: " + str(len(indet_lines)) + " INDETERMINATE (cross-repo registry):"
+        ring_detail += "".join(f"\n    {ln[:120]}" for ln in indet_lines[:3])
+
+    # SLOP ring: full bare-[ ] staleness scan (S3 extends the same per-entry path).
     _rc, out = _run([py, str(scanner), "--repo", str(REPO)], timeout=30)
     warning_lines = [ln for ln in out.splitlines() if ln.startswith("WARNING:")]
     if warning_lines:
@@ -1490,11 +1649,11 @@ def check_backlog_stale() -> tuple[bool, str]:
         detail += "\n".join(f"    {ln[:120]}" for ln in warning_lines[:5])
         if len(warning_lines) > 5:
             detail += f"\n    ... and {len(warning_lines) - 5} more"
-        return True, detail  # always True — warn-only
+        return True, detail + ring_detail  # always True — warn-only
     # No stale entries — summarise the OK message from scanner stderr.
     ok_lines = [ln for ln in out.splitlines() if ln.startswith("OK")]
     summary = ok_lines[0] if ok_lines else "no stale bare [ ] entries in BACKLOG.md"
-    return True, summary
+    return True, summary + ring_detail
 
 
 def check_wave_subagent_preamble() -> tuple[bool, str]:
@@ -1788,6 +1947,265 @@ def check_fact_freshness() -> tuple[bool, str]:
     return True, "\n".join(parts)  # always True — warn-only
 
 
+def check_probe_aging() -> tuple[bool, str]:
+    """Tier 1 (BATCH-11 S1, P0): GROUND-gate brownout detector — warn-only.
+
+    Shells out to tools/audit_probe_aging.py, which runs every probe registered
+    in tools/probe_registry.json (an OPEN SEAM — see docs/PROBE-REGISTRY.md) and
+    records per run whether each reached GROUND (verified/DRIFT) or browned out
+    (INDETERMINATE/unparseable/missing-input/no-date/configured-host-rc127/
+    wrong-target).  A probe with NO ground-touch in N consecutive runs ages to
+    DRIFT — closing the "GROUND-gate brownout" class (report §4g) for all probes
+    at once.
+
+    Non-hook trigger: this is a plain TIER_1 check; it does NOT depend on S4's
+    session-boundary hooks.
+
+    Vocabulary: GROUND = touches physics (may say verified or DRIFT).
+    INDETERMINATE is red-eligible after N runs.  "A green light is only
+    trustworthy if it can go red against physics."
+
+    Always returns True (warn-only TIER_1).  Does NOT auto-promote to blocking —
+    promotion is a later deliberate recorded act (Enforcement-Lifecycle).
+    """
+    script = REPO / "tools" / "audit_probe_aging.py"
+    if not script.exists():
+        return True, "audit_probe_aging.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO), "--record"], timeout=120)
+
+    drift_lines = [ln for ln in out.splitlines() if ln.startswith("DRIFT:")]
+    brownout_lines = [ln for ln in out.splitlines() if ln.startswith("BROWNOUT:")]
+    ground_lines = [ln for ln in out.splitlines() if ln.startswith("GROUND-TOUCH:")]
+    ratchet_warnings = [ln for ln in out.splitlines() if ln.startswith("WARNING:")]
+
+    parts: list[str] = []
+    if ground_lines:
+        parts.append(f"{len(ground_lines)} probe(s) touched GROUND")
+    if brownout_lines:
+        parts.append(f"{len(brownout_lines)} probe(s) browned out this run")
+    if drift_lines:
+        parts.append(f"WARNING — {len(drift_lines)} probe(s) aged to DRIFT:")
+        parts.extend(f"    {ln[:120]}" for ln in drift_lines[:5])
+        if len(drift_lines) > 5:
+            parts.append(f"    ... and {len(drift_lines) - 5} more")
+    for w in ratchet_warnings:
+        parts.append(f"WARNING — {w[:120]}")
+
+    if not parts:
+        return True, "probe-aging: no findings"
+    return True, "\n".join(parts)  # always True — warn-only
+
+
+# ── BATCH-11 S6 (P6 + R10) — sanctioned-channel GROUND leg + hardcode scanner ──
+
+def check_sanctioned_ground() -> tuple[bool, str]:
+    """Tier 1 (BATCH-11 S6, P6): Sanctioned-channel GROUND leg — warn-only.
+
+    The sibling gate `check_sanctioned_channels_complete` is XREF-only (deny-string
+    vs doc-table; report §4c: a deny pointing at a deleted/broken tool passes, and the
+    lift->restore cycle is never probed). This gate adds the GROUND leg: shells out to
+    tools/audit_sanctioned_ground.py, which AST-asserts that every registry-row tool in
+    docs/SANCTIONED-CHANNELS.md EXISTS + imports + calls lift/restore/audit AND has a
+    finally-guarded restore (so a crash mid-push cannot leak the deny).
+
+    AST presence != correct ordering (§4c) — the REAL proof is the per-tool crash-mid-
+    push RED-PATH test in tests/test_sanctioned_ground.py. This gate is the standing
+    structural check; it goes DRIFT against physics (the AST of the real source).
+
+    Vocabulary: GROUND (touches the filesystem + AST) — may say verified or DRIFT;
+    INDETERMINATE when the registry doc or a source cannot be parsed (no silent pass).
+
+    Always returns True (warn-only TIER_1). No auto-promotion to blocking here.
+    """
+    script = REPO / "tools" / "audit_sanctioned_ground.py"
+    if not script.exists():
+        return True, "audit_sanctioned_ground.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    drift = [ln for ln in out.splitlines() if ln.startswith("DRIFT:")]
+    indet = [ln for ln in out.splitlines() if ln.startswith("INDETERMINATE:")]
+    if drift:
+        detail = "\n".join(f"    {ln[:140]}" for ln in drift[:5])
+        return True, f"WARNING — {len(drift)} sanctioned-tool GROUND DRIFT:\n{detail}"
+    if indet:
+        return True, f"INDETERMINATE — {indet[0][:140]}"
+    return True, "sanctioned-channel GROUND: all registry-row tools verified"
+
+
+def check_single_entity_hardcode() -> tuple[bool, str]:
+    """Tier 1 (BATCH-11 S6, R10 / BACKLOG:58): single-entity-hardcode scanner — warn-only.
+
+    The GROUND red-signal for CLAUDE.md's "Reuse-and-blast-radius checkpoint" (its
+    PENDING red-signal note can now cite this shipped scanner). Shells out to
+    tools/audit_single_entity_hardcode.py, which greps tools/ + tools/sanctioned/ for a
+    SLOP-only hardcoded literal in a tool that exposes NO --repo/registry param (the
+    plural-set members foreclosed). HONORS recorded scope-reasons (suppresses justified
+    hardcodes, e.g. lift_push_restore.py SETTINGS_PATH).
+
+    Vocabulary: verified (no foreclosing hardcode) / DRIFT (unjustified SLOP-only
+    literal, no --repo) / INDETERMINATE (a source unreadable/unparseable).
+
+    Always returns True (warn-only TIER_1). No auto-promotion to blocking here.
+    """
+    script = REPO / "tools" / "audit_single_entity_hardcode.py"
+    if not script.exists():
+        return True, "audit_single_entity_hardcode.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=30)
+    drift = [ln for ln in out.splitlines() if ln.startswith("DRIFT:")]
+    indet = [ln for ln in out.splitlines() if ln.startswith("INDETERMINATE:")]
+    if drift:
+        detail = "\n".join(f"    {ln[:140]}" for ln in drift[:5])
+        return True, f"WARNING — {len(drift)} single-entity hardcode(s):\n{detail}"
+    if indet:
+        return True, f"INDETERMINATE — {indet[0][:140]}"
+    return True, "single-entity-hardcode: no foreclosing SLOP-only hardcode found"
+
+
+# ── independent-review artifact-existence gate (BATCH-11 S7, P7) ───────────
+def check_independent_review() -> tuple[bool, str]:
+    """Tier 1 (BATCH-11 S7, P7): independent-review artifact-existence — warn-only.
+
+    Thin wrapper over tools/independent_review.py. When HEAD trips the
+    mechanical floor (touches CLAUDE.md / .claude/ROBOT.md /
+    .claude/AUTONOMOUS-DEFAULTS.md, adds a file under tools/sanctioned/, or adds
+    a ``def check_`` to ms-enforce), the commit must cite a COMMITTED
+    docs/REVIEW-LOG.md entry — and that entry must actually exist (HEAD made a
+    non-empty addition to the log). Cited record missing → DRIFT. [GROUND leg:
+    git numstat + filesystem — proves the artifact landed, not a message token.]
+
+    ACYCLICITY IN CODE: the floor statically EXCLUDES docs/REVIEW-LOG.md and the
+    gate's own ``def check_independent_review`` (see tools/independent_review.py
+    _FLOOR_EXCLUDED_PATHS / _SELF_CHECK_NAME) — a review (whose only output is a
+    REVIEW-LOG entry) can never trigger a review. Changing that exclusion needs
+    a WALK-BACK-LOG entry.
+
+    [red-signal: PARTIAL] — GROUND on fabrication / missing-artifact; review
+    *substance* is UNPROBED (rides the standing audits + Manager batch-landing
+    review). HARD STOP: warn-only; never auto-promotes to blocking until the
+    GROUND leg is deliberately escalated (Enforcement-Lifecycle).
+
+    Vocabulary: GROUND = touches physics (may say verified or DRIFT).
+    INDETERMINATE = git unreachable, emitted loudly. UNPROBED = no probe for
+    review substance. "A green light is only trustworthy if it can go red
+    against physics."
+    """
+    tool = REPO / "tools" / "independent_review.py"
+    if not tool.exists():
+        return True, "independent_review.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(tool), "--repo", str(REPO)], timeout=20)
+    out = out.strip()
+    if "INDETERMINATE" in out:
+        return True, f"WARNING (INDETERMINATE): {out}"
+    if "DRIFT" in out:
+        return True, f"WARNING (DRIFT): {out}"
+    return True, out
+
+
+# ── provenance headers (batch-11 S8, BACKLOG :53) ─────────────────────────
+def check_provenance() -> tuple[bool, str]:
+    """Tier 1 (batch-11 S8, BACKLOG :53): provenance headers on auto-generated files.
+
+    Lockfiles, JSON baselines, and coverage maps MUST carry an "AUTO-GENERATED by ..."
+    provenance header so maintainers (and the gate itself) can trace who owns
+    updates to each file.
+
+    Header formats by file type:
+      .json — top-level key ``"generated_by": "<tool>"`` (JSON has no comment syntax)
+      .lock / .toml — a ``# AUTO-GENERATED by ...`` comment in the first 5 lines
+
+    Registry of covered files (extend as new auto-generated artifacts are added):
+      .linecount-baseline.json      — tools/check_linecount.py
+      .factprobe-baseline.json      — tools/audit_fact_freshness.py
+      .probe-health-baseline.json   — tools/audit_probe_aging.py
+      data/coverage_map.json        — ms-coverage
+      uv.lock                       — uv / pip-compile
+
+    Verdict: DRIFT when a covered file exists but lacks the required provenance key.
+    INDETERMINATE when a file is absent (it may not be generated yet; not an error).
+
+    Always returns True (warn-only TIER_1). Does NOT auto-promote to blocking until
+    the provenance discipline is established across all auto-generated artifacts.
+    """
+    # Registry: (repo-relative path, file type)
+    # Types: "json" or "lockfile"
+    PROVENANCE_REGISTRY: list[tuple[str, str]] = [
+        (".linecount-baseline.json",    "json"),
+        (".factprobe-baseline.json",    "json"),
+        (".probe-health-baseline.json", "json"),
+        ("data/coverage_map.json",      "json"),
+        ("uv.lock",                     "lockfile"),
+    ]
+
+    drift: list[str] = []
+    indeterminate: list[str] = []
+
+    for rel, ftype in PROVENANCE_REGISTRY:
+        fpath = REPO / rel
+        if not fpath.exists():
+            indeterminate.append(f"INDETERMINATE: {rel} not found (not generated yet?)")
+            continue
+        try:
+            text = fpath.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            indeterminate.append(f"INDETERMINATE: {rel} unreadable: {exc}")
+            continue
+
+        if ftype == "json":
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                indeterminate.append(f"INDETERMINATE: {rel} is not valid JSON")
+                continue
+            if not isinstance(data, dict) or "generated_by" not in data:
+                drift.append(
+                    f"DRIFT: {rel} missing top-level \"generated_by\" key "
+                    f"(add: {{\"generated_by\": \"<tool-name>\", ...}})"
+                )
+        elif ftype == "lockfile":
+            first_lines = text.splitlines()[:5]
+            has_header = any(
+                line.lstrip().startswith("# AUTO-GENERATED")
+                for line in first_lines
+            )
+            if not has_header:
+                drift.append(
+                    f"DRIFT: {rel} missing \"# AUTO-GENERATED by ...\" "
+                    f"comment in first 5 lines"
+                )
+
+    parts: list[str] = []
+    if drift:
+        parts.append(f"WARNING — {len(drift)} auto-generated file(s) lack provenance headers:")
+        for d in drift[:5]:
+            parts.append(f"    {d}")
+        if len(drift) > 5:
+            parts.append(f"    ... and {len(drift) - 5} more")
+    for i in indeterminate:
+        parts.append(f"    {i}")
+
+    covered = len(PROVENANCE_REGISTRY) - len(indeterminate)
+    if not parts:
+        return True, (
+            f"provenance: all {covered} covered auto-generated file(s) have headers"
+        )
+    return True, "\n".join(parts)  # always True — warn-only
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1861,6 +2279,18 @@ TIER_1: list[tuple[str, object]] = [
     # ── fact-store freshness (S-75-D) ─────────────────────────
     ("Fact-store freshness / verify-probe (warn only)", check_fact_freshness),
     # ── end S-75-C ─────────────────────────────────────────────────────────
+    # ── probe-aging / GROUND-gate brownout detector (BATCH-11 S1, P0) ──────
+    ("Probe aging — GROUND-gate brownout detector (warn only)", check_probe_aging),
+    # ── sanctioned-channel GROUND leg (BATCH-11 S6, P6) ────────────────────
+    ("Sanctioned-channel GROUND — tool exists + lift/restore/audit wired (warn only)", check_sanctioned_ground),
+    # ── single-entity-hardcode scanner (BATCH-11 S6, R10 / BACKLOG:58) ─────
+    ("Single-entity hardcode — Reuse-and-blast-radius red-signal (warn only)", check_single_entity_hardcode),
+    # ── independent-review artifact-existence gate (BATCH-11 S7, P7) ───────
+    ("Independent review — REVIEW-LOG artifact-existence (warn only)", check_independent_review),
+    # ── provenance headers on auto-generated files (batch-11 S8, BACKLOG :53) ─
+    ("Provenance headers — auto-generated file registry (warn only)", check_provenance),
+    # ── two-session Manager-handoff-artifact contract (BATCH-11 S11, F10) ──
+    ("Manager-handoff artifacts — two-session A+B contract (warn only)", check_manager_handoff_artifacts),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),

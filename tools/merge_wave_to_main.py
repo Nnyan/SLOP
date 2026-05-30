@@ -27,6 +27,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -62,6 +63,10 @@ DENY_RULES = [
 
 SETTINGS_LOCAL = Path(".claude/settings.local.json")
 MERGE_LOG = Path("docs/MERGE-LOG.md")
+# Committed machine artifact read by tools/check_handoff_freshness.py: the
+# origin/main SHA the current handoff was last refreshed against. The merge tool
+# stamps this post-merge (R6) so the manual handoff-refresh step is OWNED here.
+HANDOFF_SHA_FILE = Path(".handoff-sha")
 STATUS_DIR = Path(".claude/run/status")
 STATUS_ARCHIVE_DIRS = [
     Path(".claude/run-archive"),
@@ -143,6 +148,38 @@ def _head_sha(ref: str = "HEAD") -> str:
     return _git_output("rev-parse", ref)
 
 
+def _stamp_handoff_sha(repo_root: Path, new_main_sha: str) -> Path:
+    """Write the new main SHA into .handoff-sha (R6 auto-stamp). Returns the path.
+
+    Closes the manual handoff-refresh step: tools/check_handoff_freshness.py reads
+    .handoff-sha and compares it to `git rev-parse origin/main`. By stamping the
+    just-merged main SHA here, the merge tool OWNS the refresh so the step can no
+    longer be silently skipped.
+
+    INHERENT 1-COMMIT LAG (documented, not hidden): this stamps the *local* main
+    SHA the merge just produced. The operator's subsequent `git push origin main`
+    makes origin/main equal that same SHA, so once the push lands the gate reads
+    `verified`. In the window AFTER merge but BEFORE push, origin/main still trails
+    local main, so the gate reads DRIFT — which is the correct, loud, red-eligible
+    nudge ("push the merge / refresh the handoff"), NOT a brownout. We stamp the
+    local-merge SHA (the value origin/main becomes on push) rather than reading
+    origin/main here precisely so that the post-push steady state is `verified`
+    without a second manual stamp. A truly self-referential "store this very
+    commit's own SHA" is impossible; this is the closest owned approximation.
+    """
+    path = repo_root / HANDOFF_SHA_FILE
+    content = (
+        f"{new_main_sha}\n"
+        "# origin/main SHA the current docs/MANAGER-HANDOFF.md was last refreshed\n"
+        "# against. AUTO-STAMPED by tools/merge_wave_to_main.py post-merge (R6).\n"
+        "# Read by tools/check_handoff_freshness.py. After `git push origin main`\n"
+        "# this equals origin/main → gate reads 'verified'; between merge and push\n"
+        "# it legitimately trails → gate reads DRIFT (the push/refresh nudge).\n"
+    )
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
 # ── settings lift / restore ───────────────────────────────────────────────────
 
 def _load_settings(path: Path) -> dict:
@@ -205,21 +242,85 @@ def restore_denies(settings_path: Path) -> None:
 
 # ── status file check ─────────────────────────────────────────────────────────
 
-def _find_status_file(wave_key: str, repo_root: Path) -> Path | None:
+def _find_status_file(wave_key: str, repo_root: Path) -> tuple[Path | None, str | None]:
     """Find a status file for the given wave key (e.g. 'S-59').
 
-    Searches STATUS_DIR first, then run-archive subdirs.
+    Returns (path, warn): path is the located status file (or None); warn is a
+    human-readable WARNING string when the file was found only by an INEXACT
+    glob fallback (fixes F4 — a misnamed status file used to be silently missed).
+
+    Resolution order:
+      1. EXACT canonical SHORT path `.claude/run/status/<wave_key>.md` (preferred).
+      2. EXACT canonical path inside any run-archive `<batch>/status/` dir.
+      3. INEXACT glob fallback `glob(f"{wave_key}*.md")` in STATUS_DIR then the
+         archive status dirs — WARNs (the file exists but is not at the canonical
+         SHORT path, e.g. `S-75-KNOWLEDGE-LIFECYCLE.md` instead of `S-75.md`).
     """
-    candidates = [repo_root / STATUS_DIR / f"{wave_key}.md"]
+    # 1 + 2: exact canonical paths (preserves prior exact-match behavior first).
+    exact_candidates = [repo_root / STATUS_DIR / f"{wave_key}.md"]
     for archive_dir in STATUS_ARCHIVE_DIRS:
         ad = repo_root / archive_dir
         if ad.is_dir():
             for sub in ad.iterdir():
                 if sub.is_dir():
-                    candidates.append(sub / "status" / f"{wave_key}.md")
-    for path in candidates:
+                    exact_candidates.append(sub / "status" / f"{wave_key}.md")
+    for path in exact_candidates:
         if path.exists():
-            return path
+            return path, None
+
+    # 3: inexact glob fallback — WARN on any non-canonical match.
+    glob_dirs = [repo_root / STATUS_DIR]
+    for archive_dir in STATUS_ARCHIVE_DIRS:
+        ad = repo_root / archive_dir
+        if ad.is_dir():
+            for sub in sorted(ad.iterdir()):
+                if sub.is_dir():
+                    glob_dirs.append(sub / "status")
+    for gdir in glob_dirs:
+        if not gdir.is_dir():
+            continue
+        matches = sorted(m for m in gdir.glob(f"{wave_key}*.md")
+                         if m.name != f"{wave_key}.md")
+        if matches:
+            picked = matches[0]
+            warn = (
+                f"WARNING [status-file] INEXACT match for {wave_key}: found "
+                f"{picked.name!r} via glob fallback, NOT the canonical SHORT path "
+                f"{wave_key}.md (ROBOT.md §3.5). Rename it to "
+                f"{STATUS_DIR}/{wave_key}.md."
+            )
+            return picked, warn
+    return None, None
+
+
+# Status protocol (ROBOT.md §3.5): the mandatory first non-blank line is a State
+# marker `**State:** <TOKEN>`. Terminal (mergeable) states vs blocking states:
+_TERMINAL_STATES = {"COMPLETE", "CLOSED"}
+_BLOCKING_STATES = {"BLOCKED", "NEEDS-INPUT"}
+_STATE_RE = re.compile(r"^\s*\*\*State:\*\*\s*([A-Za-z\-]+)", re.IGNORECASE)
+
+
+def _read_state_marker(status_path: Path) -> str | None:
+    """Return the State token from the first non-blank line(s), or None if absent.
+
+    Per ROBOT.md §3.5 the marker `**State:** <TOKEN>` MUST be the first non-blank
+    line. We scan the first few non-blank lines (tolerant of a leading title line
+    in legacy files) and return the first State token found, uppercased.
+    """
+    try:
+        text = status_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    seen = 0
+    for raw in text.splitlines():
+        if not raw.strip():
+            continue
+        m = _STATE_RE.match(raw)
+        if m:
+            return m.group(1).strip().upper()
+        seen += 1
+        if seen >= 5:  # marker must be near the top; give up after a few lines
+            break
     return None
 
 
@@ -238,6 +339,61 @@ def _status_is_complete(status_path: Path) -> tuple[bool, str]:
                 continue
             return False, f"status file has open blocker indicator: {line!r}"
     return True, "COMPLETE"
+
+
+def check_status_gate(wave_key: str, repo_root: Path) -> tuple[bool, str]:
+    """Merge-time RED-ON-MISSING-STATUS gate (§3.5 keystone leg, GROUND-class).
+
+    GROUND: it touches the filesystem (the status file is a real artifact), so it
+    may refuse (DRIFT) or pass (verified). Returns (passed, message).
+
+    Refuses (passed=False) when:
+      - No status file exists at the canonical SHORT path AND none found at all
+        (filesystem GROUND → DRIFT, NOT a silent skip — closes the old
+        `_find_status_file`→None silent pass).
+      - A status file exists but carries NO `**State:**` marker (cannot ground the
+        terminal-state contract → DRIFT).
+      - The State is the non-terminal `RUNNING` (incomplete run → DRIFT).
+      - The State is a blocking `BLOCKED`/`NEEDS-INPUT` (an open blocker blocks the
+        merge gate).
+
+    Passes (passed=True) when a status file exists with a terminal State
+    (`COMPLETE`/`CLOSED`). An INEXACT-name match still evaluates the State legs but
+    surfaces the glob-fallback WARNING (visible, not silently absorbed).
+    """
+    status_path, warn = _find_status_file(wave_key, repo_root)
+    canonical = repo_root / STATUS_DIR / f"{wave_key}.md"
+    if status_path is None:
+        return False, (
+            f"DRIFT — no status file for {wave_key} at the canonical SHORT path "
+            f"{canonical} (and none found via glob). Per ROBOT.md §3.5 a status "
+            f"file is required at merge-time; a missing file is DRIFT, not a skip. "
+            "[GROUND: filesystem]"
+        )
+    state = _read_state_marker(status_path)
+    prefix = (warn + "\n") if warn else ""
+    if state is None:
+        return False, prefix + (
+            f"DRIFT — status file {status_path} has no `**State:**` marker as its "
+            f"first non-blank line (ROBOT.md §3.5). Cannot ground the terminal-state "
+            "contract. [GROUND: filesystem]"
+        )
+    if state in _BLOCKING_STATES:
+        return False, prefix + (
+            f"BLOCKED — status file {status_path} State is {state!r}; a "
+            f"{state} state blocks the merge gate. Resolve before merging. "
+            "[GROUND: filesystem]"
+        )
+    if state not in _TERMINAL_STATES:
+        return False, prefix + (
+            f"DRIFT — status file {status_path} State is {state!r} (not a terminal "
+            f"state {sorted(_TERMINAL_STATES)}). The run is not finished. "
+            "[GROUND: filesystem]"
+        )
+    return True, prefix + (
+        f"verified — status file {status_path.name} State={state} (terminal). "
+        "[GROUND: filesystem]"
+    )
 
 
 def _extract_wave_key(branch: str) -> str:
@@ -659,21 +815,24 @@ def main(argv: list[str] | None = None) -> int:
         preflight_results[f"branch-exists:{branch}"] = "OK"
         _info(f"OK — {branch} exists")
 
-    # 1c. Status file check
-    print("[3/5] Wave status files...")
+    # 1c. Status file check — RED-ON-MISSING-STATUS gate (§3.5, GROUND-class).
+    # A missing status file at the canonical SHORT path is DRIFT (refuse), NOT a
+    # silent skip (the prior behavior). The first line must be a terminal State
+    # (COMPLETE/CLOSED); RUNNING is incomplete, BLOCKED/NEEDS-INPUT blocks the merge.
+    print("[3/5] Wave status files (red-on-missing gate)...")
     for branch in branches:
         wave_key = _extract_wave_key(branch)
-        status_path = _find_status_file(wave_key, repo_root)
-        if status_path is not None:
-            ok, reason = _status_is_complete(status_path)
-            if not ok:
-                preflight_results[f"status:{branch}"] = f"FAIL: {reason}"
-                _die(f"Wave {wave_key} status check failed: {reason}")
-            preflight_results[f"status:{branch}"] = "COMPLETE"
-            _info(f"OK — {wave_key} status COMPLETE ({status_path.name})")
-        else:
-            preflight_results[f"status:{branch}"] = "no status file (skipped)"
-            _info(f"SKIP — no status file for {wave_key}")
+        passed, msg = check_status_gate(wave_key, repo_root)
+        # Surface the glob-fallback WARNING line (if any) before the verdict.
+        for ln in msg.splitlines():
+            if ln.startswith("WARNING"):
+                _info(ln)
+        verdict = msg.splitlines()[-1] if msg else msg
+        if not passed:
+            preflight_results[f"status:{branch}"] = f"FAIL: {verdict}"
+            _die(f"Wave {wave_key} status gate failed: {msg}")
+        preflight_results[f"status:{branch}"] = verdict[:80]
+        _info(f"OK — {wave_key} {verdict}")
 
     # 1d. Non-empty diff
     print("[4/5] Non-empty diff vs main...")
@@ -816,6 +975,19 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             _info("promotion-reconciliation: all findings referenced in tracked docs (or no findings)")
+
+    # ── Phase 5 (S5/R6): auto-stamp .handoff-sha = new main HEAD ──────────────
+    # Owns the manual handoff-refresh step: check_handoff_freshness reads this.
+    if merge_succeeded:
+        print()
+        print("=== HANDOFF-SHA AUTO-STAMP ===")
+        sha_path = _stamp_handoff_sha(repo_root, post_sha)
+        _info(f"{sha_path} stamped to {post_sha[:7]} (new main HEAD)")
+        _info(
+            "Until you `git push origin main`, origin/main trails this SHA, so "
+            "check_handoff_freshness reads DRIFT (the push/refresh nudge); after "
+            "the push it reads 'verified'. Commit .handoff-sha with the push."
+        )
 
     # ── Done ─────────────────────────────────────────────────────────────────
     print()

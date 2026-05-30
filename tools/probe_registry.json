@@ -1,0 +1,87 @@
+{
+  "_README": "OPEN SEAM — see docs/PROBE-REGISTRY.md before appending. Append one row per registered probe to the 'probes' list; do NOT edit tools/audit_probe_aging.py logic. The aging engine runs each row's cmd, classifies the outcome as a GROUND touch (verified/DRIFT) or a brownout (INDETERMINATE/unparseable/missing-input/no-date/configured-host-rc127), and records it in .probe-health-baseline.json. A probe with NO ground-touch in N consecutive runs ages to DRIFT.",
+  "_schema_version": 1,
+  "probes": [
+    {
+      "id": "check_handoff_freshness",
+      "physics": "git rev-parse origin/main vs committed .handoff-sha (git + filesystem)",
+      "cmd": "python3 tools/check_handoff_freshness.py",
+      "ground_tokens": ["verified", "DRIFT"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "note": "F7: prose-rewrite defeat closed on main (241be73); reads committed .handoff-sha, absence -> DRIFT (a GROUND verdict), only an unreachable origin -> INDETERMINATE."
+    },
+    {
+      "id": "audit_doc_reality",
+      "physics": "doc claims reconciled vs the live host via operator ambient SSH (slop-reality-probe on the host)",
+      "cmd": "python3 tools/audit_doc_reality.py --repo .",
+      "ground_tokens": ["verified", "DRIFT", "INCONSISTENT"],
+      "brownout_tokens": ["INDETERMINATE", "unreachable", "not present", "skip"],
+      "host_configured": false,
+      "note": "S-75 / LR-2: rides operator ambient SSH. NO host configured + unreachable -> quiet INDETERMINATE (do not cry wolf headless). A CONFIGURED host whose probe returns rc127 (slop-reality-probe not installed) -> DRIFT (should be installed)."
+    },
+    {
+      "id": "audit_status_file_freshness",
+      "physics": "status file presence + mtime + parseable State marker on the filesystem",
+      "cmd": "python3 tools/audit_status_file_freshness.py --repo .",
+      "ground_tokens": ["verified", "DRIFT", "fresh", "stale", "OK:"],
+      "brownout_tokens": ["INDETERMINATE", "unparseable"],
+      "host_configured": false,
+      "note": "report 4g (:200): an unparseable status file -> continue collapses absence-of-ground to the match color. 'OK:' counts as a ground touch (the tool read the run dir); the genuine unparseable-continue leg is S3's source-level fix. Until then the engine cannot distinguish a clean read from an unparseable-skip via output alone — documented limitation."
+    },
+    {
+      "id": "audit_backlog_stale_dateless",
+      "physics": "BACKLOG.md [park] entries parsed for a re-eval date on the filesystem",
+      "cmd": "python3 tools/audit_backlog_stale.py --repo .",
+      "ground_tokens": ["verified", "DRIFT", "stale", "WARNING", "OK:"],
+      "brownout_tokens": ["INDETERMINATE", "dateless", "no-date"],
+      "host_configured": false,
+      "note": "report 4g (:21): the dateless [park] leg skips rather than going red — the no-date brownout. 'OK:' counts as a ground touch (the tool read BACKLOG.md); the dateless-skip leg is S3's source-level fix."
+    },
+    {
+      "id": "slop_reality_probe_port",
+      "physics": "/proc/net/tcp{,6} LISTEN sockets, resolved to SLOP's target port (8080)",
+      "cmd": "python3 slop-reality-probe --port 8080",
+      "ground_tokens": ["bound_port"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "wrong_target": {"json_field": "bound_port", "wrong_values": [22], "note": "bound_port==22 (sshd, the lowest LISTEN socket) means the probe emitted a value for the WRONG target — a registry-trackable WRONG-PHYSICS defect, classified as a brownout, NOT a pass. Fixed in slop-reality-probe (_probe_bound_port targets 8080); tracked here so a regression ages red."}
+    },
+    {
+      "id": "ring_reachability_slop",
+      "physics": "filesystem stat of the SLOP triage queue file /home/stack/code/slop/docs/BACKLOG.md",
+      "cmd": "test -f /home/stack/code/slop/docs/BACKLOG.md && echo verified || echo INDETERMINATE",
+      "ground_tokens": ["verified"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "note": "BATCH-11 S2: per-ring reachability of the SLOP (repo,file,syntax) triage queue (RING_REGISTRY row 'slop'). Absent -> INDETERMINATE, aged to DRIFT by the engine after N runs."
+    },
+    {
+      "id": "ring_reachability_slop_process",
+      "physics": "filesystem stat of the slop-process triage queue file /home/stack/v5/docs/TODO.md",
+      "cmd": "test -f /home/stack/v5/docs/TODO.md && echo verified || echo INDETERMINATE",
+      "ground_tokens": ["verified"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "note": "BATCH-11 S2: per-ring reachability of the slop-process (repo,file,syntax) triage queue (RING_REGISTRY row 'slop_process'; resolved to docs/TODO.md, same bracket syntax). Absent -> INDETERMINATE."
+    },
+    {
+      "id": "ring_reachability_mediastack",
+      "physics": "filesystem stat of the mediastack triage queue file /home/stack/code/mediastack/docs/TODO.md",
+      "cmd": "test -f /home/stack/code/mediastack/docs/TODO.md && echo verified || echo INDETERMINATE",
+      "ground_tokens": ["verified"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "note": "BATCH-11 S2: per-ring reachability of the mediastack (repo,file,syntax) triage queue (RING_REGISTRY row 'mediastack'). NO canonical queue resolved at write-time (work fragmented across docs/TODO_*.md); this probe is INDETERMINATE until a canonical queue is chosen (BACKLOG follow-up). Honest TODO-hole, NOT a silent pass — ages to DRIFT, the intended pressure to resolve it."
+    },
+    {
+      "id": "session_winddown_hook_present",
+      "physics": "filesystem read of .claude/settings.json hooks config (is the Stop hook still wired?)",
+      "cmd": "python3 -c \"import json,os; p='.claude/settings.json'; print('verified' if os.path.exists(p) and json.load(open(p)).get('hooks',{}).get('Stop') else 'DRIFT')\"",
+      "ground_tokens": ["verified", "DRIFT"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "note": "S4 (P4, report 4f): the Stop hook is config text, not a boundary — register it so a removed/disarmed Stop hook ages RED (else it is the next F7). GROUND = filesystem read; settings.json missing OR no Stop hook -> DRIFT (a GROUND verdict, not a silent pass). Wired to tools/check_session_winddown.py (the ADVISORY wind-down aggregator)."
+    }
+  ]
+}
