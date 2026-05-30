@@ -49,6 +49,32 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-30 — wave/S-74-deploy-hardening
+
+- **Method:** tools/merge_wave_to_main.py
+- **Operator/Caller:** stack
+- **Pre-merge main HEAD:** `a3cbce4cb783de8c91ac253b83de4a7b80068464`
+- **Branches merged (in order):**
+  1. `wave/S-74-deploy-hardening` → merge commit `f1857691fee366dfbd23b03ab0f34e5b034d83a6`
+- **Post-merge main HEAD:** `f1857691fee366dfbd23b03ab0f34e5b034d83a6`
+- **Pushed to origin:** yes — `origin/main` at `f1857691fee366dfbd23b03ab0f34e5b034d83a6` (via `/tmp/lift-push-restore.py all`)
+- **Pre-flight checks run:**
+  - working-tree: CLEAN
+  - branch-exists:wave/S-74-deploy-hardening: OK
+  - status:wave/S-74-deploy-hardening: COMPLETE
+  - diff:wave/S-74-deploy-hardening: OK (13 diff-stat lines)
+  - ms-enforce:wave/S-74-deploy-hardening: EXIT 0 (All Core Rules satisfied)
+  - post-merge tests: `tests/test_deploy_hardening.py` + `tests/test_operator_env_dotenv.py` = 22 passed (16+6)
+- **Notes:** Manager review/merge of batch-9. Wave built off `e3a0eef`; main had advanced 2 doc
+  commits to `a3cbce4` (handoff refresh + gitignore) — those touch only `.gitignore` +
+  `MANAGER-HANDOFF.md`, zero overlap with the wave's files, so merge-tree was conflict-free.
+  Confirmed (not re-derived) the PINNED contracts on the wave tree before merge: `deploy_lib.sh`
+  defines exactly `detect_service_user`/`build_home`/`normalize_ownership` (both scripts source it,
+  no inline dup); no `2>/dev/null` on fetch; no bare `git pull origin main`; `MS_PORT` canonical in
+  both scripts; `backend/core/config.py` loads `.env` with `override=False` (real env / systemd
+  `Environment=` wins). Final main HEAD `f1857691fee366dfbd23b03ab0f34e5b034d83a6`.
+
+
 ## 2026-05-30 — docs/wave-draft-knowledge-lifecycle
 
 - **Method:** tools/merge_wave_to_main.py
