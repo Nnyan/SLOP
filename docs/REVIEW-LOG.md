@@ -4,6 +4,17 @@ Audit trail of independent reviews of significant changes — see CLAUDE.md § "
 
 ---
 
+## 2026-05-30 — LR-1 grounded fix: `check_handoff_freshness` brownout closure
+
+- **Change:** rewrote `tools/check_handoff_freshness.py` to read a committed `.handoff-sha` artifact (absence → DRIFT) instead of parsing a deletable prose bullet from `docs/MANAGER-HANDOFF.md`; added the `.handoff-sha` artifact. Closes the LIVE-RED brownout — the gate had been permanently INDETERMINATE since commit `95dc0e0` deleted the parseable bullet, so a GROUND gate silently returned "not red."
+- **Reviewer:** the independent Coverage+Handoff audit session (fresh Opus Auditor-Manager + 7 read-only investigators + a blind-spot critic). It derived this fix's DESIGN independently as finding **F7 / target P1** and reconciled it live against physics (ran the gate → confirmed permanent INDETERMINATE). **Durable committed record:** `docs/COVERAGE-HANDOFF-AUDIT-REPORT.md` (§0.1 LR-1, §3.1 F7, §5 P1) — landed on the same branch.
+- **Key findings → reconciliation:**
+  - F7/P1 "derive the declared SHA from a committed machine artifact, not human prose; harden absence → DRIFT not INDETERMINATE." **Accepted + implemented:** gate reads `.handoff-sha`; missing/malformed → DRIFT; only genuinely-unreachable origin → INDETERMINATE. **Verified both legs live** (verified when present+matching; DRIFT when absent).
+  - The investigator's first instinct ("just re-add the parseable bullet"), which the critic flagged as "isomorphic to the disease." **Rejected** — it recreates a deletable human token; used the grounded artifact instead.
+  - Self-reference limit: a file cannot hold its own commit's SHA, so the gate legitimately reads DRIFT (refresh-needed) for one commit after a batch lands. **Accepted as designed** (loud + red-eligible = not a brownout); the auto-stamp (merge tool writes `.handoff-sha`) is batch-11 P1.
+- **Tier note:** warn-only gate (zero blocking blast radius); the independent audit IS the durable derivation, so the gate-change review tier is satisfied by a committed reviewer record + author reconciliation (depth-1). No `/tmp` pointer — the cited record is committed.
+- **Record:** lands in the same commit as `.handoff-sha`, the gate rewrite, and this entry.
+
 ## 2026-05-30 — Independent-review discipline (this doctrine, dogfooded)
 
 - **Change:** the "Independent review for significant changes" doctrine itself (CLAUDE.md) + `docs/REVIEW-LOG.md` + the batch-11 `check_independent_review` gate.
