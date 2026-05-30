@@ -137,7 +137,7 @@ Stable architectural truths. Moved here from HANDOFF.md on 2026-05-24 (S2a split
   managed components, detects failures, and drives automated remediation.
   Module: `backend/core/agent.py`. Constants (AGENT_ROLE, AGENT_KEY, AGENT_TIER, AGENT_CATEGORY,
   AGENT_SUBJECT_TYPE) and the `get_all_apps(include_system=False)` tier-0 exclusion are
-  enforced by tests/test_rules_migration_batch1.py (S-55-B).
+  enforced by tests/test_rules_migration_batch1.py (S-55-B). <!-- verify: grep -q "^AGENT_KEY" backend/core/agent.py && echo OK -->
   API: `GET /api/v1/health/agent` + `agent_status` field in `/api/v1/health/summary`.
 - **User LLM catalog apps** (Ollama, llama.cpp, Open WebUI): what users install for their own AI use.
 
@@ -162,7 +162,7 @@ described an older layout and was false — verified on the Rocinante test serve
 `ms-update`/ownership/port bugs tracked in `docs/BACKLOG.md` §"From Rocinante deploy session".)
 
 **Catalog has two `CatalogEntry` definitions** — `loader.py` dataclass AND `catalog.py` Pydantic
-response model. Field sync is enforced by tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync (S-55-B).
+response model. Field sync is enforced by tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync (S-55-B). <!-- verify: grep -q "class CatalogEntry" backend/api/catalog.py && echo OK -->
 
 **Custom install flow (two steps)**:
 1. `POST /api/v1/apps/install-custom` → registers manifest in `catalog/community/` — returns `{key}`.
@@ -179,9 +179,9 @@ response model. Field sync is enforced by tests/test_rules_migration_batch1.py::
 - `${VAR}` syntax (not Python `{var}`) enforced by ms-enforce `check_catalog_env_var_syntax` (S-55-B).
 
 **_SLOP_MANAGED_VARS** — module-level frozenset in `backend/api/apps.py`. Canonical membership
-enforced by tests/test_rules_migration_batch1.py::TestSlopManagedVars (S-55-B).
+enforced by tests/test_rules_migration_batch1.py::TestSlopManagedVars (S-55-B). <!-- verify: grep -q "^_SLOP_MANAGED_VARS" backend/api/apps.py && echo OK -->
 
-**Quick Stacks** — `_DEFAULT_STACKS` in `backend/api/platform.py` is the single source of truth.
+**Quick Stacks** — `_DEFAULT_STACKS` in `backend/api/platform.py` is the single source of truth. <!-- verify: grep -q "^_DEFAULT_STACKS" backend/api/platform.py && echo OK -->
 Customisations stored in `settings` table keys `custom_stacks` and `hidden_stacks` as JSON.
 
 **Community manifest directory** — `catalog/community/` under install_dir. Owned by `mediastack`
