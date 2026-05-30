@@ -45,7 +45,7 @@ Run shape (per the charter §3-§4):
     YELLOW, not green. Do not rubber-stamp.
 
 Deliverables (on docs/audit-coverage-handoff — charter §6):
-  1. docs/COVERAGE-HANDOFF-AUDIT-REPORT.md — both tracks' findings, the
+  1. Create (write new) docs/COVERAGE-HANDOFF-AUDIT-REPORT.md — both tracks' findings, the
      blind-spot critic's pass, and ONE prioritized blast-radius target list
      for batch-11. Bake in the orchestrator status-protocol additions
      (charter §5) as a Track-B deliverable.
