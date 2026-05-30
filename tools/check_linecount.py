@@ -78,18 +78,41 @@ CATEGORIES: list[tuple[str, int, list[str]]] = [
         "cli/*.py", "cli/**/*.py",
         "installer/*.py", "installer/**/*.py",
     ]),
+    # Uncategorized catch-all — tools/, backend/scripts/, migrations/, root *.py,
+    # plus .sh and .yaml scripts/configs. Cap 1000: meaningful ceiling above the
+    # current tree maximum (tools/merge_wave_to_main.py 840 lines). Existing
+    # violators (ms-test.py 2456) are grandfathered in .linecount-baseline.json.
+    # .sh cap: same 1000 (current max 443 — tools/cleanup-helpers.sh).
+    # .yaml cap: same 1000 (current max 434 — installer/readiness_manifest.yaml).
+    # This entry is intentionally LAST so narrower patterns win.
+    ("uncategorized", 1000, [
+        "*.py",
+        "*.sh",
+        "*.yaml",
+        "backend/scripts/*.py",
+        "backend/scripts/**/*.py",
+        "migrations/*.py",
+        "migrations/**/*.py",
+        "tools/*.py",
+        "tools/**/*.py",
+        "tools/*.sh",
+        "tools/**/*.sh",
+    ]),
 ]
 
 # Convenience: dict form for JSON output / lookup.
 CAPS: dict[str, int] = {key: cap for key, cap, _patterns in CATEGORIES}
 
 # Extensions included by the walker.
-INCLUDED_EXTENSIONS = frozenset({".py", ".vue", ".ts"})
+# .sh and .yaml added (batch-11 S8) so the uncategorized catch-all can flag them.
+INCLUDED_EXTENSIONS = frozenset({".py", ".vue", ".ts", ".sh", ".yaml"})
 
 # Directory names that terminate descent (matched against any path component).
+# .claude excluded: it holds wave docs, settings, run-archive stubs — not source
+# code subject to size enforcement.
 EXCLUDED_DIR_NAMES = frozenset({
     "node_modules", ".venv", "venv", "dist", ".git",
-    "__pycache__", "build", ".next",
+    "__pycache__", "build", ".next", ".claude",
 })
 
 # Glob patterns that exclude individual files (matched against repo-relative
@@ -98,6 +121,7 @@ EXCLUDED_DIR_NAMES = frozenset({
 EXCLUDE_GLOBS = (
     "**/node_modules/**", "**/.venv/**", "**/venv/**", "**/dist/**",
     "**/.git/**", "**/__pycache__/**", "**/build/**", "**/.next/**",
+    "**/.claude/**",
 )
 
 BASELINE_FILENAME = ".linecount-baseline.json"
