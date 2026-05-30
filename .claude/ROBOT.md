@@ -727,6 +727,36 @@ Two operating patterns; pick whichever fits the moment:
   **Never** hand-edit `.claude/settings.local.json` to lift a deny — always use
   a sanctioned tool so the lift-restore discipline and audit trail are enforced.
 
+### Two-session Manager→Manager handoff artifacts (§3.3)
+_mechanically-enforced — `ms-enforce check_manager_handoff_artifacts` (TIER_1 warn-only) GROUND on the filesystem; the back-reference token is the discriminator (report §3.1–§3.3)_
+
+A Manager→Manager (two-session) handoff is the stored-and-trusted, rot-prone
+knowledge class. The protocol pins the **session→session / Manager→Manager** row of
+the Handoff Protocol table (`docs/COVERAGE-HANDOFF-AUDIT-REPORT.md` §3.3): a Manager
+handoff MUST emit **BOTH** of:
+
+- **Artifact A — the Manager-handoff prompt**, canonical filename
+  `.claude/waves/<BATCH>-MANAGER-HANDOFF-PROMPT.md`. The durable
+  state-+-pointers prompt the next Manager session reads first. Store only durable
+  facts + verify-at-use instructions (derived SHA + `git rev-parse origin/main`;
+  pointers to MERGE-LOG/REVIEW-LOG/`run/status/`; the step-0 VERIFY gate; the named
+  closing-output as the payload) — never volatile peer-liveness state.
+- **Artifact B — any working launch prompt** (`*-LAUNCH-PROMPT.md`). B is the
+  operational paste-block; it is **not** a substitute for A. B MUST carry a
+  back-reference token on its own line pointing at its Manager-handoff prompt:
+
+  ```
+  <!-- manager-handoff-prompt: .claude/waves/<BATCH>-MANAGER-HANDOFF-PROMPT.md -->
+  ```
+
+**Emitting B in place of A is malformed by construction.** The back-reference token
+is the discriminator that lets the gate distinguish a *legitimately combined*
+handoff (B ships alongside a real A, B back-referencing it → well-formed, verified)
+from a *dangling* one (B's token resolves to no existing A → DRIFT). A
+`*-LAUNCH-PROMPT.md` with no token at all → INCONSISTENT (a B that never declared its
+A), never a silent pass. CLAUDE.md § "Two-session Manager handoff" holds the
+canonical doctrine; this section is its ROBOT.md operational pin.
+
 ### Per-stream Model column (S-73)
 _not-mechanically-enforced (wave-file content; the `Model` cell is parsed by `tools/wave_complexity.py` and reviewed by the coordinator at wave-design time)_
 
