@@ -592,8 +592,8 @@ See CLAUDE.md § "No phantom owners; no silently-trusted manual step" for the ru
 **Default:** COMMIT it in the session that made it — do NOT defer it to "the operator's
 docs work" or any unscheduled future session (that is a phantom owner; the change rots
 uncommitted, as the S-75 `v5` hook one-liner did). The committing session owns it; push
-via `tools/sanctioned/lift_push_restore.py --repo <path>` (the deny-lift is repo-agnostic;
-the same SSH identity pushes all `Nnyan/*` remotes). The only thing that is genuinely
+via `tools/sanctioned/robot_settings.py push-then-restore --repo <path>` (the deny-lift is
+repo-agnostic; the same SSH identity pushes all `Nnyan/*` remotes). The only thing that is genuinely
 operator-gated is a *decision* (what/when), never the mechanical commit/push.
 **Escalate when:** the touchpoint is itself a *decision* (e.g. should this hook run at
 all), not a mechanical edit — surface that decision to the operator; the edit's *landing*

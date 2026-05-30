@@ -7,7 +7,9 @@ Subcommands:
   lift checkout-main   Lift Bash(git checkout main*) + Bash(git switch main*) denies.
   lift filter-branch   Lift Bash(git filter-branch*) deny.
   restore              Restore canonical wave-mode profile (no-op if already matches).
-  push-then-restore    Convenience: lift push -> git push origin main -> restore in finally.
+  push-then-restore    Convenience: lift push -> git push -> restore in finally.
+                       Accepts [--repo PATH] [--branch NAME] (default: SLOP main) so a
+                       single sanctioned path pushes any Nnyan/* repo (e.g. v5).
 
 Built on tools.sanctioned._lift_restore.lifted() / restore() for mandatory try/finally
 lift-restore discipline.  Audits every operation via tools.sanctioned._audit.write_entry
@@ -73,13 +75,13 @@ _LIFT_SUBCOMMANDS: dict[str, list[str]] = {
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def _git_sha(ref: str = "HEAD") -> str | None:
-    """Return the short SHA of ref, or None on failure."""
+def _git_sha(ref: str = "HEAD", repo: Path | str = _REPO_ROOT) -> str | None:
+    """Return the short SHA of ref in *repo*, or None on failure."""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short", ref],
             capture_output=True, text=True, check=True,
-            cwd=_REPO_ROOT,
+            cwd=repo,
         )
         return result.stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -209,16 +211,35 @@ def _cmd_restore(args: list[str]) -> int:  # noqa: ARG001
     return 0
 
 
-def _cmd_push_then_restore(args: list[str]) -> int:  # noqa: ARG001
-    """push-then-restore — lift push deny, git push origin main, restore in finally."""
+def _cmd_push_then_restore(args: list[str]) -> int:
+    """push-then-restore [--repo PATH] [--branch NAME] — lift push deny, push, restore.
+
+    The SETTINGS lifted are always this session's SLOP settings (the deny governs the
+    session, not the target repo). --repo only changes the git push TARGET, so a single
+    sanctioned path pushes any Nnyan/* repo (e.g. v5/slop-process) — see CLAUDE.md
+    § "No phantom owners". Defaults to SLOP main.
+    """
+    repo = Path(_REPO_ROOT)
+    branch = "main"
+    rest = list(args)
+    while rest:
+        tok = rest.pop(0)
+        if tok == "--repo":
+            repo = Path(rest.pop(0)) if rest else _die("--repo requires a path")
+        elif tok == "--branch":
+            branch = rest.pop(0) if rest else _die("--branch requires a name")
+        else:
+            _die(f"Unknown push-then-restore arg {tok!r}. Use [--repo PATH] [--branch NAME].")
+
     settings_path = _REPO_ROOT / SETTINGS_LOCAL
 
     if not settings_path.exists():
         _die(f"Settings file not found: {settings_path}")
 
-    pre_sha = _git_sha()
+    pre_sha = _git_sha(repo=repo)
     post_sha = None
     op_result = "ABORTED"
+    target = f"{repo} {branch}"
 
     try:
         with lifted(_PUSH_RULES, settings_path=settings_path):
@@ -228,16 +249,15 @@ def _cmd_push_then_restore(args: list[str]) -> int:  # noqa: ARG001
                 pre_sha=pre_sha,
                 post_sha=None,
                 result="LIFTED",
-                notes="push deny lifted; executing git push origin main",
+                notes=f"push deny lifted; executing git -C {repo} push origin {branch}",
             )
-            print("  [robot_settings] push-then-restore: push deny lifted; running git push origin main...")
+            print(f"  [robot_settings] push-then-restore: push deny lifted; running git -C {repo} push origin {branch}...")
             push_result = subprocess.run(
-                ["git", "push", "origin", "main"],
+                ["git", "-C", str(repo), "push", "origin", branch],
                 capture_output=False,
                 text=True,
-                cwd=_REPO_ROOT,
             )
-            post_sha = _git_sha()
+            post_sha = _git_sha(repo=repo)
             if push_result.returncode == 0:
                 op_result = "OK"
                 print("  [robot_settings] push-then-restore: push succeeded.")
@@ -254,7 +274,7 @@ def _cmd_push_then_restore(args: list[str]) -> int:  # noqa: ARG001
             pre_sha=pre_sha,
             post_sha=post_sha,
             result=op_result,
-            notes="push deny restored unconditionally in finally block",
+            notes=f"target {target}; push deny restored unconditionally in finally block",
         )
 
     return 0 if op_result == "OK" else 1
@@ -270,7 +290,9 @@ Subcommands:
   lift checkout-main   Lift Bash(git checkout main*) + Bash(git switch main*) denies temporarily.
   lift filter-branch   Lift Bash(git filter-branch*) deny temporarily.
   restore              Re-apply canonical wave-mode profile (no-op if already matches).
-  push-then-restore    Lift push deny, run git push origin main, restore in finally.
+  push-then-restore [--repo PATH] [--branch NAME]
+                       Lift push deny, run git push (default SLOP main; --repo pushes
+                       any Nnyan/* repo, e.g. /home/stack/v5), restore in finally.
 
 All operations are audited to docs/SANCTIONED-OPS-LOG.md.
 Every deny-lifting path is wrapped in try/finally — restore runs on success AND error.

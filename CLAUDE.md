@@ -81,8 +81,8 @@ it can go red.*
 **Corollary — cross-repo touchpoints.** A change to another repo (e.g. `v5` /
 slop-process, mediastack) is **owned and committed by the session that makes it**, then
 and there — never deferred to an unscheduled future session. The owning session commits
-it; the push rides the standard sanctioned channel (`tools/sanctioned/lift_push_restore.py`
-— it takes a `--repo`, so it is not SLOP-only). There is no hard "operator owns repo X"
+it; the push rides the standard sanctioned channel (`tools/sanctioned/robot_settings.py
+push-then-restore --repo <path>` — repo-agnostic, not SLOP-only). There is no hard "operator owns repo X"
 boundary: the commit needs no human, and the push is the same deny-lift the Manager
 already drives. "Operator owns repo X" is convention, and convention is a rot generator —
 reclassify it.

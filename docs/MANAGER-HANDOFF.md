@@ -121,7 +121,7 @@ reports to `.claude/run/status/<wave>.md` so you can monitor without being told 
    re-confirm the PINNED contracts + SHA-verify rider on `wave/S-74-deploy-hardening` (HEAD
    d6b93b1) — the coordinator already verified them (status file), so this is confirmation not
    re-derivation. `python3 tools/merge_wave_to_main.py wave/S-74-deploy-hardening`; push via
-   `/tmp/lift-push-restore.py all`.
+   `python3 tools/sanctioned/robot_settings.py push-then-restore`.
 2. **Sweep S-74.** Prune `wave/S-74-deploy-hardening` + A–D branches + any worktrees; archive
    run-state to `.claude/run-archive/`; correct the appended MERGE-LOG entry; flip the 6
    `[→ S-74]` BACKLOG entries to `[x]` + cross-ref `docs/DEPLOY.md` from the Rocinante entries.
@@ -153,7 +153,7 @@ ONE clean sanctioned merge) — the batch-6 MERGE-LOG entry is the worked exampl
 ### Sanctioned channel hierarchy
 - Merges to main → `tools/merge_wave_to_main.py` (runs ms-enforce branch-isolated, appends a MERGE-LOG entry to the working tree which YOU then commit/correct — push status + notes).
 - Settings lift/restore + force-push + filter-branch + rm-recursive → `tools/sanctioned/` (`robot_settings.py`, `force_push_tag.py`, `filter_branch_secret_scrub.py`, `rm_recursive_safe.py`).
-- Push to origin → `/tmp/lift-push-restore.py all` (lifts the push deny, pushes, restores).
+- Push to origin → `python3 tools/sanctioned/robot_settings.py push-then-restore [--repo PATH] [--branch NAME]` (lifts the push deny, pushes, restores in try/finally, audited to SANCTIONED-OPS-LOG). `--repo` pushes any `Nnyan/*` repo (e.g. `--repo /home/stack/v5`); default SLOP main. This SUPERSEDES the ephemeral `/tmp/lift-push-restore.py` (promoted 2026-05-30, generalized to `--repo`).
 - Canonical wave-mode deny profile → `.claude/settings-wave-mode-profile.json`.
 
 ### Cross-session HEAD safety (REINFORCED 2026-05-30 — bit us twice this session)
@@ -229,7 +229,10 @@ The user's "where do point-fixes hide structural patterns" analysis, updated 202
 - When they say "do this" they mean it; "think about this" wants analysis first.
 
 ## Helper scripts in `/tmp/` (verify with `ls /tmp/`; EPHEMERAL — not canonical)
-- `/tmp/lift-push-restore.py` — lift push-deny → push origin main → restore. KEEPER (your push path).
+- `/tmp/lift-push-restore.py` — **SUPERSEDED 2026-05-30** by `tools/sanctioned/robot_settings.py
+  push-then-restore` (canonical, audited, repo-agnostic via `--repo`). The `/tmp` copy is a stale
+  duplicate; do not use it. (It was load-bearing-in-`/tmp` — exactly the rot the "No phantom owners"
+  doctrine targets; promoting it into the toolkit closed that.)
 - `/tmp/fix-detached-head.py` — FF main from a detached commit; recovery template.
 
 ## Open follow-up items

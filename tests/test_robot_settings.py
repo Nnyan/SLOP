@@ -305,17 +305,23 @@ class TestLift:
 class TestPushThenRestore:
     """push-then-restore — push rules restored even on git push failure."""
 
-    def _make_fake_subprocess(self, push_returncode: int = 0):
-        """Return a fake subprocess module that intercepts git push and lets git rev-parse through."""
+    def _make_fake_subprocess(self, push_returncode: int = 0, captured: list | None = None):
+        """Return a fake subprocess module that intercepts git push and lets git rev-parse through.
+
+        Recognizes the `git -C <repo> push ...` form (not just bare `git push`) and, when
+        *captured* is provided, records each intercepted push's argv for assertions.
+        """
         real_run = subprocess.run
 
         def fake_run(args, **kwargs):
-            # Only intercept git push; let git rev-parse and others go through
-            if isinstance(args, (list, tuple)) and len(args) >= 2:
-                if args[:2] == ["git", "push"]:
-                    class _Result:
-                        returncode = push_returncode
-                    return _Result()
+            # Intercept git push in any form (incl. `git -C <repo> push ...`)
+            if isinstance(args, (list, tuple)) and len(args) >= 2 and args[0] == "git" and "push" in args:
+                if captured is not None:
+                    captured.append(list(args))
+
+                class _Result:
+                    returncode = push_returncode
+                return _Result()
             # Let git rev-parse and other git commands fail gracefully
             # (no real repo in tmp_path, so rev-parse will fail too)
             try:
@@ -376,6 +382,35 @@ class TestPushThenRestore:
         assert any(e["tool"] == "robot_settings" for e in captured), (
             "Expected robot_settings tool in audit entries"
         )
+
+    def test_push_then_restore_repo_and_branch_flags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--repo/--branch target the push at any repo (e.g. v5), not just SLOP main."""
+        _make_profile(tmp_path)
+        _make_settings(tmp_path, match_profile=True)
+        _patch_repo_root(monkeypatch, tmp_path)
+        _capture_audit_entries(monkeypatch)
+
+        pushes: list = []
+        monkeypatch.setattr(
+            robot_settings.subprocess, "run",
+            self._make_fake_subprocess(push_returncode=0, captured=pushes),
+        )
+
+        result = robot_settings.main(
+            ["push-then-restore", "--repo", "/home/stack/v5", "--branch", "main"]
+        )
+        assert result == 0
+        # exactly one push, targeting the requested repo + branch via git -C
+        assert pushes == [["git", "-C", "/home/stack/v5", "push", "origin", "main"]], pushes
+
+        # deny restored regardless
+        profile = json.loads(
+            (tmp_path / ".claude" / "settings-wave-mode-profile.json").read_text()
+        )
+        settings = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+        assert settings["permissions"] == profile["permissions"]
 
 
 # ── tests: unknown subcommand ─────────────────────────────────────────────────
