@@ -82,6 +82,16 @@ class StateError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Platform default constants — single source of truth for schema defaults
+# ---------------------------------------------------------------------------
+
+# Default user app config directory — matches schema.sql DEFAULT for config_root.
+# Referenced in CLAUDE.md "Three data directories" table and "Path layout" table.
+# See: backend/core/schema.sql (platform.config_root DEFAULT).
+DEFAULT_CONFIG_ROOT: str = "/srv/mediastack/config"
+
+
+# ---------------------------------------------------------------------------
 # Dataclasses — returned by StateDB methods, never raw sqlite3.Row
 # ---------------------------------------------------------------------------
 
