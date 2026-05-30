@@ -49,6 +49,24 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-30 — docs/wave-draft-deploy-hardening
+
+- **Method:** tools/merge_wave_to_main.py
+- **Operator/Caller:** stack
+- **Pre-merge main HEAD:** `6ab2f5c23a43595c01db04a02875631679eb3dd7`
+- **Branches merged (in order):**
+  1. `docs/wave-draft-deploy-hardening` → merge commit `b19958d1d09fe171f1c43a44a7d4850f9e6fd6d2`
+- **Post-merge main HEAD:** `b19958d1d09fe171f1c43a44a7d4850f9e6fd6d2`
+- **Pushed to origin:** no (push is operator-only)
+- **Pre-flight checks run:**
+  - working-tree: CLEAN
+  - branch-exists:docs/wave-draft-deploy-hardening: OK
+  - status:docs/wave-draft-deploy-hardening: no status file (skipped)
+  - diff:docs/wave-draft-deploy-hardening: OK (3 diff-stat lines)
+  - ms-enforce:docs/wave-draft-deploy-hardening: ────────────────────────────────────────────────────────────
+- **Notes:** merged docs/wave-draft-deploy-hardening → b19958d1d09fe171f1c43a44a7d4850f9e6fd6d2
+
+
 ## 2026-05-29 — wave/S-71-test-data-hygiene
 
 - **Method:** tools/merge_wave_to_main.py
