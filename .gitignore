@@ -85,6 +85,9 @@ data/state.db.bak.*
 # .claude/AUTONOMOUS-DEFAULTS.md.
 .claude/run/
 .claude/run-archive/
+# Runtime scheduler lock — ephemeral, never shared (else it trips the Ring-0
+# uncommitted-WIP check in check_push_status.sh as a false positive).
+.claude/scheduled_tasks.lock
 
 # Tooling caches — local to each dev environment, never shared
 .mypy_cache/
