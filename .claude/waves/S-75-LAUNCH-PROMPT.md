@@ -40,8 +40,11 @@ Rules and the PINNED contracts. Per-stream models (from the wave's Model column)
 section) and D (inline annotations on different lines). Merge **E before D**; resolve
 with the PINNED ownership split as authority. All other files are disjoint.
 
-**Merge each stream** to the wave branch with `tools/merge_wave_to_main.py` (requires
-status=COMPLETE, ms-enforce green, conflict-abort). After all 5 land, apply the
+**Merge each stream into the wave branch in a dedicated detached-HEAD merge worktree**
+(`.claude/worktrees/merge-S-75`, never on `main` — the S-74 pattern), gating each merge
+on status=COMPLETE + ms-enforce-green + conflict-abort and logging an `S-75-MERGE-N.md`
+decision for any non-trivial resolution. **Do NOT use `tools/merge_wave_to_main.py` for
+stream→wave merges** — that tool is the Manager's wave→main channel only. After all 5 land, apply the
 **one-line cross-repo addition** to `/home/stack/v5/docs/tools/check_push_status.sh`
 (a new read-only `check_doc_reality` layer) directly — v5 is a separate repo, not
 worktree-able.

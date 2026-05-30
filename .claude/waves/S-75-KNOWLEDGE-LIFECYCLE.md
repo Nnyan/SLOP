@@ -218,7 +218,11 @@ they share only the PINNED contracts above, which are fixed text). Streams are
 file-disjoint except the two PINNED `CLAUDE.md` editors (E = new section, D = inline
 annotations on different lines) — the orchestrator merges E before D and resolves the
 single file at merge with the pinned ownership split as the authority. Merge each
-stream to the wave branch with `tools/merge_wave_to_main.py` (status=COMPLETE +
-ms-enforce-green + conflict-abort). After all merge, the orchestrator applies the
-one-line v5 hook addition. Do not push; the Manager reviews + merges to main, and
+stream **into the wave branch in a dedicated detached-HEAD merge worktree** (the S-74
+pattern — `.claude/worktrees/merge-S-75`, never on `main`), gating each merge on
+status=COMPLETE + ms-enforce-green + conflict-abort and logging an `S-75-MERGE-N.md`
+decision for any non-trivial resolution. `tools/merge_wave_to_main.py` is the
+**Manager's** wave→main channel only — the orchestrator does NOT use it for stream→wave
+merges. After all merge, the orchestrator applies the one-line v5 hook addition. Do not
+push; the Manager reviews + merges the wave branch to main with the sanctioned tool, and
 only after **S-74 has landed on main**.
