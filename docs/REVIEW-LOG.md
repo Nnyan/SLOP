@@ -4,6 +4,24 @@ Audit trail of independent reviews of significant changes — see CLAUDE.md § "
 
 ---
 
+## 2026-05-30 — Batch-11 (Enforcement-Lifecycle) wave DESIGN — pre-fire review
+
+- **Change:** the batch-11 wave design (`.claude/waves/BATCH-11-ENFORCEMENT-LIFECYCLE.md` + `BATCH-11-LAUNCH-PROMPT.md`) — High-complexity wave = a "significant change" requiring one independent review before firing.
+- **Reviewer:** fresh Opus adversarial subagent (derive-design-independently-from-the-audit-report-and-doctrine, THEN attack the drafts; verified load-bearing claims against live repo state). **Verdict: NEEDS-CHANGES** (3 blockers). Durable record: this entry (the subagent transcript was ephemeral; findings captured below per the committed-record rule).
+- **Key findings → reconciliation (all 11 ACCEPTED; applied to the wave file):**
+  - **R1 (BLOCKER)** undeclared 3-way `CLAUDE.md` collision (S5 F10 + S9 CatalogEntry/SoT + §3.6 prompt-doctrine). **Accepted** — verified S9's targets live at `CLAUDE.md:288,303-304`. Added `CLAUDE.md` + `ROBOT.md` to the shared-additive list with **region-pinned ownership** (S9 vs S11 vs S5) + keep-both.
+  - **R2 (BLOCKER)** §3.6 prompt-doctrine edit referenced but owned by no stream (phantom-owner). **Accepted** — assigned to S5 as an explicit deliverable.
+  - **R3 (BLOCKER)** F10 gate can't go RED — no on-disk "Manager-handoff prompt" artifact exists, so it's XREF/false-positive theater. **Accepted (sharpest finding)** — S11 now must FIRST canonicalize a Manager-handoff-prompt artifact (pinned filename + a back-reference token in the working prompt) as a PRECONDITION; only then can the gate ground existence + the back-reference. (Ironically reinforces F10's own thesis: the artifact must be a real thing.)
+  - **R4** S1's probe registry is built-from-scratch + enumeration under-specified. **Accepted** — S1 must enumerate the §4g brownout-prone probes + ship a schema doc.
+  - **R5** merge-worktree base ambiguity (ROBOT.md hardcodes `--detach origin/main`; Phase-2 must detach from `wave/batch-11` or silently drop S1). **Accepted** — pinned in wave + launch prompt.
+  - **R6** `.handoff-sha` auto-stamp owner unpinned. **Accepted** — pinned to S5 (it's a `merge_wave_to_main.py` edit = S5's file).
+  - **R7** S2 mediastack queue file unresolved (registry-rot hole). **Accepted** — S2 must resolve it or land the row INDETERMINATE+BACKLOG, not a silent TODO.
+  - **R8** S5 overloaded → split F10 into its own stream. **Accepted** — F10 split into **S11** (10→11 streams); cleaner region ownership.
+  - **R9** S4's hook-config probe needs S1's registry to be an OPEN SEAM. **Accepted** — S1 contract now mandates the open-seam append mechanism (S2/S4 use it).
+  - **R10** `audit_single_entity_hardcode.py` (BACKLOG:58) had no owning stream (dropped). **Accepted** — assigned explicitly to S6.
+  - **R11** launch prompt inherited R1/R5 gaps. **Accepted** — folded the keep-both + detach-from-batch-branch one-liners into the launch prompt.
+- **Outcome:** all blockers + should-fixes folded in; design is now FIRE-READY. Depth-1 (no review-of-the-review; residual synthesis risk rides batch-11's own pre-flight + Manager batch-landing review).
+
 ## 2026-05-30 — LR-1 grounded fix: `check_handoff_freshness` brownout closure
 
 - **Change:** rewrote `tools/check_handoff_freshness.py` to read a committed `.handoff-sha` artifact (absence → DRIFT) instead of parsing a deletable prose bullet from `docs/MANAGER-HANDOFF.md`; added the `.handoff-sha` artifact. Closes the LIVE-RED brownout — the gate had been permanently INDETERMINATE since commit `95dc0e0` deleted the parseable bullet, so a GROUND gate silently returned "not red."
