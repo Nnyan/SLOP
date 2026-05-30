@@ -8,7 +8,7 @@ S-75 (batch-10) only fires after this has landed on main.
 in Robot mode: you are the orchestrator for the SLOP batch-9 run —
 ONE wave, 4 independent streams to fire concurrently.
 
-main is at origin/main commit 55fa798. Re-confirm with
+main is at origin/main commit 203c6c7. Re-confirm with
 `git rev-parse origin/main` at startup and rebase the wave branch if
 main has advanced.
 
