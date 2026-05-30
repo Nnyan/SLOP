@@ -257,7 +257,7 @@ Steps in `operation_steps` DB table. `clear_op_steps()` runs before each new ins
 | `/var/lib/mediastack/` | Runtime data, DB, compose fragments (MS_DATA_DIR) |
 | `/var/lib/mediastack/compose/` | Per-app docker-compose fragments |
 | `/opt/mediastack/.env` | Secrets + config (env_file) |
-| `config.config_root` | User app config dirs (set by wizard, stored in platform DB) |
+| `config.config_root` | User app config dirs (set by wizard, stored in platform DB; default `/srv/mediastack/config` — see `DEFAULT_CONFIG_ROOT` in `backend/core/state.py`) |
 
 ## Apply scripts / SSH
 
@@ -285,7 +285,9 @@ Stable architectural truths. Moved here from HANDOFF.md on 2026-05-24 (S2a split
 |------|---------|
 | `/opt/mediastack/` | Code + venv (install_dir) |
 | `/var/lib/mediastack/` | Runtime data, DB, compose fragments (MS_DATA_DIR via systemd) |
-| `/srv/mediastack/config` | User app config dirs (set via wizard, stored in platform DB + .env) |
+| `/srv/mediastack/config` | User app config dirs (set via wizard, stored in platform DB + .env) — default value; wizard-editable |
+
+The `/srv/mediastack/config` path is the schema default (see `backend/core/schema.sql` platform.config_root DEFAULT). The SoT constant is `DEFAULT_CONFIG_ROOT` in `backend/core/state.py`. The "Path layout" table above uses `config.config_root` to denote the runtime value, which may differ from the default if the wizard was configured otherwise.
 
 **Vue view files — NO business logic.** See above. Rule-007 gates new files at 600 lines.
 
@@ -300,8 +302,12 @@ from `.env` (which the app reads only via Starlette `Config`, never into `os.env
 described an older layout and was false — verified on the Rocinante test server. Known
 `ms-update`/ownership/port bugs tracked in `docs/BACKLOG.md` §"From Rocinante deploy session".)
 
-**Catalog has two `CatalogEntry` definitions** — `loader.py` dataclass AND `catalog.py` Pydantic
-response model. Field sync is enforced by tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync (S-55-B). <!-- verify: grep -q "class CatalogEntry" backend/api/catalog.py && echo OK -->
+**Catalog entry shape is split across two artefacts** — the `AppManifest` dataclass in
+`loader.py` (which owns `to_catalog_entry()`) AND the `CatalogEntry` Pydantic response
+model in `catalog.py`. There is no `CatalogEntry` class in `loader.py`; the loader's
+class is `AppManifest`. Field sync (every key returned by `to_catalog_entry()` must be a
+field in `CatalogEntry`) is enforced by
+tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync (S-55-B). <!-- verify: grep -q "class CatalogEntry" backend/api/catalog.py && echo OK -->
 
 **Custom install flow (two steps)**:
 1. `POST /api/v1/apps/install-custom` → registers manifest in `catalog/community/` — returns `{key}`.
