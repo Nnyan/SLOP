@@ -21,11 +21,19 @@ this map; fresh sessions do the drafting.
    churn, `.env`-vs-systemd config, port-var mismatch). Near-term: a broken deploy
    path is operationally higher-priority than the deferred enforcement work. Brief
    in "Wave 4" below; status/lessons in `docs/BACKLOG.md` §"From Rocinante deploy session".
-4. **Later = Enforcement-Lifecycle (S-70+S-72)**, once the ~11 warn-only gates and
-   the doctrine have *aged enough to have signal* (an aging policy needs history;
-   the S-69 gates just shipped). Plant-now-harvest-later. (Bumped from batch-9 → batch-10
-   when DEPLOY-HARDENING took the near-term slot.)
-5. **Done = direct small-fix** the `scrub.py::is_external` egress-scrub leak (`cb58f70`).
+4. **Batch-10 = KNOWLEDGE-LIFECYCLE (S-75)** — ADDED 2026-05-29 from the K-L audit
+   (`docs/KNOWLEDGE-LIFECYCLE-AUDIT.md` charter + `docs/KNOWLEDGE-LIFECYCLE-AUDIT-REPORT.md`).
+   Two-owner reality-reconciliation + GROUND-vs-XREF discipline + gap-discovery ritual.
+   **HARD-sequences after S-74** (shared `CLAUDE.md` deploy section; host-probe needs
+   S-74's update path). Wave + launch prompt on main, fire-ready after batch-9 lands.
+5. **Batch-11 (deferred) = Enforcement-Lifecycle (S-70+S-72)**, once the warn-only gates
+   and the doctrine have *aged enough to have signal* (an aging policy needs history;
+   the gate count GREW this session — S-71's `check_test_isolation` + S-75's new gates —
+   so even less aged signal; deferral reinforced). Plant-now-harvest-later. NOT drafted.
+   It absorbs S-75's forward-compatible **aging-engine** design contract and adds the
+   4th aging leg (probes age, per the K-L audit) alongside gates/doctrine/facts. Two
+   low-effort adjacents ride along: the pre-commit ratchet hook + `check_provenance` gate.
+6. **Done = direct small-fix** the `scrub.py::is_external` egress-scrub leak (`cb58f70`).
 
 Velocity alternative: S-73 + Test-Data-Hygiene could co-batch in batch-7, but then
 Test-Data is authored before S-73 lands (no new template). Default is sequenced.
