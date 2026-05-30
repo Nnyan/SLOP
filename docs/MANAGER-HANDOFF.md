@@ -17,7 +17,14 @@ You are NOT a Robot mode orchestrator. Orchestrators are fired in SEPARATE fresh
 
 You are NOT a wave-drafting or audit session either; those are also separate fresh sessions.
 
-## Current state (as of 2026-05-30 — S-74 + S-75 BOTH LANDED; the combined audit is UNGATED + ready to fire)
+## Current state (as of 2026-05-30 — S-74 + S-75 LANDED; combined audit CLOSED + report landed on main; batch-11 DRAFTED; LR-1 fixed)
+
+**Handoff-freshness now grounded on `.handoff-sha` (LR-1 fix):** the origin/main SHA
+this handoff was refreshed against lives in the committed `.handoff-sha` file, NOT in
+prose here. `check_handoff_freshness` reads that artifact (absence → DRIFT). Right after
+a batch lands, the gate legitimately reads DRIFT ("refresh the handoff") until the next
+refresh bumps `.handoff-sha` — that is the designed nudge, not a defect. Always
+`git rev-parse origin/main` to confirm live state.
 
 **VERIFY, don't trust these SHAs (stale by read-time — handoff doctrine):** `git rev-parse origin/main`;
 `git -C /home/stack/code/slop status`; `git worktree list` (expect only the main checkout); `ls
@@ -37,22 +44,25 @@ You are NOT a wave-drafting or audit session either; those are also separate fre
   cross-repo touchpoint. NOTE: the orchestrator wrote its closing status under the FULL wave name
   (`.claude/run-archive/2026-05-30-batch10/status/S-75.md`, archived) not the conventional short name —
   a status-filename gap, logged as Track-B evidence for the handoff audit.
-- **🟢 Combined Coverage+Handoff AUDIT — UNGATED + READY TO FIRE (your first job).** S-74 AND S-75 are
-  both on main, so the hard gate is cleared. Charter `docs/COVERAGE-HANDOFF-AUDIT.md` + launch prompt
-  `.claude/waves/COVERAGE-HANDOFF-AUDIT-LAUNCH-PROMPT.md` are finalized. Track A = coverage-completeness
-  (every KNOWN tiered invariant reconciled/gated) + TWO folded-in hunt targets: **(i) operator-owned
-  blast-radius** and **(ii) single-entity-hardcoded tools/gates** (honoring recorded scope-reasons).
-  Track B = handoff integrity (longitudinal). READ-ONLY; commits a report to branch
-  `docs/audit-coverage-handoff`; does NOT merge. Present its prompt to the operator. Output = ONE report
-  + ONE blast-radius list → batch-11.
-- **⏸ Batch-11 = ENFORCEMENT-LIFECYCLE — drafted AFTER the audit reports. Scope GREW this session.** It
-  now absorbs, all `[→ batch-11]` in BACKLOG: the S-70+S-72 aging core; `check_backlog_stale`
-  blast-radius (triage-queue registry across repos); `tools/audit_single_entity_hardcode.py` (the
-  reuse/blast-radius red-signal, with the recorded-reason exemption); `check_independent_review` gate +
-  artifact-existence GROUND leg; the audit's own blast-radius targets; the orchestrator status-protocol
-  template additions; the provenance + pre-commit-ratchet-hook adjacents. Re-eval checkpoint 2026-07-15.
-  **The batch-11 wave DESIGN is itself a "significant change" → give it one independent review before
-  firing** (new doctrine, below).
+- **✅ Combined Coverage+Handoff AUDIT — CLOSED + report landed on main.** Ran 2026-05-30 (fresh Opus
+  Auditor-Manager + 7 read-only investigators + blind-spot critic). Deliverable
+  `docs/COVERAGE-HANDOFF-AUDIT-REPORT.md` (both tracks + critic + P0–P9 + co-batching) committed on
+  branch `docs/audit-coverage-handoff` and merged to main with this batch. Unifying finding: the
+  **"GROUND-gate brownout"** (absence-of-ground returns the same color as a match). **Two LIVE-RED on
+  main:** LR-1 (`check_handoff_freshness` defeated by the `95dc0e0` prose rewrite) — **FIXED this session**
+  (grounded on `.handoff-sha`); LR-2 (`slop-reality-probe` never installed → S-75 reconciler touches zero
+  physics, rc=127) — **OWED to the operator** (install on the host + put on the deploy path; see Open
+  follow-ups). **F10** (the two-session / Manager-handoff-artifact gap — a Manager handoff must emit a
+  distinct Manager-handoff prompt, not just the working launch prompt) was MISSED by the audit's Track B
+  and caught at Manager review → folded into batch-11 S5 (BACKLOG).
+- **🟢 Batch-11 = ENFORCEMENT-LIFECYCLE — DRAFTED + fire-ready pending its pre-fire design review.** Wave
+  file `.claude/waves/BATCH-11-ENFORCEMENT-LIFECYCLE.md` (10 streams, P0/S1 aging-engine hard-first) +
+  single-orchestrator launch prompt `.claude/waves/BATCH-11-LAUNCH-PROMPT.md`. Absorbs the audit's P0–P9
+  + all `[→ batch-11]` BACKLOG items (S-70+S-72 aging core = P0/S1; `check_backlog_stale` registry;
+  `audit_single_entity_hardcode.py`; `check_independent_review` + artifact-existence leg; status-protocol
+  additions; provenance + pre-commit-hook adjacents; the 42-finding drain; F10). **OWED before the
+  operator fires it:** one independent review of the wave DESIGN (BACKLOG `[→ batch-11 — OWED before
+  firing]`, ages red under `check_backlog_stale`). Re-eval checkpoint 2026-07-15.
 
 **NEW DOCTRINE enshrined this session (all in CLAUDE.md — READ them; each was independently reviewed):**
 - **No phantom owners; no silently-trusted manual step** — every operator-owned/deferred item resolves
@@ -110,7 +120,7 @@ CLAUDE.md" park's trigger has FIRED (S-55-B landed) → needs a decision at the 
 11. **`docs/WALK-BACK-LOG.md`** + **`docs/ACCESS-REQUESTS.md`** — doctrine-removal log; install/allow queue.
 (Batch-6/7/8/9/10 wave files are landed/spent — don't re-fire.)
 
-## Immediate next actions (S-74 + S-75 landed; your first job is to FIRE THE COMBINED AUDIT)
+## Immediate next actions (audit CLOSED + landed; batch-11 DRAFTED; your first job is the batch-11 pre-fire review, then fire it)
 
 **Two-session model — the operator runs the orchestrators, not you.** YOU generate + finalize each
 launch prompt and PRESENT it in a `====` block (prompt-formatting doctrine); the operator opens a FRESH
@@ -121,16 +131,15 @@ status filename isn't pinned — glob both the short AND full wave name when loo
 0. **VERIFY state first — do not trust the SHAs above.** `git rev-parse origin/main`; `git status`;
    `git worktree list` (expect only the main checkout); `ls .claude/run/status/` (empty = no active
    wave); read `docs/MERGE-LOG.md` + `docs/REVIEW-LOG.md` for what landed.
-1. **Fire the combined Coverage+Handoff audit** (UNGATED — S-74 + S-75 are both on main). Present
-   `.claude/waves/COVERAGE-HANDOFF-AUDIT-LAUNCH-PROMPT.md`. It is read-only, commits a report to branch
-   `docs/audit-coverage-handoff`, does NOT merge. When it closes, review its report + ONE blast-radius
-   target list. (Its Track A already carries the operator-owned + single-entity-hardcode hunt targets.)
-2. **Draft batch-11 (accelerated)** from the audit's targets + the already-queued `[→ batch-11]` items
-   (the `check_backlog_stale` registry, `audit_single_entity_hardcode.py`, `check_independent_review` +
-   GROUND leg, the S-70+S-72 aging core, the orchestrator status-protocol template additions, the
-   provenance + ratchet-hook adjacents). Max stream parallelism. **The batch-11 wave DESIGN is a
-   "significant change" → per CLAUDE.md § "Independent review for significant changes", give it one
-   independent review (REVIEW-LOG entry) before firing.**
+1. **Run the batch-11 pre-fire independent review** (OWED — BACKLOG `[→ batch-11 — OWED before firing]`).
+   The wave DESIGN is High-complexity = a "significant change" → one fresh-Opus adversarial review +
+   `docs/REVIEW-LOG.md` entry (grounded on a committed record) BEFORE presenting the launch prompt. Then
+   present `.claude/waves/BATCH-11-LAUNCH-PROMPT.md` (single orchestrator, 10 streams, P0/S1 hard-first)
+   to the operator for a fresh session. The audit (CLOSED) + batch-11 drafts already landed on main.
+2. **LR-2 is OWED to the operator** — install `slop-reality-probe` on the Rocinante host and add it to
+   the automated deploy path (`deploy_lib.sh` / `DEPLOY.md`) so the S-75 reconciler touches physics again
+   (today rc=127 → 0 verified, exits 0). Until then doc-vs-reality stays INDETERMINATE. See Open
+   follow-ups + memory `project-rocinante-deploy`.
 3. **Each batch landing:** sweep (prune branches/worktrees, archive run-state to `.claude/run-archive/`,
    correct the MERGE-LOG entry), BACKLOG re-annotation, retro. **At 2026-07-15:** re-triage all parked
    items per the strengthened rule (the "Split CLAUDE.md" park trigger has already FIRED).
