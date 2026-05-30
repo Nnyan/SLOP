@@ -107,6 +107,12 @@ checkpoint. See BACKLOG "Park backstop".
 
 ## Immediate next actions (S-74 executed; your first job is to review+merge it)
 
+**Two-session model — the operator runs the orchestrators, not you.** For S-75, the combined
+audit, and batch-11 below: YOU generate + finalize the launch prompt and PRESENT it to the operator
+in a `====` block (prompt-formatting doctrine) — the operator opens a FRESH session to run it. You
+coordinate, review, and merge; you never run a wave/batch/audit yourself. (The orchestrator self-
+reports to `.claude/run/status/<wave>.md` so you can monitor without being told fired/closed.)
+
 0. **VERIFY before acting — do not trust the SHA/liveness above.** `git switch main`;
    `git rev-parse origin/main`; confirm no orchestrator owns the checkout (`git worktree list`,
    `git branch --list '*S-74*'`, `.claude/run/status/`, `.claude/run/blockers/`). **READ the S-74
@@ -121,7 +127,12 @@ checkpoint. See BACKLOG "Park backstop".
    `[→ S-74]` BACKLOG entries to `[x]` + cross-ref `docs/DEPLOY.md` from the Rocinante entries.
    **ALSO in this sweep (owed):** (a) land the `check_backlog_stale` blast-radius BACKLOG item
    (memory `project-backlog-stale-gate-blast-radius`), routed to batch-11; (b) commit the combined-
-   audit charter + launch prompt to `.claude/waves/` (design in the two audit memories).
+   audit charter + launch prompt to `.claude/waves/` (design in the two audit memories) — and WIRE IN
+   the orchestrator status-protocol additions (memory `project-handoff-integrity-audit`): a fixed top
+   line `**State:** RUNNING→COMPLETE|BLOCKED|NEEDS-INPUT|CLOSED`, a non-blocking
+   `.claude/run/questions/<wave>.md` channel (log the question + the AUTONOMOUS-DEFAULTS decision
+   taken, never block), and "set `**State:** CLOSED` as the final action before ending." Bake the same
+   three into the `.claude/ROBOT.md` orchestrator template as part of batch-11.
 3. **Fire batch-10 (S-75) — ONLY after S-74 is on main.** Paste `.claude/waves/S-75-LAUNCH-PROMPT.md`
    into a fresh Opus orchestrator. Review + merge as above. AFTER merge, apply the one-line v5-hook
    touchpoint (Stream B; v5 isn't worktree-able — edit directly).
