@@ -1788,6 +1788,59 @@ def check_fact_freshness() -> tuple[bool, str]:
     return True, "\n".join(parts)  # always True — warn-only
 
 
+def check_probe_aging() -> tuple[bool, str]:
+    """Tier 1 (BATCH-11 S1, P0): GROUND-gate brownout detector — warn-only.
+
+    Shells out to tools/audit_probe_aging.py, which runs every probe registered
+    in tools/probe_registry.json (an OPEN SEAM — see docs/PROBE-REGISTRY.md) and
+    records per run whether each reached GROUND (verified/DRIFT) or browned out
+    (INDETERMINATE/unparseable/missing-input/no-date/configured-host-rc127/
+    wrong-target).  A probe with NO ground-touch in N consecutive runs ages to
+    DRIFT — closing the "GROUND-gate brownout" class (report §4g) for all probes
+    at once.
+
+    Non-hook trigger: this is a plain TIER_1 check; it does NOT depend on S4's
+    session-boundary hooks.
+
+    Vocabulary: GROUND = touches physics (may say verified or DRIFT).
+    INDETERMINATE is red-eligible after N runs.  "A green light is only
+    trustworthy if it can go red against physics."
+
+    Always returns True (warn-only TIER_1).  Does NOT auto-promote to blocking —
+    promotion is a later deliberate recorded act (Enforcement-Lifecycle).
+    """
+    script = REPO / "tools" / "audit_probe_aging.py"
+    if not script.exists():
+        return True, "audit_probe_aging.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO), "--record"], timeout=120)
+
+    drift_lines = [ln for ln in out.splitlines() if ln.startswith("DRIFT:")]
+    brownout_lines = [ln for ln in out.splitlines() if ln.startswith("BROWNOUT:")]
+    ground_lines = [ln for ln in out.splitlines() if ln.startswith("GROUND-TOUCH:")]
+    ratchet_warnings = [ln for ln in out.splitlines() if ln.startswith("WARNING:")]
+
+    parts: list[str] = []
+    if ground_lines:
+        parts.append(f"{len(ground_lines)} probe(s) touched GROUND")
+    if brownout_lines:
+        parts.append(f"{len(brownout_lines)} probe(s) browned out this run")
+    if drift_lines:
+        parts.append(f"WARNING — {len(drift_lines)} probe(s) aged to DRIFT:")
+        parts.extend(f"    {ln[:120]}" for ln in drift_lines[:5])
+        if len(drift_lines) > 5:
+            parts.append(f"    ... and {len(drift_lines) - 5} more")
+    for w in ratchet_warnings:
+        parts.append(f"WARNING — {w[:120]}")
+
+    if not parts:
+        return True, "probe-aging: no findings"
+    return True, "\n".join(parts)  # always True — warn-only
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1861,6 +1914,8 @@ TIER_1: list[tuple[str, object]] = [
     # ── fact-store freshness (S-75-D) ─────────────────────────
     ("Fact-store freshness / verify-probe (warn only)", check_fact_freshness),
     # ── end S-75-C ─────────────────────────────────────────────────────────
+    # ── probe-aging / GROUND-gate brownout detector (BATCH-11 S1, P0) ──────
+    ("Probe aging — GROUND-gate brownout detector (warn only)", check_probe_aging),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),

@@ -1,0 +1,51 @@
+{
+  "_README": "OPEN SEAM — see docs/PROBE-REGISTRY.md before appending. Append one row per registered probe to the 'probes' list; do NOT edit tools/audit_probe_aging.py logic. The aging engine runs each row's cmd, classifies the outcome as a GROUND touch (verified/DRIFT) or a brownout (INDETERMINATE/unparseable/missing-input/no-date/configured-host-rc127), and records it in .probe-health-baseline.json. A probe with NO ground-touch in N consecutive runs ages to DRIFT.",
+  "_schema_version": 1,
+  "probes": [
+    {
+      "id": "check_handoff_freshness",
+      "physics": "git rev-parse origin/main vs committed .handoff-sha (git + filesystem)",
+      "cmd": "python3 tools/check_handoff_freshness.py",
+      "ground_tokens": ["verified", "DRIFT"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "note": "F7: prose-rewrite defeat closed on main (241be73); reads committed .handoff-sha, absence -> DRIFT (a GROUND verdict), only an unreachable origin -> INDETERMINATE."
+    },
+    {
+      "id": "audit_doc_reality",
+      "physics": "doc claims reconciled vs the live host via operator ambient SSH (slop-reality-probe on the host)",
+      "cmd": "python3 tools/audit_doc_reality.py --repo .",
+      "ground_tokens": ["verified", "DRIFT", "INCONSISTENT"],
+      "brownout_tokens": ["INDETERMINATE", "unreachable", "not present", "skip"],
+      "host_configured": false,
+      "note": "S-75 / LR-2: rides operator ambient SSH. NO host configured + unreachable -> quiet INDETERMINATE (do not cry wolf headless). A CONFIGURED host whose probe returns rc127 (slop-reality-probe not installed) -> DRIFT (should be installed)."
+    },
+    {
+      "id": "audit_status_file_freshness",
+      "physics": "status file presence + mtime + parseable State marker on the filesystem",
+      "cmd": "python3 tools/audit_status_file_freshness.py --repo .",
+      "ground_tokens": ["verified", "DRIFT", "fresh", "stale", "OK:"],
+      "brownout_tokens": ["INDETERMINATE", "unparseable"],
+      "host_configured": false,
+      "note": "report 4g (:200): an unparseable status file -> continue collapses absence-of-ground to the match color. 'OK:' counts as a ground touch (the tool read the run dir); the genuine unparseable-continue leg is S3's source-level fix. Until then the engine cannot distinguish a clean read from an unparseable-skip via output alone — documented limitation."
+    },
+    {
+      "id": "audit_backlog_stale_dateless",
+      "physics": "BACKLOG.md [park] entries parsed for a re-eval date on the filesystem",
+      "cmd": "python3 tools/audit_backlog_stale.py --repo .",
+      "ground_tokens": ["verified", "DRIFT", "stale", "WARNING", "OK:"],
+      "brownout_tokens": ["INDETERMINATE", "dateless", "no-date"],
+      "host_configured": false,
+      "note": "report 4g (:21): the dateless [park] leg skips rather than going red — the no-date brownout. 'OK:' counts as a ground touch (the tool read BACKLOG.md); the dateless-skip leg is S3's source-level fix."
+    },
+    {
+      "id": "slop_reality_probe_port",
+      "physics": "/proc/net/tcp{,6} LISTEN sockets, resolved to SLOP's target port (8080)",
+      "cmd": "python3 slop-reality-probe --port 8080",
+      "ground_tokens": ["bound_port"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "wrong_target": {"json_field": "bound_port", "wrong_values": [22], "note": "bound_port==22 (sshd, the lowest LISTEN socket) means the probe emitted a value for the WRONG target — a registry-trackable WRONG-PHYSICS defect, classified as a brownout, NOT a pass. Fixed in slop-reality-probe (_probe_bound_port targets 8080); tracked here so a regression ages red."}
+    }
+  ]
+}
