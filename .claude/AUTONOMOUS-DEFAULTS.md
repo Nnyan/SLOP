@@ -584,6 +584,31 @@ enforcement with `check_backlog_stale` (S-69-A)
 
 ---
 
+## Category: no phantom owners / operator-owned reclassification
+
+See CLAUDE.md § "No phantom owners; no silently-trusted manual step" for the rule.
+
+### A cross-repo touchpoint surfaces mid-session (e.g. a `v5` hook edit)
+**Default:** COMMIT it in the session that made it — do NOT defer it to "the operator's
+docs work" or any unscheduled future session (that is a phantom owner; the change rots
+uncommitted, as the S-75 `v5` hook one-liner did). The committing session owns it; push
+via `tools/sanctioned/lift_push_restore.py --repo <path>` (the deny-lift is repo-agnostic;
+the same SSH identity pushes all `Nnyan/*` remotes). The only thing that is genuinely
+operator-gated is a *decision* (what/when), never the mechanical commit/push.
+**Escalate when:** the touchpoint is itself a *decision* (e.g. should this hook run at
+all), not a mechanical edit — surface that decision to the operator; the edit's *landing*
+is still the session's job once the decision is made.
+
+### An item is about to be marked operator-owned / deferred
+**Default:** Before filing anything as "operator does later," apply the three-way test:
+(a) can it be done now? do it. (b) is there a real owner + real trigger? name both.
+(c) else attach a freshness signal that goes red when stale. A manual step with none of
+the three is not "deferred," it is orphaned — reject that state, same as a bare `[ ]`.
+→ governed by CLAUDE.md § "No phantom owners"; shares enforcement intent with the
+coverage-completeness audit (every operator-owned item reclassified or red-signal-gated).
+
+---
+
 ## How to add an entry
 
 When a Robot run produces a decision file marked "not covered by defaults",

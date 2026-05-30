@@ -61,6 +61,34 @@ This rule was lost briefly between Round 2 and the planned next batch (one
 orchestrator-per-wave prompts were drafted by mistake). The pattern is
 documented here so future sessions generating prompts do not deviate.
 
+## No phantom owners; no silently-trusted manual step
+
+Deferring work to "later, when someone does the related thing" is **not** assigning an
+owner — it orphans the work, which then rots unmonitored. Every operator-owned or
+deferred item must resolve to one of:
+
+- **(a)** done **now**, by the session that surfaced it;
+- **(b)** a **real owner** (a role/session actually scheduled to act) plus a **real
+  trigger** (a date or a measurable event); or
+- **(c)** a **freshness signal that goes red when it goes stale**.
+
+"The operator will do it with their docs work," "fire when the signal accrues," and an
+ownerless `[park]` are the same defect — a phantom owner. An operator-owned step with no
+red-when-stale signal is a coverage gap of the same class as an unreconciled state tier.
+This composes with the K-L keystone below: *a manual step is only "covered" if skipping
+it can go red.*
+
+**Corollary — cross-repo touchpoints.** A change to another repo (e.g. `v5` /
+slop-process, mediastack) is **owned and committed by the session that makes it**, then
+and there — never deferred to an unscheduled future session. The owning session commits
+it; the push rides the standard sanctioned channel (`tools/sanctioned/lift_push_restore.py`
+— it takes a `--repo`, so it is not SLOP-only). There is no hard "operator owns repo X"
+boundary: the commit needs no human, and the push is the same deny-lift the Manager
+already drives. "Operator owns repo X" is convention, and convention is a rot generator —
+reclassify it.
+
+This is an addition/strengthening, not a walk-back (no WALK-BACK-LOG entry required).
+
 ## Knowledge-Lifecycle & reconciliation
 
 SLOP is reliable where truth is **derived/reconciled against physical ground truth
