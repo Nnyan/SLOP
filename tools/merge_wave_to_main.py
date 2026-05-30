@@ -366,6 +366,170 @@ def _do_merge(branch: str) -> tuple[bool, list[str]]:
     return False, conflicting
 
 
+# ── promotion-reconciliation (S-75-C) ─────────────────────────────────────────
+#
+# Purpose: before any prune of .claude/run-archive/, surface any run finding
+# (observation / decision) that was never promoted into a tracked doc.
+# A finding is "un-promoted" if NONE of the four tracked docs contain any
+# non-trivial token from the finding's first non-empty text line (XREF-class:
+# text-presence check, not physics).  This closes the one-way gitignored drain.
+#
+# Promotion-to-blocking trigger: promote to blocking when an un-promoted finding
+# that later caused a regression is documented in docs/WALK-BACK-LOG.md.
+# Current tier: warn-only (always returns without raising).
+#
+# Tracked docs scanned:
+#   docs/BACKLOG.md, docs/MERGE-LOG.md, docs/WALK-BACK-LOG.md, docs/MAP.md
+#
+_TRACKED_DOCS: list[Path] = [
+    Path("docs/BACKLOG.md"),
+    Path("docs/MERGE-LOG.md"),
+    Path("docs/WALK-BACK-LOG.md"),
+    Path("docs/MAP.md"),
+]
+
+# Minimum token length to avoid trivial matches on short words like "the", "a"
+_MIN_TOKEN_LEN = 6
+
+# Finding dirs scanned within each batch dir under .claude/run/ and run-archive/
+_FINDING_SUBDIRS = ["observations", "decisions"]
+
+
+def _read_tracked_docs(repo_root: Path) -> str:
+    """Return concatenated text of all tracked docs (best-effort, missing → skip)."""
+    parts: list[str] = []
+    for rel in _TRACKED_DOCS:
+        p = repo_root / rel
+        try:
+            parts.append(p.read_text(encoding="utf-8"))
+        except OSError:
+            pass
+    return "\n".join(parts)
+
+
+def _extract_tokens(line: str) -> list[str]:
+    """Return meaningful tokens from a line (length >= _MIN_TOKEN_LEN)."""
+    import re
+    tokens = re.findall(r"[A-Za-z0-9_\-\.]+", line)
+    return [t for t in tokens if len(t) >= _MIN_TOKEN_LEN]
+
+
+def _finding_is_referenced(finding_path: Path, tracked_text: str) -> bool:
+    """Return True if the finding's first non-empty content line has a token in tracked_text.
+
+    XREF-class: we search for text-presence only, not git-physics.  We use the
+    first non-empty line after the YAML front-matter (lines starting with "---")
+    as the "topic" of the finding.  If the first substantial content line
+    contains at least one token (length >= _MIN_TOKEN_LEN) that also appears
+    in the tracked docs, the finding is considered "referenced".
+
+    Returns True (no warn) also when:
+    - the file is empty or has only front-matter (nothing to promote)
+    - the file cannot be read
+    """
+    try:
+        text = finding_path.read_text(encoding="utf-8")
+    except OSError:
+        return True  # cannot read → be conservative, don't warn
+
+    lines = text.splitlines()
+    in_frontmatter = False
+    content_line: str | None = None
+    for ln in lines:
+        stripped = ln.strip()
+        if stripped == "---":
+            in_frontmatter = not in_frontmatter
+            continue
+        if in_frontmatter:
+            continue
+        if stripped.startswith("#") or stripped.startswith("##"):
+            # Take the heading as the topic line
+            if len(stripped.lstrip("# ")) >= _MIN_TOKEN_LEN:
+                content_line = stripped
+                break
+        elif stripped:
+            content_line = stripped
+            break
+
+    if not content_line:
+        return True  # nothing to check
+
+    tokens = _extract_tokens(content_line)
+    if not tokens:
+        return True  # no meaningful tokens
+
+    for token in tokens:
+        if token in tracked_text:
+            return True
+    return False
+
+
+def _enumerate_run_findings(repo_root: Path, batch_dirs: list[Path]) -> list[Path]:
+    """Return all finding files under the given batch dirs' observation/decision subdirs."""
+    findings: list[Path] = []
+    for batch_dir in batch_dirs:
+        for subdir_name in _FINDING_SUBDIRS:
+            subdir = batch_dir / subdir_name
+            if not subdir.is_dir():
+                continue
+            for f in sorted(subdir.iterdir()):
+                if f.is_file() and f.suffix in (".md", ".txt", ".json"):
+                    findings.append(f)
+    return findings
+
+
+def check_promotion_reconciliation(
+    repo_root: Path,
+    run_dir: Path | None = None,
+    archive_dirs: list[Path] | None = None,
+) -> list[str]:
+    """Enumerate run findings and warn on any with zero reference in tracked docs.
+
+    Returns a list of warning strings (empty = all findings promoted or no findings).
+
+    This is XREF-class (text-presence, not git-physics): a finding is "referenced"
+    if the tracked docs contain at least one meaningful token from the finding's
+    first non-empty content line.
+
+    Scans:
+      .claude/run/<batch>/observations/  and  .claude/run/<batch>/decisions/
+      .claude/run-archive/<batch>/observations/  and  .claude/run-archive/<batch>/decisions/
+    """
+    if run_dir is None:
+        run_dir = repo_root / ".claude" / "run"
+    if archive_dirs is None:
+        archive_dirs = [repo_root / ".claude" / "run-archive"]
+
+    tracked_text = _read_tracked_docs(repo_root)
+
+    # Collect all batch dirs to scan
+    batch_dirs: list[Path] = []
+    if run_dir.is_dir():
+        batch_dirs.append(run_dir)  # scan top-level run dir directly too
+        for sub in sorted(run_dir.iterdir()):
+            if sub.is_dir() and sub.name not in ("status", "blockers", "preflight"):
+                batch_dirs.append(sub)
+    for archive_base in archive_dirs:
+        if archive_base.is_dir():
+            for sub in sorted(archive_base.iterdir()):
+                if sub.is_dir():
+                    batch_dirs.append(sub)
+
+    findings = _enumerate_run_findings(repo_root, batch_dirs)
+
+    warnings: list[str] = []
+    for finding in findings:
+        if not _finding_is_referenced(finding, tracked_text):
+            rel = finding.relative_to(repo_root) if finding.is_relative_to(repo_root) else finding
+            warnings.append(
+                f"WARNING [promotion-reconciliation] un-promoted finding: {rel} "
+                f"— no token from first content line found in "
+                f"BACKLOG/MERGE-LOG/WALK-BACK-LOG/MAP. "
+                f"Promote this finding before pruning run-archive."
+            )
+    return warnings
+
+
 # ── audit log ─────────────────────────────────────────────────────────────────
 
 def _append_audit_entry(
@@ -635,6 +799,23 @@ def main(argv: list[str] | None = None) -> int:
         timestamp=timestamp,
     )
     _info(f"Audit entry appended to {merge_log_path}")
+
+    # ── Phase 4 (S-75-C): Promotion-reconciliation — warn on un-promoted findings ─
+    # Run after a successful merge, before any caller prunes .claude/run-archive/.
+    # Warn-only: never blocks the merge. XREF-class: text-presence in tracked docs.
+    if merge_succeeded:
+        print()
+        print("=== PROMOTION-RECONCILIATION ===")
+        promo_warns = check_promotion_reconciliation(repo_root)
+        if promo_warns:
+            for w in promo_warns:
+                print(f"  {w}")
+            print(
+                f"  ({len(promo_warns)} un-promoted finding(s) above — "
+                "promote to BACKLOG/MERGE-LOG/WALK-BACK-LOG/MAP before pruning run-archive)"
+            )
+        else:
+            _info("promotion-reconciliation: all findings referenced in tracked docs (or no findings)")
 
     # ── Done ─────────────────────────────────────────────────────────────────
     print()

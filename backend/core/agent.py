@@ -51,6 +51,20 @@ AGENT_INTEGRITY_KEY: str = "enforcement_coverage"
 HEALTH_CHECK_AGENT_STATUS: str = "agent_status"
 
 
+def get_reality_view() -> dict[str, Any]:
+    """Return the SLOP Agent's RealityView of the running instance (GROUND data).
+
+    Thin re-export of ``backend.core.reality_view.assemble_live_reality_view``
+    so the agent module stays the single entry point for the executive-manager
+    surface while the RealityView assembly lives in its own module (file-size
+    discipline).  Runtime-only: observes the live process / OS / filesystem and
+    never reads docs.
+    """
+    from backend.core.reality_view import assemble_live_reality_view
+
+    return assemble_live_reality_view()
+
+
 # ---------------------------------------------------------------------------
 # Bootstrap
 # ---------------------------------------------------------------------------

@@ -61,6 +61,60 @@ This rule was lost briefly between Round 2 and the planned next batch (one
 orchestrator-per-wave prompts were drafted by mistake). The pattern is
 documented here so future sessions generating prompts do not deviate.
 
+## Knowledge-Lifecycle & reconciliation
+
+SLOP is reliable where truth is **derived/reconciled against physical ground truth
+at use-time** (the line ratchet reads real LOC; the port linter reads `/proc/net/tcp`;
+the SLOP AI Agent reconciles live containers-vs-DB) and rots where truth is
+**stored-and-trusted** (CLAUDE.md facts, memory files, `MANAGER-HANDOFF.md`). The fix
+is **methodology — derive + reconcile + a freshness signal that can fail loudly — not
+a bigger memory store.** Full rationale: `docs/KNOWLEDGE-LIFECYCLE-AUDIT-REPORT.md`;
+durable decision: ADR 0020 (`docs/adr/0020-knowledge-lifecycle.md`).
+
+**The single discipline:** *a green light is only trustworthy if it can go red against
+physics.* A probe that cannot fail against ground truth is theater — do not build it.
+
+**Pinned reconciler-trust vocabulary (defined ONCE here; all probes/streams use it
+verbatim):**
+
+- **GROUND** — a probe that touches physics (a socket, the Docker socket, the
+  filesystem, `git rev-parse`, process env) and therefore MAY assert `verified`.
+- **XREF** — a text-vs-text comparison; may only flag `INCONSISTENT`, never assert
+  `verified`.
+- **INDETERMINATE** — ground truth was unreachable; emitted LOUDLY, never silently
+  downgraded to `OK`.
+- **UNPROBED** — no probe exists for this fact yet; counted by a ratchet that may
+  shrink, never grow; never blessed as `verified`.
+
+**Verdict tokens** every probe emits: `verified` (GROUND match) · `DRIFT` (GROUND
+mismatch) · `INCONSISTENT` (XREF mismatch) · `INDETERMINATE` (unreachable). **Only
+`DRIFT` on a load-bearing claim files to BACKLOG**; `INCONSISTENT`/low-confidence go to
+a lower-tier queue that does not count against BACKLOG triage discipline. Findings
+dedup (update, never re-file).
+
+**No silent pass.** A green light means "I touched reality and it matched" — never "I
+had nothing to check." A probe that can't reach ground truth emits `INDETERMINATE`,
+never `OK`. **Probes age (the fourth leg of the aging trilogy):** a probe that touched
+nothing this run is a candidate-dead probe → flagged; `UNPROBED` rows ratchet down,
+never up. **Apply `last_verified`/`verify_probe` frontmatter ONLY where a real probe
+exists** — a `last_verified` with no probe behind it is false assurance, defeated by
+date-bumping.
+
+**Two-owner firewall (HARD):** the SLOP AI Agent (`backend/core/agent.py`) is
+**runtime-only** — it emits a reality view of the running instance and never reads or
+adjudicates docs. All dev-time/process/doc knowledge is owned by a **separate dev-time
+reconciler** (`tools/audit_doc_reality.py` → `ms-enforce check_doc_reality`,
+warn-only) that derives + reconciles + files `[gap-discovery]` BACKLOG entries and
+**never accumulates** its own store. Doc-vs-host reconciliation rides the operator's
+**ambient SSH** at SessionStart (no tool stores a credential); host unreachable ⇒
+`INDETERMINATE`.
+
+**Promotion-to-blocking trigger:** all Knowledge-Lifecycle gates land **TIER_1
+warn-only**. A gate earns promotion to blocking only when BOTH hold: (a) clean signal
+across N consecutive runs (recommend N=5, no benign false `DRIFT`), AND (b) its
+`UNPROBED` ratchet is at/near zero for the class it governs. Promotion is a deliberate
+recorded act, never silent (Enforcement-Lifecycle wave's job).
+
 ## Frontend architecture rule — NO business logic in view files
 
 **View files (`frontend/src/views/*.vue`) must contain only:**
@@ -137,7 +191,7 @@ Stable architectural truths. Moved here from HANDOFF.md on 2026-05-24 (S2a split
   managed components, detects failures, and drives automated remediation.
   Module: `backend/core/agent.py`. Constants (AGENT_ROLE, AGENT_KEY, AGENT_TIER, AGENT_CATEGORY,
   AGENT_SUBJECT_TYPE) and the `get_all_apps(include_system=False)` tier-0 exclusion are
-  enforced by tests/test_rules_migration_batch1.py (S-55-B).
+  enforced by tests/test_rules_migration_batch1.py (S-55-B). <!-- verify: grep -q "^AGENT_KEY" backend/core/agent.py && echo OK -->
   API: `GET /api/v1/health/agent` + `agent_status` field in `/api/v1/health/summary`.
 - **User LLM catalog apps** (Ollama, llama.cpp, Open WebUI): what users install for their own AI use.
 
@@ -162,7 +216,7 @@ described an older layout and was false — verified on the Rocinante test serve
 `ms-update`/ownership/port bugs tracked in `docs/BACKLOG.md` §"From Rocinante deploy session".)
 
 **Catalog has two `CatalogEntry` definitions** — `loader.py` dataclass AND `catalog.py` Pydantic
-response model. Field sync is enforced by tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync (S-55-B).
+response model. Field sync is enforced by tests/test_rules_migration_batch1.py::TestCatalogEntryFieldSync (S-55-B). <!-- verify: grep -q "class CatalogEntry" backend/api/catalog.py && echo OK -->
 
 **Custom install flow (two steps)**:
 1. `POST /api/v1/apps/install-custom` → registers manifest in `catalog/community/` — returns `{key}`.
@@ -179,9 +233,9 @@ response model. Field sync is enforced by tests/test_rules_migration_batch1.py::
 - `${VAR}` syntax (not Python `{var}`) enforced by ms-enforce `check_catalog_env_var_syntax` (S-55-B).
 
 **_SLOP_MANAGED_VARS** — module-level frozenset in `backend/api/apps.py`. Canonical membership
-enforced by tests/test_rules_migration_batch1.py::TestSlopManagedVars (S-55-B).
+enforced by tests/test_rules_migration_batch1.py::TestSlopManagedVars (S-55-B). <!-- verify: grep -q "^_SLOP_MANAGED_VARS" backend/api/apps.py && echo OK -->
 
-**Quick Stacks** — `_DEFAULT_STACKS` in `backend/api/platform.py` is the single source of truth.
+**Quick Stacks** — `_DEFAULT_STACKS` in `backend/api/platform.py` is the single source of truth. <!-- verify: grep -q "^_DEFAULT_STACKS" backend/api/platform.py && echo OK -->
 Customisations stored in `settings` table keys `custom_stacks` and `hidden_stacks` as JSON.
 
 **Community manifest directory** — `catalog/community/` under install_dir. Owned by `mediastack`

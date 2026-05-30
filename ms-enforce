@@ -1664,6 +1664,130 @@ def check_merge_worktree_pattern() -> tuple[bool, str]:
     return True, "\n".join(parts)  # always True — warn-only
 
 
+# ── doc-vs-reality reconciliation (S-75-B) ─────────────────────────────────
+def check_doc_reality() -> tuple[bool, str]:
+    """Tier 1 (S-75-B): doc-vs-reality reconciler — warn-only.
+
+    THIN wrapper: imports tools/audit_doc_reality.py and calls its run() with the
+    host UNSET (no ambient SSH available inside ms-enforce), so every GROUND claim
+    surfaces as INDETERMINATE here — loud, never OK. The real ground reconciliation
+    happens at SessionStart via the operator's ambient SSH (Option A); see the
+    wiring note at the top of tools/audit_doc_reality.py.
+
+    Reconciles the documented deploy facts (CLAUDE.md + memory) against the PINNED
+    RealityView emitted by slop-reality-probe. Only DRIFT on a load-bearing claim
+    files to docs/BACKLOG.md (deduped); INCONSISTENT routes to .claude/run/
+    xref-findings/ (does NOT count against BACKLOG triage); INDETERMINATE on an
+    unreachable host is reported loudly and never written.
+
+    Always returns True (warn-only). PROMOTION-TO-BLOCKING TRIGGER: promote only
+    once (a) the host probe runs reliably for >=30 days with zero tooling-caused
+    INDETERMINATE AND (b) a deploy-fact DRIFT has been caught + fixed at least once
+    via this gate (proving it can go red against physics). Until both hold, warn-only.
+    """
+    tool = REPO / "tools" / "audit_doc_reality.py"
+    if not tool.exists():
+        return True, "tools/audit_doc_reality.py not present (skip)"
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("audit_doc_reality", tool)
+    if spec is None or spec.loader is None:
+        return True, "audit_doc_reality.py not importable (skip)"
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+        # host=None inside ms-enforce ⇒ INDETERMINATE (no ambient SSH here);
+        # write_findings=False so the gate is pure visibility, never mutates docs.
+        _ok, summary, _verdicts = mod.run(REPO, host=None, write_findings=False)
+    except Exception as exc:  # noqa: BLE001 — never let warn-only gate raise
+        return True, f"doc-vs-reality reconciler error (warn-only, skipped): {exc}"
+    return True, summary  # always True — warn-only
+# ── handoff SHA freshness (S-75-C) ────────────────────────────────────────
+
+
+def check_handoff_freshness() -> tuple[bool, str]:
+    """Tier 1 (S-75-C): handoff SHA freshness — warn-only.
+
+    Thin wrapper: delegates to tools/check_handoff_freshness.py.
+
+    Parses the SHA declared in docs/MANAGER-HANDOFF.md for origin/main and
+    compares it to the live ``git rev-parse origin/main`` output (GROUND-class).
+
+    Verdicts:
+      verified      — declared SHA is a prefix of live SHA [GROUND: git rev-parse]
+      DRIFT         — declared SHA does NOT match live SHA (loud warn)
+      INDETERMINATE — origin unreachable or SHA line absent/unparseable (loud warn)
+
+    Always returns True (warn-only TIER_1). Graduates to blocking when two
+    consecutive batches show DRIFT without a corresponding handoff update commit.
+    """
+    tool = REPO / "tools" / "check_handoff_freshness.py"
+    if not tool.exists():
+        return True, "check_handoff_freshness.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(tool)], timeout=20)
+    out = out.strip()
+    if "INDETERMINATE" in out:
+        return True, f"WARNING (INDETERMINATE): {out}"
+    if "DRIFT" in out:
+        return True, f"WARNING (DRIFT): {out}"
+    return True, out
+
+
+# ── fact-store freshness (S-75-D) ──────────────────────────────
+def check_fact_freshness() -> tuple[bool, str]:
+    """Tier 1 (S-75-D): fact-store freshness / verify-probe audit — warn-only.
+
+    Shells out to tools/audit_fact_freshness.py which:
+      - Parses memory-file YAML frontmatter for ``verify_probe`` entries and
+        runs each probe (GROUND); a failing probe → DRIFT (loud warn).
+      - Scans CLAUDE.md "Project facts" for ``<!-- verify: <cmd> -->``
+        annotations and runs each command (GROUND); failure → DRIFT.
+      - Counts facts with NO probe as UNPROBED.  UNPROBED facts are counted
+        by a shrink-only ratchet (``.factprobe-baseline.json``); a growing
+        UNPROBED count emits a WARNING.
+
+    Vocabulary: GROUND = touches physics (may say verified or DRIFT).
+    UNPROBED = counted, never silently blessed.
+    "A green light must be able to go red against physics."
+
+    Always returns True (warn-only TIER_1).  Promotion trigger: when DRIFT
+    findings become recurrent (facts that drift for >30d without remediation).
+    """
+    script = REPO / "tools" / "audit_fact_freshness.py"
+    if not script.exists():
+        return True, "audit_fact_freshness.py not present (skip)"
+
+    venv_py = REPO / ".venv" / "bin" / "python3"
+    py = str(venv_py) if venv_py.exists() else "python3"
+
+    _rc, out = _run([py, str(script), "--repo", str(REPO)], timeout=60)
+
+    drift_lines = [ln for ln in out.splitlines() if ln.startswith("DRIFT:")]
+    ratchet_warnings = [ln for ln in out.splitlines() if ln.startswith("WARNING:")]
+    verified_lines = [ln for ln in out.splitlines() if ln.startswith("VERIFIED:")]
+    unprobed_lines = [ln for ln in out.splitlines() if ln.startswith("UNPROBED:")]
+
+    parts: list[str] = []
+    if verified_lines:
+        parts.append(f"{len(verified_lines)} fact(s) verified (GROUND)")
+    if unprobed_lines:
+        parts.append(f"{len(unprobed_lines)} fact(s) UNPROBED (counted, not blessed)")
+    if drift_lines:
+        parts.append(f"WARNING — {len(drift_lines)} DRIFT finding(s):")
+        parts.extend(f"    {ln[:120]}" for ln in drift_lines[:5])
+        if len(drift_lines) > 5:
+            parts.append(f"    ... and {len(drift_lines) - 5} more")
+    for w in ratchet_warnings:
+        parts.append(f"WARNING — {w[:120]}")
+
+    if not parts:
+        return True, "fact-freshness: no findings"
+    return True, "\n".join(parts)  # always True — warn-only
+
+
 # ── Runner ────────────────────────────────────────────────────────────────
 
 TIER_0: list[tuple[str, object]] = [
@@ -1730,6 +1854,13 @@ TIER_1: list[tuple[str, object]] = [
     ("Memory staleness — dated entries >60d old (warn only)", check_memory_staleness),
     # ── Merge-worktree pattern (S-69-G) ───────────────────────────────────
     ("Merge-worktree pattern — dedicated worktrees for wave merges (warn only)", check_merge_worktree_pattern),
+    # ── doc-vs-reality reconciliation (S-75-B) ─────────────────────────────
+    ("Doc-vs-reality reconciliation (warn only)", check_doc_reality),
+    # ── handoff SHA freshness (S-75-C) ─────────────────────────────────────
+    ("Handoff SHA freshness (warn only)", check_handoff_freshness),
+    # ── fact-store freshness (S-75-D) ─────────────────────────
+    ("Fact-store freshness / verify-probe (warn only)", check_fact_freshness),
+    # ── end S-75-C ─────────────────────────────────────────────────────────
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),
