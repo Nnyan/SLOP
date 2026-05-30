@@ -1294,6 +1294,121 @@ def check_walkback_log() -> tuple[bool, str]:
     return True, summary  # warn-only: True means pass
 
 
+# ── BATCH-11 S11 (F10): two-session Manager-handoff-artifact contract ──────────
+#
+# Canonical artifact convention (CLAUDE.md § "Two-session Manager handoff";
+# .claude/ROBOT.md § "Two-session Manager→Manager handoff artifacts (§3.3)"):
+#   Artifact A — Manager-handoff prompt : .claude/waves/<BATCH>-MANAGER-HANDOFF-PROMPT.md
+#   Artifact B — working launch prompt  : .claude/waves/<NAME>-LAUNCH-PROMPT.md
+#   Back-reference token (carried by B, its own line):
+#       <!-- manager-handoff-prompt: <path-to-A> -->
+#
+# NOTE (BATCH-11 merge-time): this gate's existence check is implemented as a
+# direct filesystem check (S7's artifact-existence helper is not yet on the
+# wave/batch-11 base at S11 author-time).  When S7 merges, REFACTOR the
+# `_mh_artifact_exists` body to call S7's shared helper (e.g.
+# `cited_record_exists()` / `artifact_exists()`) so there is one
+# artifact-existence GROUND implementation.
+
+# Back-reference token regex: `<!-- manager-handoff-prompt: <path> -->`
+_MH_BACKREF_RE = re.compile(
+    r"<!--\s*manager-handoff-prompt:\s*(?P<path>\S+?)\s*-->"
+)
+_MH_WAVES_DIR = REPO / ".claude" / "waves"
+
+
+def _mh_artifact_exists(rel_or_abs: str) -> bool:
+    """GROUND leg: does the cited Manager-handoff-prompt artifact exist on disk?
+
+    Resolves the back-reference path relative to REPO (the repo root) when not
+    absolute.  Touches the filesystem — may assert verified/DRIFT.
+
+    BATCH-11 merge-time refactor target: replace this body with S7's shared
+    artifact-existence helper once S7 lands on the batch branch.
+    """
+    p = Path(rel_or_abs)
+    if not p.is_absolute():
+        p = REPO / rel_or_abs
+    return p.is_file()
+
+
+def check_manager_handoff_artifacts() -> tuple[bool, str]:
+    """Tier 1 (BATCH-11 S11, F10): two-session Manager-handoff-artifact contract.
+
+    A Manager→Manager handoff MUST emit BOTH artifact A (the Manager-handoff
+    prompt, canonical filename `<BATCH>-MANAGER-HANDOFF-PROMPT.md`) and artifact B
+    (any working `*-LAUNCH-PROMPT.md`), with B back-referencing A via a committed
+    token:  `<!-- manager-handoff-prompt: <path-to-A> -->`.  Emitting B in place
+    of A is malformed by construction.
+
+    GROUND on the filesystem (vocabulary: GROUND = touches physics — here, the
+    `.claude/waves/` directory and the cited artifact path; MAY assert verified or
+    DRIFT).  The newest handoff prompt is found by mtime; if it is a working
+    `*-LAUNCH-PROMPT.md` whose back-reference token resolves to NO existing
+    Manager-handoff-prompt file → DRIFT.  The token is the DISCRIMINATOR that
+    prevents false-positives on a deliberately-combined handoff (a B shipping
+    alongside a real A passes).  A `*-LAUNCH-PROMPT.md` carrying no token at all →
+    INCONSISTENT (XREF-class: a B that never declared its A), never a silent OK.
+
+    Always returns True (warn-only TIER_1).  Does NOT auto-promote to blocking.
+    """
+    if not _MH_WAVES_DIR.is_dir():
+        # No waves dir → ground truth unreachable for this fact.
+        return True, "INDETERMINATE: .claude/waves/ not present (no handoff artifacts to check)"
+
+    # Candidate handoff prompts = launch prompts + Manager-handoff prompts.
+    launch = sorted(_MH_WAVES_DIR.glob("*-LAUNCH-PROMPT.md"))
+    handoff = sorted(_MH_WAVES_DIR.glob("*-MANAGER-HANDOFF-PROMPT.md"))
+    candidates = launch + handoff
+    if not candidates:
+        return True, "INDETERMINATE: no handoff/launch prompts in .claude/waves/ (nothing to ground)"
+
+    # Newest by mtime — the live handoff state the next session would read.
+    newest = max(candidates, key=lambda p: p.stat().st_mtime)
+
+    # A Manager-handoff prompt as newest is well-formed by name (artifact A present).
+    if newest.name.endswith("-MANAGER-HANDOFF-PROMPT.md"):
+        return True, (
+            f"verified: newest handoff is a Manager-handoff prompt "
+            f"({newest.name}) — artifact A present"
+        )
+
+    # Newest is a working launch prompt (artifact B). Read its back-reference token.
+    try:
+        text = newest.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return True, f"INDETERMINATE: cannot read {newest.name} ({exc})"
+
+    m = _MH_BACKREF_RE.search(text)
+    if m is None:
+        # B that never declared its A — XREF-class inconsistency, not a silent pass.
+        return True, (
+            f"INCONSISTENT: newest handoff {newest.name} is a working launch prompt "
+            f"(artifact B) with NO back-reference token "
+            f"`<!-- manager-handoff-prompt: <path> -->` declaring its Manager-handoff "
+            f"prompt (artifact A). A launch prompt is not a substitute for a "
+            f"Manager-handoff prompt — see CLAUDE.md § \"Two-session Manager handoff\"."
+        )
+
+    cited = m.group("path")
+    if _mh_artifact_exists(cited):
+        return True, (
+            f"verified: newest handoff {newest.name} back-references an existing "
+            f"Manager-handoff prompt ({cited}) — paired A+B well-formed"
+        )
+
+    # DRIFT: the GROUND red-path — token resolves to no file on disk.
+    return True, (  # warn-only: True means pass, message carries the DRIFT
+        f"DRIFT: newest handoff {newest.name} is a working launch prompt (artifact B) "
+        f"whose back-reference token points at a Manager-handoff prompt that does NOT "
+        f"exist on disk: {cited}\n"
+        f"    A launch prompt emitted in place of a Manager-handoff prompt is malformed "
+        f"by construction. Emit `.claude/waves/<BATCH>-MANAGER-HANDOFF-PROMPT.md` "
+        f"(artifact A) and point the token at it. See CLAUDE.md § \"Two-session "
+        f"Manager handoff\"."
+    )
+
+
 def check_orchestrator_prompt_format() -> tuple[bool, str]:
     """Tier 1 (S-69-C): orchestrator prompt format audit — warn-only.
 
@@ -2174,6 +2289,8 @@ TIER_1: list[tuple[str, object]] = [
     ("Independent review — REVIEW-LOG artifact-existence (warn only)", check_independent_review),
     # ── provenance headers on auto-generated files (batch-11 S8, BACKLOG :53) ─
     ("Provenance headers — auto-generated file registry (warn only)", check_provenance),
+    # ── two-session Manager-handoff-artifact contract (BATCH-11 S11, F10) ──
+    ("Manager-handoff artifacts — two-session A+B contract (warn only)", check_manager_handoff_artifacts),
 ]
 TIER_2: list[tuple[str, object]] = [
     ("Pytest scratch cleanup (step 1.2)",          check_pytest_scratch_cleanup),

@@ -61,6 +61,44 @@ This rule was lost briefly between Round 2 and the planned next batch (one
 orchestrator-per-wave prompts were drafted by mistake). The pattern is
 documented here so future sessions generating prompts do not deviate.
 
+## Two-session Manager handoff — BOTH artifacts, with a back-reference
+
+A Manager→Manager (two-session) handoff is **stored-and-trusted** knowledge — the
+rot-prone class (Knowledge-Lifecycle keystone). To keep it GROUND-able instead of
+prose-only, a Manager handoff MUST emit **two on-disk artifacts**, and the gate
+discriminates them by a committed back-reference token (NOT by liveness or prose):
+
+- **Artifact A — the Manager-handoff prompt** (canonical filename
+  `.claude/waves/<BATCH>-MANAGER-HANDOFF-PROMPT.md`): the durable state-+-pointers
+  prompt the *next Manager session* reads first (derived-not-asserted state — SHA
+  paired with `git rev-parse origin/main`; pointers to MERGE-LOG / REVIEW-LOG /
+  `run/status/`; a step-0 VERIFY gate; the named closing-output as the payload).
+  This is the canonical handoff record.
+- **Artifact B — any working launch prompt** (`.claude/waves/<NAME>-LAUNCH-PROMPT.md`):
+  the operational paste-block that fires an orchestrator or a worker session. B is
+  *not* a substitute for A. **B MUST carry a back-reference token** pointing at its
+  Manager-handoff prompt, on its own line:
+
+  ```
+  <!-- manager-handoff-prompt: .claude/waves/<BATCH>-MANAGER-HANDOFF-PROMPT.md -->
+  ```
+
+**Emitting B in place of A is malformed by construction** — a launch prompt whose
+back-reference token resolves to NO existing Manager-handoff-prompt file is a
+dangling handoff (the prose-only F-class defect: state with no durable, named,
+GROUND-able record behind it). The token is the **discriminator**: a deliberately
+combined handoff that DOES ship A alongside B (B back-referencing a real A) is
+well-formed and passes.
+
+**Red-signal:** `ms-enforce check_manager_handoff_artifacts` (TIER_1 warn-only) —
+GROUND on the filesystem: it finds the newest handoff prompt; if that is a working
+`*-LAUNCH-PROMPT.md` whose back-reference token resolves to no existing
+Manager-handoff-prompt file → **DRIFT**. A `*-LAUNCH-PROMPT.md` carrying no token at
+all is INCONSISTENT (a B that never declared its A), not a silent pass. This is an
+addition/strengthening, not a walk-back (no WALK-BACK-LOG entry required). Reference:
+`.claude/ROBOT.md` § "Two-session Manager→Manager handoff artifacts (§3.3)" and
+`docs/COVERAGE-HANDOFF-AUDIT-REPORT.md` §3.1–§3.3.
+
 ## No phantom owners; no silently-trusted manual step
 
 Deferring work to "later, when someone does the related thing" is **not** assigning an
