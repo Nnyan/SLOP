@@ -46,6 +46,15 @@
       "brownout_tokens": ["INDETERMINATE"],
       "host_configured": false,
       "wrong_target": {"json_field": "bound_port", "wrong_values": [22], "note": "bound_port==22 (sshd, the lowest LISTEN socket) means the probe emitted a value for the WRONG target — a registry-trackable WRONG-PHYSICS defect, classified as a brownout, NOT a pass. Fixed in slop-reality-probe (_probe_bound_port targets 8080); tracked here so a regression ages red."}
+    },
+    {
+      "id": "session_winddown_hook_present",
+      "physics": "filesystem read of .claude/settings.json hooks config (is the Stop hook still wired?)",
+      "cmd": "python3 -c \"import json,os; p='.claude/settings.json'; print('verified' if os.path.exists(p) and json.load(open(p)).get('hooks',{}).get('Stop') else 'DRIFT')\"",
+      "ground_tokens": ["verified", "DRIFT"],
+      "brownout_tokens": ["INDETERMINATE"],
+      "host_configured": false,
+      "note": "S4 (P4, report 4f): the Stop hook is config text, not a boundary — register it so a removed/disarmed Stop hook ages RED (else it is the next F7). GROUND = filesystem read; settings.json missing OR no Stop hook -> DRIFT (a GROUND verdict, not a silent pass). Wired to tools/check_session_winddown.py (the ADVISORY wind-down aggregator)."
     }
   ]
 }
