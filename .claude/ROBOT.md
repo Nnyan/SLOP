@@ -198,13 +198,36 @@ timestamp: 2026-05-27T22:14:03Z
 "requires human judgment — do not merge wave branch until decided">
 ```
 
-## Status file format
+## Status file format (§3.5 — orchestrator↔Manager status protocol)
+_emitter-side protocol; the SHORT-filename + terminal-State legs are GROUND-enforced by the merge-time red-on-missing-status gate in `tools/merge_wave_to_main.py` (S5/P5)_
+
+**Canonical filename — PINNED:** `.claude/run/status/<S-NN>.md` using the **SHORT**
+wave key only (e.g. `S-75.md`, `BATCH-11.md` — NOT `S-75-KNOWLEDGE-LIFECYCLE.md`).
+It MUST match what `_extract_wave_key()` derives from the wave branch name. A
+longer/misnamed file is found only by the `_find_status_file` glob-fallback, which
+**WARNs on inexact match** (visible, never silently absorbed) — do not rely on it.
+
+**Mandatory first non-blank line — the State marker:**
+`**State:** RUNNING` where State ∈ `RUNNING | BLOCKED | NEEDS-INPUT | COMPLETE | CLOSED`.
+The Manager polls this line (`grep '^\*\*State:\*\*' .claude/run/status/*.md`).
+`RUNNING` (and the two non-terminal states `BLOCKED`/`NEEDS-INPUT`) are NOT mergeable;
+`COMPLETE`/`CLOSED` are the terminal states the merge gate accepts.
+
+**Terminal write — the last action before ending:** set `**State:** CLOSED` as the
+final edit before the session ends (CLOSED ⇒ fully wrapped, nothing left open).
+
+**Non-blocking questions channel:** on ambiguity, do NOT block and do NOT call
+`AskUserQuestion`. Proceed via `AUTONOMOUS-DEFAULTS.md` and append the question +
+the default taken + the authorizing rule to `.claude/run/questions/<S-NN>.md`. This
+resolves the zero-prompt-Robot tension — the orchestrator never freezes on a choice.
 
 ```markdown
+**State:** COMPLETE
 # S-46-PIN-RELAX status
 **Started:** 2026-05-27T22:01:12Z  **Last updated:** 2026-05-27T23:47:55Z
 **Wave branch:** wave/S-46-pin-relax
 **Coordinator model:** opus | **Subagent model:** sonnet
+**Questions channel:** .claude/run/questions/S-46.md (none raised) | **Blockers:** .claude/run/blockers/ (none)
 
 ## Streams
 - A (deps policy) — DISPATCHED 22:03 → MERGED 22:41 (commit a1b2c3d)
@@ -226,6 +249,53 @@ timestamp: 2026-05-27T22:14:03Z
 ## Final state
 COMPLETE. wave/S-46-pin-relax ready for morning review + merge to main.
 ```
+
+**Manager poll-loop** (`/loop` or scheduled wakeup, ~5 min — runs finish in minutes):
+`grep '^\*\*State:\*\*' .claude/run/status/*.md` + `ls .claude/run/blockers/ .claude/run/questions/`;
+terminate when all waves show a terminal State (`COMPLETE`/`CLOSED`) with no open blocker;
+escalate on `BLOCKED`/`NEEDS-INPUT`; flag a `RUNNING` older than threshold as possibly-hung.
+
+## Prompt & menu doctrine (§3.6 — formalized from memory `feedback-prompt-and-menu-formatting`)
+_ADVISORY — no physics red-signal. This is a Communication/taste rule; there is no GROUND probe for formatting, so it is honestly NOT gate-enforced (do not market it as enforced). It rides author honesty + Manager review._
+
+When a turn hands the user a copy-paste prompt and/or asks them to decide something:
+
+- **WHEN to surface a prompt — the prompt is LAST.** Surface a prompt only when
+  *every decision it depends on is already resolved*. If any choice is open, ASK
+  FIRST (a labeled menu), get the answer, then surface the prompt in a *later* turn —
+  never in the same turn as an open decision. (The user has fired a session off a
+  prompt before seeing the options below it; that must never happen.) No actionable
+  text after the prompt except a short closing waiting line.
+- **Pre-prompt sections — labeled, not buried.** Put pre-prompt content under clear
+  headers (`Things to consider:`, `For your review:`, `Decisions needed:`).
+- **Menus not paragraphs.** Present options as a numbered/lettered list — never a
+  run-on paragraph. **ALWAYS label each option** with a number or letter so the user
+  can select by it (`do 1`, `option B`).
+- **Concise recommendation, no whys.** State the recommended option briefly; drop the
+  long rationale (expand only if asked). If more than one option is right, SAY SO.
+- **Single-sentence vs full prompt.** Full prompts are saved to
+  `.claude/waves/<WAVE-ID>.md` with a one-line pointer in chat
+  (`SLOP repo /home/stack/code/slop — read .claude/waves/<WAVE-ID>.md and execute every deliverable exactly as specified.`);
+  inline prompts only for trivial one-offs.
+- **Block format.** When the prompt IS surfaced (all decisions resolved):
+
+  ```
+  Prompt for <AGENT> to do <GOAL> starts here:
+
+  =======================================
+  prompt line
+  prompt line
+  =======================================
+
+  <short waiting / next-step message>
+  ```
+
+  Header line `Prompt for <AGENT> to do <GOAL> starts here:`, then the `====` divider
+  before and after; format the prompt text in readable lines (no run-on block, no
+  tables/charts inside the prompt).
+
+This applies heavily to the Manager role (it surfaces batch-launch prompts constantly —
+see "### Post-wave operator handoff").
 
 ## Blocker file format
 
@@ -421,9 +491,14 @@ git worktree remove .claude/worktrees/merge-S-NN
    batch-8+; for S-73 itself the High-tier rigor is run manually (the
    tooling is what this wave builds).
    _enforced at startup by pre-flight harness (Stream E, S-73); outcome visible in `.claude/run/preflight/`_
-5. Create `.claude/run/status/<wave>.md` with start-time. **Use a Bash heredoc,
-   not the Write tool, for any new file** (see "File creation pattern" below).
+5. Create `.claude/run/status/<S-NN>.md` (the **SHORT** wave key — see "## Status
+   file format §3.5") with the start-time AND a mandatory first non-blank line
+   `**State:** RUNNING`. **Use a Bash heredoc, not the Write tool, for any new
+   file** (see "File creation pattern" below). On ambiguity, never block — append
+   to `.claude/run/questions/<S-NN>.md` (§3.5 questions channel). Set
+   `**State:** CLOSED` as the final edit before exit.
    → enforced by `check_status_file_freshness` (warn-only TIER_1 in ms-enforce, S-69-E)
+   → SHORT path + terminal State GROUND-enforced at merge by the red-on-missing-status gate in `tools/merge_wave_to_main.py` (S5/P5)
 6. Dispatch the streams concurrently as Agent subagent calls (single message,
    multiple Agent tool uses). Each subagent gets `model:` per the wave's
    Parallelization section, plus the **subagent preamble** (see below) injected
@@ -495,7 +570,8 @@ satisfy this; the harness tracks Read-tool calls, not filesystem state.
 **Use Bash heredocs for new file creation:**
 ```bash
 cat > .claude/run/status/S-NN.md <<'EOF'
-# Wave status content goes here
+**State:** RUNNING
+# Wave status content goes here (§3.5 — State marker MUST be the first non-blank line)
 ...
 EOF
 ```
