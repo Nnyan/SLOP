@@ -121,6 +121,27 @@ enforcement = the combined Coverage+Handoff audit's single-entity-hardcode targe
 batch-landing review.]` (This is honestly stamped PENDING so it is not mistaken for green — per the
 keystone, a checklist with no red-signal is yellow.)
 
+## Independent review for significant changes
+
+The third face of meta-pattern #11 (reconcile against an independent reference at write-time): the toolkit (Reuse checkpoint), the entity set (Blast radius), and — here — an **independent mind**. A significant change gets one independent review BEFORE it lands. Designed so it can never loop or freeze.
+
+**Trigger — two honest tiers:**
+- **Mechanical floor** (gate-detectable, ungameable-without-a-trace): a commit that touches `CLAUDE.md` / `.claude/ROBOT.md` / `.claude/AUTONOMOUS-DEFAULTS.md`, adds a file under `tools/sanctioned/`, adds a `def check_` to `ms-enforce`, or invokes an irreversible-git sanctioned tool (filter-branch / force-push / secret-scrub). The floor **statically excludes `docs/REVIEW-LOG.md` and `check_independent_review` itself** — so a review (whose only output is a REVIEW-LOG entry) can never trigger a review (acyclicity in code, not prose; changing the exclusion requires a WALK-BACK-LOG entry).
+- **Declared** (advisory, audit-caught, NOT gate-enforced): plural-set blast-radius, a High-complexity wave *design*. The gate cannot detect these; they rely on author honesty + the standing audits. Do not market them as enforced.
+
+**Reviewer by tier (cost gradient):**
+- Doctrine edit/addition → a self-administered **four-question rationale** (the walk-back four questions, extended to additions: what need, why this mechanism, its failure mode, its red-signal). Cheap; the 80%.
+- New enforcement mechanism (gate / sanctioned tool) → an author-prompted **fresh Opus adversarial subagent** (derive-independently-then-attack), advisory only.
+- Irreversible git → a **full separate session** with a fixed, doctrine-pinned charge the author cannot rewrite (subagent independence is partly fictional when the author writes the charge).
+
+**Termination (depth = 1, enforced):** a review's only output is a REVIEW-LOG entry + advisory findings — never a vote/veto. The author **reconciles findings against physics and records the reconciliation** (accept/reject per finding + why); the reviewer is XREF-class (flags, never asserts "verified"). No review-of-the-review; synthesis errors are caught at audit-time, not by infinite pre-review.
+
+**Elasticity (wider/tighter, loop-free):** widen freely in the advisory layer (more read-only review is safe); the floor always fires. **Tighten the floor only via a reviewed doctrine change** (which trips WALK-BACK-LOG) — never a casual recorded note, because under-review is the dangerous direction. There is no narrow-below-floor channel.
+
+**Escape valve (no freeze):** for genuine urgency, proceed-and-owe — but the owed review is a **BACKLOG entry under `check_backlog_stale`** (it ages red), not a free log line, so "always urgent → never reviewed" self-polices.
+
+**Mechanism + red-signal (honest):** `docs/REVIEW-LOG.md` — one entry per significant change: reviewer, charge, key findings, and the author's per-finding reconciliation; it cites a **durable, committed** review record (NOT a `/tmp` transcript — that is itself the phantom-pointer rot). `check_independent_review` (batch-11) reuses the `check_walkback_log` shape (numstat floor-path + message token) PLUS an **artifact-existence GROUND leg** (cited record missing ⇒ DRIFT). `[red-signal: PARTIAL]` — GROUND on *fabrication*, UNPROBED on *substance* (substance rides the audit + Manager batch-landing review). **Hard stop: never auto-promote to blocking on the clean-run timer until the GROUND leg lands** — a string-presence check that goes clean would otherwise mislead a promoter into blessing theater.
+
 ## Knowledge-Lifecycle & reconciliation
 
 SLOP is reliable where truth is **derived/reconciled against physical ground truth

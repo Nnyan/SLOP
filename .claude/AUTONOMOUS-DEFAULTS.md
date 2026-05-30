@@ -629,6 +629,24 @@ loudly rather than going silently unwatched.
 
 ---
 
+## Category: independent review for significant changes
+
+See CLAUDE.md § "Independent review for significant changes" for the rule.
+
+### A change trips the mechanical floor
+**Default:** When a change trips the mechanical floor (touches a doctrine file —
+`CLAUDE.md` / `.claude/ROBOT.md` / `.claude/AUTONOMOUS-DEFAULTS.md`; adds a `tools/sanctioned/`
+file; adds a `def check_`; or invokes an irreversible-git sanctioned tool), obtain the
+tier-appropriate review BEFORE landing: a **four-question self-rationale** for a doctrine
+edit/addition (what need, why this mechanism, its failure mode, its red-signal); a **fresh Opus
+adversarial subagent** for a new gate/tool; a **fixed-charge separate session** for irreversible
+git. Record it in `docs/REVIEW-LOG.md` with the per-finding reconciliation (accept/reject + why),
+citing a durable, committed review record.
+**Escalate when:** the change is genuinely urgent — proceed-and-owe, but file the owed review as a
+BACKLOG entry (so `check_backlog_stale` ages it red), never as a free log line.
+
+---
+
 ## How to add an entry
 
 When a Robot run produces a decision file marked "not covered by defaults",
