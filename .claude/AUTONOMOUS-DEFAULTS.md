@@ -539,6 +539,51 @@ with parseable dates, never entries with vague recency language.
 
 ---
 
+## Category: knowledge-lifecycle / gap-discovery ritual
+
+See CLAUDE.md § "Knowledge-Lifecycle & reconciliation" and ADR 0020
+(`docs/adr/0020-knowledge-lifecycle.md`) for the pinned vocabulary
+(GROUND / XREF / INDETERMINATE / UNPROBED) and the discipline: *a green light is only
+trustworthy if it can go red against physics.*
+
+### Gap-discovery ritual cadence (session-relative, NOT a silent wall-clock cron)
+**Default:** The doc-vs-reality reconciler runs **session-relative**, piggybacked on
+the **SessionStart** boundary hook — NOT a silent wall-clock cron. At session start,
+the dev-time reconciler (`tools/audit_doc_reality.py` → `ms-enforce check_doc_reality`,
+warn-only) reconciles the SLOP AI Agent's runtime reality view + a host-side probe
+(reached via the operator's **ambient SSH** at `ssh <host> slop-reality-probe` — no
+tool stores a credential) against the documented claims. GROUND-confirmed,
+load-bearing `DRIFT` is filed to `docs/BACKLOG.md` as a `[gap-discovery]` entry;
+everything else (`INCONSISTENT`/XREF/low-confidence) goes to a lower-tier queue that
+does NOT count against BACKLOG triage discipline. Findings dedup — update an existing
+entry, never re-file. Host unreachable ⇒ the probe emits `INDETERMINATE` (loud), never
+`OK`. The operator is in the **decision (triage)** path only — never the **detection**
+path; the human provides SSH auth, not detection.
+**Escalate when:** the host probe emits `DRIFT` on a claim that is load-bearing for a
+deploy/runbook step (surface it for the current session, don't just queue it), OR the
+`[gap-discovery]` queue floods (the flood→ignore-forever loophole that
+`check_backlog_stale` exists to fight) — then surface the queue volume during the next
+batch-planning conversation rather than letting it silently grow.
+
+### A `[gap-discovery]` BACKLOG entry needs triage
+**Default:** Treat `[gap-discovery]` entries under the same BACKLOG triage discipline
+as any other open item — they must resolve to `[→ S-NN-stream]`, `[park: re-eval
+<DATE>]` (with a measurable trigger + backstop date + owner), `[x]`, or `[—]`. They are
+drained by a dedicated **cleanup wave** (the S-57/S-58/S-66/S-67 pattern), NOT
+one-at-a-time, and NOT by a focused wave (the no-fix-all-failures rule applies to
+focused waves only). A `[gap-discovery]` entry carries its own GROUND evidence line
+(e.g. "probed 10.0.1.51:8080 → 200") — trust that evidence; if the evidence line is
+absent or the verdict is `INCONSISTENT`/`INDETERMINATE` (not GROUND `DRIFT`), it does
+NOT belong in BACKLOG and should be moved to the lower-tier queue.
+**Escalate when:** a `[gap-discovery]` entry sits bare `[ ]` past the 14-day staleness
+window (it becomes a triage failure, same as any stale `[ ]` — see the BACKLOG entry
+above), OR a single entry's GROUND `DRIFT` contradicts a fact that other docs/runbooks
+still assert (a stored-fact rot that needs a coordinated fix, not a point patch).
+→ governed by ADR 0020 (warn-only `check_doc_reality`, S-75); shares BACKLOG triage
+enforcement with `check_backlog_stale` (S-69-A)
+
+---
+
 ## How to add an entry
 
 When a Robot run produces a decision file marked "not covered by defaults",
