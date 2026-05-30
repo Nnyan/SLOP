@@ -49,6 +49,24 @@ checks, unverified merges).
 
 ---
 
+## 2026-05-30 — docs/wave-draft-knowledge-lifecycle
+
+- **Method:** tools/merge_wave_to_main.py
+- **Operator/Caller:** stack
+- **Pre-merge main HEAD:** `3ec8b5246cc6d77572e7d57d4ea24e5f90d0e82c`
+- **Branches merged (in order):**
+  1. `docs/wave-draft-knowledge-lifecycle` → merge commit `fe3d32e12f327409385094931dea252e1ccce926`
+- **Post-merge main HEAD:** `fe3d32e12f327409385094931dea252e1ccce926`
+- **Pushed to origin:** yes — `fe3d32e` (pushed via lift-push-restore by Manager session post-merge)
+- **Pre-flight checks run:**
+  - working-tree: CLEAN
+  - branch-exists:docs/wave-draft-knowledge-lifecycle: OK
+  - status:docs/wave-draft-knowledge-lifecycle: no status file (skipped — draft branch)
+  - diff:docs/wave-draft-knowledge-lifecycle: OK (6 diff-stat lines)
+  - ms-enforce:docs/wave-draft-knowledge-lifecycle: PASS (branch-isolated)
+- **Notes:** batch-10 wave-file draft. `S-75-KNOWLEDGE-LIFECYCLE.md` + `docs/KNOWLEDGE-LIFECYCLE-AUDIT-REPORT.md` + launch prompt, produced by a fresh Opus Auditor-Manager (5-lens read-only fan-out: reality-drift/transition-seam/temporal-decay/unmeasured-dimension/detection-ownership + phase-2 blind-spot critic). Dogfooded green (wave_complexity=High score 36, validate-wave-file OK, preflight=DISPATCH-OK). Manager review confirmed: two-owner firewall holds (SLOP AI Agent emits a runtime-only RealityView; a SEPARATE dev-time reconciler `check_doc_reality` owns docs); the keystone GROUND-vs-XREF discipline pinned (only physics-touching probes may say "verified"; unreachable⇒INDETERMINATE; probes-age = 4th aging leg); host probe rides operator ambient SSH (no stored secret); all new gates warn-only. HARD-sequences after S-74 (batch-9→batch-10); launch prompt gates on S-74 being on main. Draft branch deleted post-merge.
+
+
 ## 2026-05-30 — docs/wave-draft-deploy-hardening
 
 - **Method:** tools/merge_wave_to_main.py
@@ -56,15 +74,15 @@ checks, unverified merges).
 - **Pre-merge main HEAD:** `6ab2f5c23a43595c01db04a02875631679eb3dd7`
 - **Branches merged (in order):**
   1. `docs/wave-draft-deploy-hardening` → merge commit `b19958d1d09fe171f1c43a44a7d4850f9e6fd6d2`
-- **Post-merge main HEAD:** `b19958d1d09fe171f1c43a44a7d4850f9e6fd6d2`
-- **Pushed to origin:** no (push is operator-only)
+- **Post-merge main HEAD:** `b19958d1d09fe171f1c43a44a7d4850f9e6fd6d2` (+ rider amend `6a1a315`, log `3ec8b52`; both pushed in `fe3d32e`)
+- **Pushed to origin:** yes — in `fe3d32e` (Manager session, post-merge)
 - **Pre-flight checks run:**
   - working-tree: CLEAN
   - branch-exists:docs/wave-draft-deploy-hardening: OK
-  - status:docs/wave-draft-deploy-hardening: no status file (skipped)
+  - status:docs/wave-draft-deploy-hardening: no status file (skipped — draft branch)
   - diff:docs/wave-draft-deploy-hardening: OK (3 diff-stat lines)
-  - ms-enforce:docs/wave-draft-deploy-hardening: ────────────────────────────────────────────────────────────
-- **Notes:** merged docs/wave-draft-deploy-hardening → b19958d1d09fe171f1c43a44a7d4850f9e6fd6d2
+  - ms-enforce:docs/wave-draft-deploy-hardening: PASS (branch-isolated)
+- **Notes:** batch-9 wave-file draft. `S-74-DEPLOY-HARDENING.md` (4 streams: A opus ms-update rewrite + shared `deploy_lib.sh` / B sonnet deploy.sh align / C opus config-mechanism decision / D sonnet docs+runbook) authored by a fresh session from the Rocinante forensics. Manager review: covers audit riders 2 (surface fetch errors) + 3 (`.env`-vs-systemd config decision, Stream C); **added rider 1 (post-update SHA-verify, fail-loud) to Stream A** (`6a1a315`) — still dogfoods High + validate OK. Draft branch deleted post-merge.
 
 
 ## 2026-05-29 — wave/S-71-test-data-hygiene
