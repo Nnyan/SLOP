@@ -172,7 +172,14 @@ def main() -> int:
             "(re-prompt). This does NOT block ending the session and does NOT "
             "force the owed push/write -- the session owner must act."
         )
-        return 1
+        # Exit 0, NOT 1: this is a purely ADVISORY Stop hook (its own banner says
+        # "does NOT block"). The Claude Code Stop-hook contract treats exit 2 as a
+        # hard block (stderr fed back to Claude) and any OTHER non-zero (incl. 1) as
+        # a non-blocking *error* shown to the user — which, with this tool's
+        # stdout-only report + empty stderr, surfaces every turn as
+        # "Stop hook error: Failed with non-blocking status code: No stderr output".
+        # An advisory hook must exit 0; the attention text on stdout is the re-prompt.
+        return 0
     print("ADVISORY: all wind-down legs clean. (Still advisory -- not a hard boundary.)")
     return 0
 
