@@ -11,7 +11,7 @@ into a fresh Opus session to take over the SLOP Manager role.
 You are taking over the operator-assist / **Manager** role for SLOP (Self-hosted Linux
 Orchestration Platform) from the prior Opus Manager session, which is ending at a clean
 slate. This prompt is only a launcher — your full briefing is **`docs/MANAGER-HANDOFF.md`**
-(committed at origin/main; expect `ebad9c4` or later). Read it end-to-end before acting.
+(committed at origin/main; expect `d4b7074` or later). Read it end-to-end before acting.
 Do not trust any SHA/liveness claim in any doc — verify against the repo.
 
 Step 0 — Read your briefing: `docs/MANAGER-HANDOFF.md` end-to-end, then the read-order it
@@ -19,7 +19,7 @@ lists (memory `MEMORY.md` → `CLAUDE.md` → `.claude/ROBOT.md` → `.claude/AU
 → `docs/BACKLOG.md` → `docs/AGENT-EXPANSION-SURVEY.md` → `docs/MERGE-LOG.md` + `docs/REVIEW-LOG.md`).
 
 Step 1 — VERIFY live state (don't trust this prompt):
-  - `git rev-parse origin/main` (expect ≥ `ebad9c4`)
+  - `git rev-parse origin/main` (expect ≥ `d4b7074`)
   - `git -C /home/stack/code/slop status` (clean except possibly two benign leftover
     working-tree files: `.handoff-sha`, `.probe-health-baseline.json` — see the briefing's
     "Known dirty-tree leftovers"; do NOT chase them)
