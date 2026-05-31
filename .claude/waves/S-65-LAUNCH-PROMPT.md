@@ -35,10 +35,12 @@ First read, in order:
      guardrails the streams must honor).
 
 Startup:
-  1. Confirm base: `git rev-parse origin/main` (expect b9501ae or later). Confirm
-     the reused primitives exist at base (scrub.py, router/dispatch.py + registry.py,
-     autofix.py/apply.py/backoff.py, reality_view.py, integrity.py) — the fact-check
-     leg. Branch the wave off this live SHA.
+  1. Confirm base: `git rev-parse origin/main` (expect b5419dd or later). Confirm
+     the reused primitives exist at the CURRENT SHA (scrub.py, router/dispatch.py +
+     registry.py, autofix.py/apply.py/backoff.py, reality_view.py, integrity.py) —
+     the fact-check leg (do not trust the draft-time landing claim). Also grep
+     integrity.py for any docs/.md read (R9 firewall leg). Branch the wave off this
+     live SHA.
   2. High-tier pre-flight: run
      `python3 tools/wave_complexity.py .claude/waves/S-65-AGENT-SPINE.md` (expect
      High, score 11) then the matching rigor (validate-wave-file + fact-check
@@ -72,16 +74,25 @@ Run shape (the hard sequence matters — see wave spec § "Cross-wave dependenci
 
 Per-stream models (from the wave spec): S1 opus · S2 opus · S3 opus · S4 sonnet.
 
-Invariants every stream must hold (wave spec "Rules to follow"):
+Invariants every stream must hold (wave spec "Rules to follow"; HARDENED by the
+pre-fire review R1–R8 — see docs/REVIEW-LOG.md):
   - Two-owner firewall: NO spine module reads docs/process — derive intent from
     physics + the manifest only. No doctrine edit, no ms-enforce gate.
-  - Fail-closed egress: any cloud-bound payload is scrubbed FIRST; if scrub can't
-    run/verify, the call is NOT made.
-  - LLM is XREF/advisory: may only flag INCONSISTENT, never upgrade DRIFT→verified,
-    never decide remediation.
-  - Remediation advisory-only: the gate returns `advisory-only` Decisions; wires NO
-    action.
-  - Never-raises at the run_health_cycle boundary.
+  - DENY-BY-DEFAULT egress (R1/R2/R3): cloud-bound payloads are a STRUCTURED,
+    allowlisted finding shape (not a free-form blob); the allowlist is the gate,
+    scrub() is defense-in-depth (it leaks hostnames/emails/JWTs/raw-hex/`/data`
+    paths — do NOT rely on it). Fail-closed = provable cleanliness (send only if an
+    independent allowlist verifier passes; else INDETERMINATE, do not send). The
+    decision sits BELOW chain selection (per-attempt provider); unknown provider ⇒
+    treated as cloud. Compose with — do not remove — the existing checker.py:~405
+    chokepoint. Red-path test MUST feed scrub's known misses.
+  - LLM is XREF/advisory — STRUCTURAL (R8): Finding.verdict is frozen; interpret()
+    returns annotations that cannot carry a verdict; a "verified" reply cannot flip
+    a DRIFT. interpret() runs far less often than the ~30s cycle (cost guard).
+  - Remediation advisory-only — STRUCTURAL (R6/R7): spine_remediate imports ONLY the
+    taxonomy map as data; MUST NOT import apply_safe_fix/select_auto_applicable/
+    executors/subprocess; a structural import-absence test enforces it.
+  - No payload in logs/exceptions (R5). Never-raises at the run_health_cycle boundary.
 
 Maintain `.claude/run/status/S-65.md` continuously; set `**State:** CLOSED` as your
 final action. Do not call AskUserQuestion — apply .claude/AUTONOMOUS-DEFAULTS.md and

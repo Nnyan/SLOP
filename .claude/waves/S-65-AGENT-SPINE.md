@@ -24,7 +24,8 @@ env-provenance, LLM connectivity, per-app checks, opt-in safe-autofix) but **~0%
 adding probe packs, the **seams must exist and be reusable** — otherwise every later
 stratum re-invents the egress boundary, the review call, and the gate.
 
-**Reuse — VERIFIED LANDED on main `b9501ae` at draft time (survey §0 instruction):**
+**Reuse — confirm at CURRENT `origin/main` (expect `b5419dd` or later) as a fact-check
+leg at dispatch, NOT a settled truth (survey §0 instruction; R10). Landed as of this draft:**
 - **Sanitizer** = `backend/agent/scrub.py` `scrub(text, *, profile="cloud")` (142 L,
   S-61) → `<IP>`/`<PATH>`/`<APP>`/`<USER>`/`<SECRET>`; `profile="local"` passes through;
   pure/idempotent/None-safe.
@@ -56,10 +57,20 @@ NO doctrine edit and NO `ms-enforce` gate — it is product code under `backend/
   INDETERMINATE / UNPROBED; verdicts `verified` / `DRIFT` / `INCONSISTENT` / `INDETERMINATE`.
   The reconciler emits GROUND verdicts; the LLM review is **XREF — may only flag
   `INCONSISTENT`, never assert `verified`** and never decides remediation.
-- **Fail-closed egress (the load-bearing safety property).** Any payload leaving the host
-  to a cloud provider passes the sanitizer FIRST; if the sanitizer cannot run / verify, the
-  call is **NOT made** (fail closed, not fail open). On-host/local providers
-  (`profile="local"`) need no scrub but still route through the same seam.
+- **Deny-by-default egress (the load-bearing safety property — REVIEW R1/R2/R3).** The
+  primary control is an **allowlist, not a scrubber**: a cloud-bound payload is a
+  STRUCTURED, allowlisted finding shape (verdict enum + a fixed-vocabulary `summary` +
+  numeric/boolean fields) — NEVER a free-form blob containing logs/paths/hostnames. `scrub()`
+  is **defense-in-depth on top of the allowlist, not the gate** (verified: `scrub()` passes
+  hostnames, emails, JWTs, raw-hex tokens, `/data`+`/mnt` paths, and IPs-jammed-in-words
+  through unchanged — it is best-effort regex). **Fail closed = provable cleanliness:** send
+  only if an INDEPENDENT verifier (the allowlist) confirms the payload carries only allowed
+  keys; otherwise emit a recorded `INDETERMINATE` and do NOT send. (Do not rely on "did scrub
+  raise?" — `scrub()` is pure regex on str and cannot raise; the real risk is silent
+  under-redaction.) On-host/local providers (`profile="local"`) still route through the SAME
+  seam. The egress decision keys off the **per-attempt provider the dispatcher actually
+  uses** (below chain selection), and an **unknown/unclassified provider is treated as cloud**
+  (deny-by-default), never as local.
 - **LLM is advisory, never authoritative** (survey §4): the GROUND verdict + deterministic
   rule decide; the LLM only *explains*. Never "ask the model whether to apply."
 - **Remediation is advisory-only this wave:** the gate returns a structured `advisory-only`
@@ -127,56 +138,97 @@ cross-wave-disjointness + edited-wave consistency). Confirm with
    shape; a GROUND red-path (inject a DB-vs-reality mismatch → assert `DRIFT`); an
    unreachable-source case → assert `INDETERMINATE` (not OK).
 
-### Stream S2 — Fail-closed sanitizer boundary + LIVE red-path test (egress trust boundary)
+### Stream S2 — Deny-by-default egress boundary + LIVE red-path test (egress trust boundary)
 1. **The egress seam** (in `spine.py` per S1's PINNED contract, or a `spine_egress.py` S1
-   exposes — coordinate via the contract): a single function every outbound-to-cloud payload
-   passes through. Cloud route → `scrub(payload, profile="cloud")` FIRST; **fail closed** —
-   if scrub raises or a post-scrub verification finds a residual `<IP>`/`<PATH>`/`<SECRET>`-
-   class literal, the call is NOT made (return a recorded INDETERMINATE, do not send).
-   On-host route (`profile="local"`) → no scrub needed but SAME seam.
-2. **LIVE red-path test** (`tests/test_spine_egress_redpath.py`, the survey §4 "scrub-as-a-
-   live-probe"): feed a payload containing a real IP + abs path + bearer token through the
-   actual egress seam and assert the emitted payload has ZERO un-redacted tokens; AND a
-   fail-closed test (monkeypatch `scrub` to raise → assert NO outbound call is made).
-3. Align the cloud-vs-local decision to the **routing set** the dispatcher uses, not a
-   stale copy (BACKLOG `:130` lesson: egress must scrub if `provider in cloud_providers`).
+   exposes — coordinate via the contract): the SINGLE function every outbound payload passes
+   through. **Deny-by-default (R1):** it accepts only a STRUCTURED allowlisted finding shape
+   (verdict enum + fixed-vocabulary `summary` + numeric/bool fields) and serializes ONLY those
+   allowed keys — it does NOT forward free-form `detail`/log/path/hostname text to a cloud
+   provider. Apply `scrub(profile="cloud")` as defense-in-depth on the allowlisted text.
+   **Fail closed = provable cleanliness (R2):** send only if an independent allowlist verifier
+   confirms the serialized payload contains only allowed keys/vocabulary; on any
+   disallowed-content detection OR verifier failure → return a recorded `INDETERMINATE`, do
+   NOT send. On-host route (`profile="local"`) → SAME seam, no scrub needed.
+2. **Boundary BELOW chain selection (R3):** the existing chokepoint
+   `backend/health/checker.py:~405` already scrubs per-provider inside `_dispatch_llm_call`;
+   S2 **composes with, does NOT remove** it. The egress decision must key off the *per-attempt*
+   provider identity (inside `route_and_dispatch`'s chain loop), so a local-first chain that
+   FALLS BACK to a cloud provider still hits the allowlist+scrub. A test asserts the `:405`
+   chokepoint is not removed AND that a fallback-to-cloud path still sanitizes.
+3. **Provider deny-by-default (R4):** an unknown/unclassified provider (not in
+   `_CLOUD_PROVIDERS`) is treated as CLOUD (allowlist+scrub) or refused (INDETERMINATE) —
+   never silently local. Align the decision to the routing set the dispatcher uses, not a stale
+   copy (BACKLOG `:130` lesson).
+4. **No copy-leak (R5):** the egress seam logs ONLY provider name + redaction/allowlist stats
+   (counts), NEVER raw or scrubbed payload content; no spine module passes a payload into a
+   `log.*` call or an exception constructor; every prompt-construction site routes through this
+   one seam. A test asserts no payload reaches a log/exception.
+5. **LIVE red-path test** (`tests/test_spine_egress_redpath.py`, survey §4 "scrub-as-a-live-
+   probe") — MUST include scrub's KNOWN MISSES (R1), not just its strengths: feed a payload
+   carrying a hostname (`nas-prod-01`), an email, a JWT, a raw 40-hex token, a `/data`+`/mnt`
+   path, AND an IP-jammed-in-a-word, plus the easy IP/abs-path/bearer cases, through the actual
+   egress seam; assert the emitted payload contains ONLY allowlisted keys (the allowlist, not
+   the scrubber, is what makes this pass). Plus a fail-closed test (verifier reports
+   disallowed content → assert NO outbound call is made).
 
 ### Stream S3 — ms-router advisory-review call (interpret seam) — sequential after S2
 1. **`backend/agent/spine_review.py`** implementing `interpret(findings)`: serialize the
-   GROUND findings to a prompt, send through the **S2 egress boundary** then
+   GROUND findings via the **allowlisted shape** to the **S2 egress boundary** then
    `route_and_dispatch(... max_tier=...)` (on-host/local-first; cloud only if the user
-   opted in), parse the reply as **advisory XREF** — it may annotate a finding or flag
-   `INCONSISTENT`, it may NEVER upgrade a `DRIFT`→`verified` or decide remediation.
-2. **Opt-in + default-most-private** (locked decision): review runs only if the user enabled
+   opted in), parse the reply as **advisory XREF**.
+2. **LLM-can-never-be-authority — structural (R8):** S1's `Finding.verdict` is **set-once /
+   frozen**; `interpret()` returns advisory **annotations** that STRUCTURALLY cannot carry a
+   verdict (a separate `Annotation` type, never a `Finding.verdict` write). A model reply
+   saying `"verified"` for a `DRIFT` finding cannot flip it — by type, not by parser
+   discipline. The LLM may only attach a note or raise `INCONSISTENT`; it NEVER decides
+   remediation.
+3. **Opt-in + default-most-private** (locked decision): review runs only if the user enabled
    LLM review; default to the most-private available tier (deterministic critic → on-host
    LLM → cloud). No key / disabled → skip cleanly (findings pass through un-annotated).
-3. **Tests** (`tests/test_spine_review.py`): the LLM reply can only annotate / flag
-   `INCONSISTENT` (assert a malicious "verified" reply cannot flip a `DRIFT`); the egress
-   boundary is on the call path (assert scrub ran before dispatch for a cloud provider);
-   opt-out path skips cleanly.
+4. **Cadence (R-residual):** `interpret()` must run **far less often than the ~30s GROUND
+   cycle** (cost-runaway guard) — gate it to a longer interval or to changed-findings-only;
+   document the cadence decision. The GROUND `reconcile()` runs every cycle; the cloud review
+   does NOT.
+5. **Tests** (`tests/test_spine_review.py`): assert a malicious `"verified"` reply CANNOT flip
+   a `DRIFT` (the frozen-verdict structural guarantee); the egress boundary is on the call path
+   (assert allowlist+scrub ran before dispatch for a cloud provider); opt-out path skips
+   cleanly; the interpret cadence is below the cycle cadence.
 
 ### Stream S4 — Advisory-only remediation gate (remediate seam) — parallel after S1
 1. **`backend/agent/spine_remediate.py`** implementing `remediate(findings) -> [Decision]`:
-   for each `DRIFT` finding, consult the deterministic mapping (reuse `apply.SAFE_FIX_TYPES`
-   / `autofix.select_auto_applicable` SHAPE) to compute *what action it WOULD propose*, then
-   return a structured **`advisory-only` Decision** (`finding_id`, `would_propose`,
-   `why_not_acting="advisory-only spine; no auto-remediation wired in S-65"`). **Wires NO
-   action** — invokes no `apply`, no `autofix`.
-2. The gate is the seam future waves flip to gated-acting; document the single extension
-   point (where a future wave would add the human-gate + backoff + verify, reusing S-60/64).
-3. **Tests** (`tests/test_spine_remediate.py`): every `DRIFT` yields exactly one
-   `advisory-only` Decision; assert NO `apply`/`autofix` side-effect is invoked (the
-   advisory-only invariant — the second surface the owed independent review targets).
+   for each `DRIFT` finding, consult a deterministic mapping to compute *what action it WOULD
+   propose*, then return a structured **`advisory-only` Decision** (`finding_id`,
+   `would_propose`, `why_not_acting="advisory-only spine; no auto-remediation wired in S-65"`).
+2. **Advisory-only is STRUCTURAL, not a flag (R6/R7).** Reuse ONLY the **taxonomy map as pure
+   data** (`SAFE_FIX_TYPES` / the diagnosis→fix-type table imported as data). This module MUST
+   NOT import or reference `apply_safe_fix`, `select_auto_applicable`, any container/executor
+   helper, `StateDB` write paths, or `subprocess` — verified: `apply.py` holds a real mutating
+   executor (docker restart/pull + DB writes) and `autofix.select_auto_applicable` reads the
+   DB, so importing them puts an action one call away. The advisory-only guarantee is enforced
+   by the ABSENCE of those symbols in this module's namespace.
+3. The gate is the seam future waves flip to gated-acting; document the single extension point
+   (where a future wave would add the human-gate + backoff + verify, reusing S-60/64).
+4. **Tests** (`tests/test_spine_remediate.py`): every `DRIFT` yields exactly one
+   `advisory-only` Decision; AND a **structural import-absence assertion** (AST-scan or
+   `module.__dict__` introspection) that NO executor/mutator symbol (`apply_safe_fix`,
+   `select_auto_applicable`, `subprocess`, executor helpers) is reachable from
+   `spine_remediate` — this fails on ANY future executor reference, known or not (replaces the
+   rot-prone mock-absence check). This is the second surface the owed independent review targets.
 
 ## Verification
 - Full backend suite passes; new tests pass; `ms-enforce` exits 0 on each stream branch and
   on the merged wave branch.
 - S1: the self-audit reconciler emits GROUND `Finding`s on a real cycle; the DB-vs-reality
   red-path asserts `DRIFT`; an unreachable source asserts `INDETERMINATE`.
-- S2: the LIVE red-path test proves zero token escape AND fail-closed-on-scrub-failure (no
-  outbound call).
-- S3: the LLM reply cannot flip a `DRIFT`→`verified`; egress scrub is on the cloud call path.
-- S4: every `DRIFT` → exactly one `advisory-only` Decision; NO remediation side-effect.
+- S2: the LIVE red-path test proves zero token escape **including scrub's known misses**
+  (hostname/email/JWT/raw-hex/`/data` path/IP-in-word) — the allowlist makes it pass — AND
+  fail-closed-on-disallowed-content (no outbound call); the `:405` chokepoint is not removed;
+  an unknown provider is treated as cloud.
+- S3: the LLM reply **structurally** cannot flip a `DRIFT`→`verified` (frozen verdict); the
+  allowlist+scrub egress boundary is on the cloud call path; `interpret()` runs below the cycle
+  cadence.
+- S4: every `DRIFT` → exactly one `advisory-only` Decision; a **structural import-absence
+  test** proves no executor/mutator symbol is reachable (advisory-only by construction).
 - Two-owner firewall intact: no spine module reads docs/process; no doctrine edit; no
   `ms-enforce` gate added.
 - File-size ratchet green (no new `backend/agent/**` file over 500).
@@ -209,9 +261,13 @@ cross-wave-disjointness + edited-wave consistency). Confirm with
 ## Robot mode (autonomous execution)
 ONE Opus orchestrator (`.claude/ROBOT.md` § "Architecture — ONE orchestrator per batch").
 1. Startup: read ROBOT.md + AUTONOMOUS-DEFAULTS + this file; confirm base
-   `git rev-parse origin/main` (expect `b9501ae` or later); High-tier pre-flight →
-   `.claude/run/preflight/S-65.md` (BLOCK on FALSE). Create `.claude/run/status/S-65.md`
-   (Bash heredoc) with `**State:** RUNNING` as the first non-blank line.
+   `git rev-parse origin/main` (expect `b5419dd` or later) AND fact-check the reused
+   primitives exist at that CURRENT SHA (R10 — do not trust the draft-time landing claim).
+   Include the R9 firewall fact-check: grep `backend/agent/integrity.py` for any
+   `docs/`/`.md`/`CLAUDE.md` read — if present, exclude that leg from the GROUND reconciler or
+   reclassify it XREF. High-tier pre-flight → `.claude/run/preflight/S-65.md` (BLOCK on FALSE).
+   Create `.claude/run/status/S-65.md` (Bash heredoc) with `**State:** RUNNING` as the first
+   non-blank line.
 2. **Phase 1 — dispatch ONLY S1** (`isolation:"worktree"`, opus) on `wave/S-65-S1-spine`.
    When it returns, create the wave branch `wave/S-65-agent-spine` and merge S1 into it via a
    dedicated merge worktree detached from origin/main (ONE time, to create the wave branch).
