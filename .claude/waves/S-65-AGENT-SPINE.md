@@ -244,7 +244,7 @@ cross-wave-disjointness + edited-wave consistency). Confirm with
 - Frontend surfacing of self-audit findings (a later UI pass).
 
 ## Cross-wave dependencies (EXPLICIT)
-- **Depends on landed primitives (main `b9501ae`):** `scrub.py` (S-61), `router/dispatch.py`
+- **Depends on landed primitives (confirm at current `origin/main`, `b5419dd` or later — R10):** `scrub.py` (S-61), `router/dispatch.py`
   + `registry.py` (S-62/63), `autofix.py`/`apply.py`/`backoff.py` (S-60/64),
   `reality_view.py`, `integrity.py`. Confirm each at base before dispatch (the orchestrator's
   fact-check leg).
