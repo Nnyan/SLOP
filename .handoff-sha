@@ -1,9 +1,5 @@
-bf16d164044471d57942372bc532534657a21b43
-# origin/main SHA the current docs/MANAGER-HANDOFF.md was last refreshed against.
-# Stamped manually during the batch-11 landing sweep (2026-05-30) to the post-merge
-# main HEAD (the merge tool's Phase-5 auto-stamp did not fire on the batch-11 merge
-# itself — Python ran the pre-merge tool copy that predates S5; it self-activates on
-# the next merge). Read by tools/check_handoff_freshness.py: between this stamp and
-# the push, origin/main trails this SHA so the gate reads DRIFT (the push/refresh
-# nudge); after `git push origin main` lands the sweep commit, refresh this to the
-# pushed HEAD on the next handoff.
+ebad9c4dbbe9aa8c8f3e4cf09e6c11b7e25b2c89
+# origin/main SHA docs/MANAGER-HANDOFF.md was last refreshed against (2026-05-30
+# clean-slate handoff). check_handoff_freshness reads this vs git rev-parse origin/main;
+# it legitimately reads DRIFT for one commit after this lands (a file cannot hold its own
+# commit's SHA) — the designed refresh nudge. merge_wave_to_main.py auto-stamps at the next merge.
